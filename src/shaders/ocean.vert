@@ -3,13 +3,12 @@
 in vec3 a_position;
 in vec2 a_texcoord;
 
-uniform mat4 u_projection;
-uniform mat4 u_view;
 uniform float u_time;
 uniform float u_aspectRatio;
+uniform vec2 u_resolution;
 
 out vec2 v_uv;
-out vec3 v_worldPos;
+out vec2 v_screenPos;
 out float v_time;
 
 void main() {
@@ -17,13 +16,9 @@ void main() {
   v_uv = a_texcoord;
   v_time = u_time;
 
-  // Calculate world position for the fragment shader
-  v_worldPos = a_position;
+  // Calculate screen position for ocean coordinates
+  v_screenPos = a_position.xy;
 
-  // For top-down view, we primarily work in screen space
-  // The vertex shader just positions the plane to cover the screen
-  vec4 position = vec4(a_position, 1.0);
-
-  // Apply view and projection matrices
-  gl_Position = u_projection * u_view * position;
+  // Direct positioning - no matrices needed for full screen quad
+  gl_Position = vec4(a_position.xy, 0.0, 1.0);
 }
