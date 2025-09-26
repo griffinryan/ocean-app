@@ -188,10 +188,10 @@ void main() {
     // Generate foam
     float foam = generateFoam(oceanPos, v_time, velocity, primaryHeight + totalRipples);
 
-    // Color based on ripple height and foam
-    vec3 baseColor = vec3(0.1, 0.3, 0.6); // Base water color
-    vec3 rippleColor = vec3(0.2, 0.5, 0.8); // Lighter for ripple peaks
-    vec3 foamColor = vec3(0.9, 0.95, 1.0); // White foam
+    // Physically-based saltwater colors
+    vec3 baseColor = vec3(0.011, 0.058, 0.118); // Deep ocean blue
+    vec3 rippleColor = vec3(0.039, 0.176, 0.282); // Surface scattering blue
+    vec3 foamColor = vec3(0.98, 0.98, 1.0); // Pure white foam
 
     // Mix colors based on ripple height
     vec3 finalColor = mix(baseColor, rippleColor, smoothstep(-0.01, 0.01, totalRipples));

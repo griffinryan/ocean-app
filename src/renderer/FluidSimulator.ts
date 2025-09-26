@@ -20,10 +20,8 @@ export class FluidSimulator {
 
   // Shader programs
   private advectionProgram: ShaderProgram | null = null;
-  private diffusionProgram: ShaderProgram | null = null;
-  private divergenceProgram: ShaderProgram | null = null;
-  private pressureProgram: ShaderProgram | null = null;
-  private projectionProgram: ShaderProgram | null = null;
+  // Additional shader programs for future implementation:
+  // private diffusionProgram, divergenceProgram, pressureProgram, projectionProgram
 
   // Textures for ping-pong rendering
   private velocityTextures: WebGLTexture[] = [];
@@ -110,10 +108,10 @@ export class FluidSimulator {
   async initializeShaders(
     vertexSource: string,
     advectionFragSource: string,
-    diffusionFragSource: string,
-    divergenceFragSource: string,
-    pressureFragSource: string,
-    projectionFragSource: string
+    _diffusionFragSource: string,
+    _divergenceFragSource: string,
+    _pressureFragSource: string,
+    _projectionFragSource: string
   ): Promise<void> {
     // Advection shader
     this.advectionProgram = this.shaderManager.createProgram(
@@ -124,41 +122,8 @@ export class FluidSimulator {
       ['a_position', 'a_texcoord']
     );
 
-    // Diffusion shader
-    this.diffusionProgram = this.shaderManager.createProgram(
-      'diffusion',
-      vertexSource,
-      diffusionFragSource,
-      ['u_sourceTexture', 'u_viscosity', 'u_deltaTime', 'u_texelSize'],
-      ['a_position', 'a_texcoord']
-    );
-
-    // Divergence shader
-    this.divergenceProgram = this.shaderManager.createProgram(
-      'divergence',
-      vertexSource,
-      divergenceFragSource,
-      ['u_velocityTexture', 'u_texelSize'],
-      ['a_position', 'a_texcoord']
-    );
-
-    // Pressure shader
-    this.pressureProgram = this.shaderManager.createProgram(
-      'pressure',
-      vertexSource,
-      pressureFragSource,
-      ['u_divergenceTexture', 'u_pressureTexture', 'u_texelSize'],
-      ['a_position', 'a_texcoord']
-    );
-
-    // Projection shader
-    this.projectionProgram = this.shaderManager.createProgram(
-      'projection',
-      vertexSource,
-      projectionFragSource,
-      ['u_velocityTexture', 'u_pressureTexture', 'u_texelSize'],
-      ['a_position', 'a_texcoord']
-    );
+    // Additional shaders for full fluid simulation - to be implemented
+    // Diffusion, divergence, pressure, and projection shaders would go here
 
     // Set up vertex attributes
     const posLocation = this.advectionProgram.attributeLocations.get('a_position')!;
@@ -377,7 +342,7 @@ export class FluidSimulator {
   /**
    * Add force to velocity field
    */
-  addForce(position: [number, number], force: [number, number], radius: number): void {
+  addForce(_position: [number, number], _force: [number, number], _radius: number): void {
     // This would be implemented with a separate shader or direct texture manipulation
     // For now, we'll implement this later when needed
   }

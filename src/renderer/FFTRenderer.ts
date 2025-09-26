@@ -4,7 +4,6 @@
 
 import { ShaderManager, ShaderProgram } from './ShaderManager';
 import { BufferManager, GeometryBuilder } from './Geometry';
-import { FFTUtilities, Complex } from '../utils/fft';
 
 export interface WaveParameters {
   windSpeed: number;
@@ -22,7 +21,6 @@ export class FFTRenderer {
 
   // Shader programs
   private spectrumProgram: ShaderProgram | null = null;
-  private fftProgram: ShaderProgram | null = null;
 
   // Textures for ping-pong rendering
   private spectrumTextures: WebGLTexture[] = [];
@@ -121,7 +119,7 @@ export class FFTRenderer {
   async initializeShaders(
     fftVertexSource: string,
     spectrumFragmentSource: string,
-    fftFragmentSource: string
+    _fftFragmentSource: string
   ): Promise<void> {
     // Wave spectrum generation shader
     this.spectrumProgram = this.shaderManager.createProgram(
@@ -140,19 +138,8 @@ export class FFTRenderer {
       ['a_position', 'a_texcoord']
     );
 
-    // FFT computation shader
-    this.fftProgram = this.shaderManager.createProgram(
-      'fft',
-      fftVertexSource,
-      fftFragmentSource,
-      [
-        'u_inputTexture',
-        'u_stage',
-        'u_direction',
-        'u_size'
-      ],
-      ['a_position', 'a_texcoord']
-    );
+    // FFT computation shader - to be implemented
+    // this._fftProgram = this.shaderManager.createProgram(...);
 
     // Set up vertex attributes
     const posLocation = this.spectrumProgram.attributeLocations.get('a_position')!;
@@ -279,7 +266,7 @@ export class FFTRenderer {
   /**
    * Extract height field from FFT result
    */
-  private extractHeightField(fftResult: WebGLTexture): void {
+  private extractHeightField(_fftResult: WebGLTexture): void {
     const gl = this.gl;
 
     // For now, we'll use the real component of the FFT result as height

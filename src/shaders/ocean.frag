@@ -12,11 +12,11 @@ uniform int u_debugMode;
 
 out vec4 fragColor;
 
-// Ocean color palette
-const vec3 DEEP_WATER = vec3(0.05, 0.15, 0.4);
-const vec3 SHALLOW_WATER = vec3(0.1, 0.4, 0.7);
-const vec3 FOAM_COLOR = vec3(0.9, 0.95, 1.0);
-const vec3 WAVE_CREST = vec3(0.3, 0.6, 0.9);
+// Physically-based saltwater ocean color palette
+const vec3 DEEP_WATER = vec3(0.004, 0.016, 0.047);      // Very deep water - minimal blue penetration
+const vec3 SHALLOW_WATER = vec3(0.039, 0.176, 0.282);   // Shallow areas - blue-green transition
+const vec3 WAVE_CREST = vec3(0.085, 0.239, 0.392);      // Wave peaks - surface scattering
+const vec3 FOAM_COLOR = vec3(0.98, 0.98, 1.0);          // Pure white foam - only for breaking crests
 
 // Hash function for procedural noise
 float hash21(vec2 p) {
@@ -135,12 +135,18 @@ void main() {
     // Base ocean color based on height
     vec3 baseColor = mix(DEEP_WATER, SHALLOW_WATER, smoothstep(-0.3, 0.3, height));
 
-    // Add wave crests with stronger contrast
-    float crestAmount = smoothstep(0.12, 0.28, height);
-    baseColor = mix(baseColor, WAVE_CREST, crestAmount);
+    // Add wave crests with improved detection
+    float crestAmount = smoothstep(0.15, 0.32, height);
+    baseColor = mix(baseColor, WAVE_CREST, crestAmount * 0.6);
 
-    // Add foam at highest peaks
-    float foamAmount = smoothstep(0.18, 0.35, height);
+    // Enhanced foam detection - only at very steep, breaking crests
+    float steepness = length(vec2(
+        getOceanHeight(oceanPos + vec2(0.05, 0.0), v_time) - getOceanHeight(oceanPos - vec2(0.05, 0.0), v_time),
+        getOceanHeight(oceanPos + vec2(0.0, 0.05), v_time) - getOceanHeight(oceanPos - vec2(0.0, 0.05), v_time)
+    ));
+
+    // Only show white foam at very steep breaking crests
+    float foamAmount = smoothstep(0.6, 1.0, steepness) * smoothstep(0.25, 0.45, height);
     baseColor = mix(baseColor, FOAM_COLOR, foamAmount);
 
     // Enhanced top-down lighting with multiple light sources

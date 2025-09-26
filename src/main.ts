@@ -9,7 +9,7 @@ import vertexShader from './shaders/ocean.vert';
 import fragmentShader from './shaders/ocean.frag';
 
 class OceanApp {
-  private renderer: OceanRenderer | null = null;
+  public renderer: OceanRenderer | null = null;
 
   async init(): Promise<void> {
     try {

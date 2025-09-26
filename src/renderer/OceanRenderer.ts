@@ -4,7 +4,7 @@
 
 import { ShaderManager, ShaderProgram } from './ShaderManager';
 import { GeometryBuilder, BufferManager, GeometryData } from './Geometry';
-import { Mat4, Vec3 } from '../utils/math';
+import { Mat4 } from '../utils/math';
 
 export interface RenderConfig {
   canvas: HTMLCanvasElement;
@@ -30,7 +30,7 @@ export class OceanRenderer {
   private animationFrameId: number | null = null;
 
   // Resize observer for responsive canvas
-  private resizeObserver: ResizeObserver;
+  private resizeObserver!: ResizeObserver;
 
   // Performance tracking
   private frameCount: number = 0;

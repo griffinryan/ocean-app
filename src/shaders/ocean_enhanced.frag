@@ -30,13 +30,20 @@ uniform float u_foam_coverage;
 
 out vec4 fragColor;
 
-// Enhanced ocean color palette
-const vec3 DEEP_OCEAN = vec3(0.02, 0.10, 0.3);
-const vec3 SHALLOW_WATER = vec3(0.08, 0.35, 0.65);
-const vec3 SURF_WATER = vec3(0.15, 0.55, 0.85);
-const vec3 FOAM_COLOR = vec3(0.95, 0.98, 1.0);
-const vec3 FOAM_SHADOW = vec3(0.7, 0.85, 0.95);
-const vec3 CAUSTIC_COLOR = vec3(0.4, 0.8, 1.0);
+// Physically-based saltwater ocean color palette based on absorption/scattering research
+const vec3 DEEP_OCEAN = vec3(0.004, 0.016, 0.047);      // Very deep water - minimal blue penetration
+const vec3 MID_DEPTH_OCEAN = vec3(0.011, 0.058, 0.118); // Mid-depth - rich ocean blue
+const vec3 SHALLOW_OCEAN = vec3(0.039, 0.176, 0.282);   // Shallow areas - blue-green transition
+const vec3 SURFACE_SCATTER = vec3(0.085, 0.239, 0.392); // Surface scattering - lighter blue
+const vec3 FOAM_NASCENT = vec3(0.98, 0.98, 1.0);        // Fresh breaking foam - pure white
+const vec3 FOAM_MATURE = vec3(0.89, 0.94, 0.97);        // Mature foam - slightly gray
+const vec3 FOAM_DECAY = vec3(0.76, 0.86, 0.91);         // Decaying foam - more gray
+const vec3 CAUSTIC_COLOR = vec3(0.15, 0.4, 0.75);       // Underwater caustics - blue bias
+
+// Absorption coefficients for RGB wavelengths (per meter)
+const vec3 WATER_ABSORPTION = vec3(0.45, 0.08, 0.015);  // Red absorbed most, blue least
+// Scattering coefficients for molecular (Rayleigh) scattering
+const vec3 RAYLEIGH_SCATTER = vec3(0.0025, 0.0117, 0.0394); // Blue scatters most
 
 // Improved noise functions
 float hash21(vec2 p) {
@@ -132,33 +139,104 @@ vec3 calculateNormal(vec2 pos, float time) {
     return finalNormal;
 }
 
-// Advanced foam calculation
-float calculateFoam(vec2 pos, float time, float waveHeight, vec2 velocity) {
+// Calculate wave Jacobian determinant for breaking detection
+float calculateWaveJacobian(vec2 pos, float time) {
+    float eps = 0.01;
+
+    // Sample height at four points to calculate partial derivatives
+    float h_x1 = getOceanHeight(pos + vec2(eps, 0.0), time);
+    float h_x2 = getOceanHeight(pos - vec2(eps, 0.0), time);
+    float h_y1 = getOceanHeight(pos + vec2(0.0, eps), time);
+    float h_y2 = getOceanHeight(pos - vec2(0.0, eps), time);
+
+    // Calculate partial derivatives
+    float dh_dx = (h_x1 - h_x2) / (2.0 * eps);
+    float dh_dy = (h_y1 - h_y2) / (2.0 * eps);
+
+    // Jacobian determinant for 2D displacement field
+    // For wave breaking detection, we look for where Jacobian < 0
+    float J = 1.0 - (dh_dx * dh_dx + dh_dy * dh_dy);
+
+    return J;
+}
+
+// Enhanced wave steepness calculation
+float calculateWaveSteepness(vec2 pos, float time) {
+    float eps = 0.05;
+
+    // Calculate gradient magnitude
+    float h_center = getOceanHeight(pos, time);
+    float h_right = getOceanHeight(pos + vec2(eps, 0.0), time);
+    float h_up = getOceanHeight(pos + vec2(0.0, eps), time);
+
+    vec2 gradient = vec2(h_right - h_center, h_up - h_center) / eps;
+    float steepness = length(gradient);
+
+    // Also check local curvature for sharp crests
+    float h_left = getOceanHeight(pos - vec2(eps, 0.0), time);
+    float h_down = getOceanHeight(pos - vec2(0.0, eps), time);
+
+    float curvatureX = (h_right - 2.0 * h_center + h_left) / (eps * eps);
+    float curvatureY = (h_up - 2.0 * h_center + h_down) / (eps * eps);
+    float curvature = abs(curvatureX) + abs(curvatureY);
+
+    return steepness + curvature * 0.1;
+}
+
+// Multi-stage foam calculation with physics-based breaking
+vec4 calculateFoam(vec2 pos, float time, float waveHeight, vec2 velocity) {
     // Sample pre-computed foam texture
     float baseFoam = texture(u_foamTexture, v_uv).r;
 
-    // Dynamic foam based on wave conditions
+    // Calculate wave breaking indicators
+    float jacobian = calculateWaveJacobian(pos, time);
+    float steepness = calculateWaveSteepness(pos, time);
+
+    // Breaking occurs when Jacobian becomes negative (wave folding)
+    float breakingIntensity = smoothstep(0.1, -0.2, jacobian);
+
+    // Steepness-based breaking (Stokes limiting steepness ≈ 0.44)
+    float steepnessBreaking = smoothstep(0.3, 0.6, steepness);
+
+    // Velocity-based breaking (whitecaps start at ~5 m/s)
     float speed = length(velocity);
-    float foamFromVelocity = smoothstep(0.15, 0.4, speed);
-    float foamFromHeight = smoothstep(0.3, 0.6, waveHeight + 0.5);
+    float velocityBreaking = smoothstep(0.12, 0.35, speed);
+
+    // Wind speed effect on foam coverage
+    float windEffect = clamp(length(u_windDirection) * u_windSpeed / 10.0, 0.0, 1.0);
+
+    // Height-based foam for wave crests
+    float crestFoam = smoothstep(0.4, 0.7, waveHeight + 0.5);
+
+    // Active breaking foam (stage A - bright white)
+    float activeFoam = max(breakingIntensity, steepnessBreaking) * velocityBreaking;
+    activeFoam = mix(activeFoam, activeFoam * crestFoam, 0.5);
+
+    // Residual foam (stage B - fading white)
+    vec2 residualPos = pos + normalize(u_windDirection) * time * 1.5;
+    float residualNoise = fbm(residualPos * 12.0, 4);
+    float residualFoam = smoothstep(0.7, 0.9, residualNoise) * baseFoam * 0.6;
 
     // Foam streaks along wind direction
     vec2 windNorm = normalize(u_windDirection);
     vec2 streakPos = pos + windNorm * time * 2.0;
     float foamStreaks = fbm(streakPos * 8.0, 3);
-    foamStreaks = smoothstep(0.7, 0.9, foamStreaks) * 0.3;
+    foamStreaks = smoothstep(0.75, 0.95, foamStreaks) * windEffect * 0.4;
 
-    // Breaking wave foam (based on wave steepness)
-    float steepness = length(vec2(
-        getOceanHeight(pos + vec2(0.1, 0.0), time) - getOceanHeight(pos - vec2(0.1, 0.0), time),
-        getOceanHeight(pos + vec2(0.0, 0.1), time) - getOceanHeight(pos - vec2(0.0, 0.1), time)
-    ));
-    float breakingFoam = smoothstep(0.8, 1.2, steepness) * 0.5;
+    // Combine foam types with different characteristics
+    float totalActiveFoam = clamp(activeFoam + crestFoam * 0.3, 0.0, 1.0);
+    float totalResidualFoam = clamp(residualFoam + foamStreaks, 0.0, 1.0);
+    float totalBaseFoam = clamp(baseFoam * 0.2, 0.0, 1.0);
 
-    // Combine all foam sources
-    float totalFoam = clamp(baseFoam + foamFromVelocity + foamFromHeight + foamStreaks + breakingFoam, 0.0, 1.0);
+    // Apply foam coverage parameter
+    totalActiveFoam *= u_foam_coverage;
+    totalResidualFoam *= u_foam_coverage * 0.7;
+    totalBaseFoam *= u_foam_coverage * 0.4;
 
-    return totalFoam * u_foam_coverage;
+    // Return foam stages: x=active, y=residual, z=base, w=combined
+    float combinedFoam = max(totalActiveFoam, max(totalResidualFoam, totalBaseFoam));
+
+    return vec4(totalActiveFoam, totalResidualFoam, totalBaseFoam, combinedFoam);
 }
 
 // Enhanced caustics calculation
@@ -185,19 +263,69 @@ float calculateCaustics(vec2 pos, float time, vec3 normal) {
     return totalCaustics;
 }
 
-// Depth-based color calculation
-vec3 calculateDepthColor(float depth, float waveHeight) {
-    // Simulate water depth effects
-    float normalizedDepth = clamp(depth / 50.0, 0.0, 1.0);
+// Calculate light attenuation using Beer-Lambert law
+vec3 calculateLightAttenuation(float depth) {
+    // Beer-Lambert law: I = I0 * exp(-absorption_coefficient * distance)
+    return exp(-WATER_ABSORPTION * max(depth, 0.1));
+}
 
-    // Color transition based on depth
-    vec3 depthColor = mix(SHALLOW_WATER, DEEP_OCEAN, normalizedDepth);
+// Calculate Rayleigh scattering contribution
+vec3 calculateRayleighScattering(float depth, vec3 lightDir, vec3 viewDir) {
+    float scatterPhase = 1.0 + 0.75 * pow(dot(lightDir, viewDir), 2.0);
+    vec3 scatterAmount = RAYLEIGH_SCATTER * scatterPhase;
 
-    // Wave height affects perceived depth
-    float waveInfluence = waveHeight * 0.5 + 0.5;
-    depthColor = mix(depthColor, SURF_WATER, (1.0 - normalizedDepth) * waveInfluence);
+    // Scattering decreases with depth
+    float depthFactor = exp(-depth * 0.05);
+    return scatterAmount * depthFactor;
+}
 
-    return depthColor;
+// Physically-based depth color calculation
+vec3 calculateDepthColor(float depth, float waveHeight, vec3 lightDir, vec3 viewDir) {
+    // Base color starts as pure water color (deep blue)
+    vec3 baseWaterColor = DEEP_OCEAN;
+
+    // Calculate light attenuation
+    vec3 attenuation = calculateLightAttenuation(depth);
+
+    // Apply Beer-Lambert law to modify color
+    vec3 attenuatedColor = baseWaterColor * attenuation;
+
+    // Add Rayleigh scattering for blue coloration
+    vec3 scattering = calculateRayleighScattering(depth, lightDir, viewDir);
+
+    // Blend based on depth - deeper water shows more absorption effects
+    float depthBlend = 1.0 - exp(-depth * 0.02);
+    vec3 finalColor = mix(SURFACE_SCATTER, attenuatedColor, depthBlend);
+
+    // Add scattering contribution
+    finalColor += scattering * 0.3;
+
+    // Wave height affects surface reflection and perceived depth
+    float surfaceEffect = exp(-depth * 0.1) * (waveHeight * 0.5 + 0.5);
+    finalColor = mix(finalColor, SHALLOW_OCEAN, surfaceEffect * 0.2);
+
+    return finalColor;
+}
+
+// Calculate Fresnel reflection coefficient
+float calculateFresnel(vec3 viewDir, vec3 normal, float ior) {
+    // Schlick's approximation for Fresnel reflectance
+    float f0 = pow((1.0 - ior) / (1.0 + ior), 2.0);
+    float cosTheta = max(0.0, dot(viewDir, normal));
+    return f0 + (1.0 - f0) * pow(1.0 - cosTheta, 5.0);
+}
+
+// Approximate subsurface scattering
+vec3 calculateSubsurfaceScattering(vec3 lightDir, vec3 viewDir, vec3 normal, float depth) {
+    // Simple subsurface scattering approximation
+    vec3 scatterDir = lightDir + normal * 0.3;
+    float scatterDot = pow(clamp(dot(viewDir, -scatterDir), 0.0, 1.0), 4.0);
+
+    // Scattering is stronger in shallow water and decreases with depth
+    float depthFactor = exp(-depth * 0.1);
+    vec3 scatterColor = SHALLOW_OCEAN * 0.5;
+
+    return scatterColor * scatterDot * depthFactor;
 }
 
 // Quantize color for stylized look
@@ -237,24 +365,34 @@ void main() {
     // Calculate surface normal
     vec3 normal = calculateNormal(oceanPos, v_time);
 
-    // Calculate base ocean color based on depth
-    vec3 baseColor = calculateDepthColor(u_oceanDepth, waveHeight);
+    // Multi-source lighting setup
+    vec3 sunDir = normalize(vec3(0.6, 1.0, 0.4));
+    vec3 viewDir = normalize(vec3(0.0, 1.0, 0.0)); // Top-down view
 
-    // Apply wave height influence on color
-    float heightInfluence = waveHeight * 0.5 + 0.5;
-    baseColor = mix(baseColor, SURF_WATER, heightInfluence * 0.3);
+    // Calculate physically-based ocean color with depth effects
+    vec3 baseColor = calculateDepthColor(u_oceanDepth, waveHeight, sunDir, viewDir);
 
-    // Calculate foam
-    float foam = calculateFoam(oceanPos, v_time, waveHeight, velocity);
+    // Calculate multi-stage foam
+    vec4 foamData = calculateFoam(oceanPos, v_time, waveHeight, velocity);
+    float activeFoam = foamData.x;
+    float residualFoam = foamData.y;
+    float baseFoam = foamData.z;
+    float totalFoam = foamData.w;
 
     // Calculate caustics
     float caustics = calculateCaustics(oceanPos, v_time, normal);
 
-    // Multi-source lighting
-    vec3 sunDir = normalize(vec3(0.6, 1.0, 0.4));
+    // Enhanced lighting with Fresnel and subsurface scattering
     vec3 moonDir = normalize(vec3(-0.3, 0.8, -0.5));
     vec3 ambientDir = normalize(vec3(0.0, 1.0, 0.0));
 
+    // Calculate Fresnel reflection (water has IOR ≈ 1.33)
+    float fresnel = calculateFresnel(viewDir, normal, 1.33);
+
+    // Calculate subsurface scattering
+    vec3 subsurfaceScatter = calculateSubsurfaceScattering(sunDir, viewDir, normal, u_oceanDepth);
+
+    // Standard lighting
     float sunLight = max(0.0, dot(normal, sunDir));
     float moonLight = max(0.0, dot(normal, moonDir)) * 0.3;
     float ambientLight = max(0.2, dot(normal, ambientDir)) * 0.5;
@@ -265,18 +403,31 @@ void main() {
     // Apply lighting to base color
     baseColor *= totalLighting;
 
+    // Add subsurface scattering contribution
+    baseColor += subsurfaceScatter * 0.4;
+
     // Add caustics
     baseColor += CAUSTIC_COLOR * caustics * 0.2;
 
-    // Apply foam
-    vec3 foamColor = mix(FOAM_SHADOW, FOAM_COLOR, foam);
-    baseColor = mix(baseColor, foamColor, foam);
+    // Apply multi-stage foam with different colors and blending
+    vec3 finalColor = baseColor;
 
-    // Add specular highlights
-    vec3 viewDir = normalize(vec3(0.0, 1.0, 0.0)); // Top-down view
+    // Apply base foam (most subtle)
+    finalColor = mix(finalColor, FOAM_DECAY, baseFoam * 0.4);
+
+    // Apply residual foam (medium intensity)
+    finalColor = mix(finalColor, FOAM_MATURE, residualFoam * 0.7);
+
+    // Apply active breaking foam (most intense, pure white)
+    finalColor = mix(finalColor, FOAM_NASCENT, activeFoam);
+
+    // Ensure only the most active breaking shows pure white
+    baseColor = finalColor;
+
+    // Add specular highlights with Fresnel modulation
     vec3 reflectDir = reflect(-sunDir, normal);
     float specular = pow(max(0.0, dot(viewDir, reflectDir)), 64.0);
-    baseColor += vec3(specular * 0.5);
+    baseColor += vec3(specular * fresnel * 0.6);
 
     // Add shimmer from surface ripples
     vec3 rippleNormal = texture(u_rippleTexture, v_uv).rgb * 2.0 - 1.0;

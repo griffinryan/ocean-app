@@ -9,6 +9,10 @@ export interface Complex {
 }
 
 export class FFTUtilities {
+  // Static variables for Gaussian random generation
+  private static hasSpare: boolean = false;
+  private static spare: number = 0;
+
   /**
    * Create complex number
    */
@@ -157,19 +161,16 @@ export class FFTUtilities {
    * Generate Gaussian random number using Box-Muller transform
    */
   private static gaussianRandom(): number {
-    static let hasSpare = false;
-    static let spare: number;
-
-    if (hasSpare) {
-      hasSpare = false;
-      return spare;
+    if (FFTUtilities.hasSpare) {
+      FFTUtilities.hasSpare = false;
+      return FFTUtilities.spare;
     }
 
-    hasSpare = true;
+    FFTUtilities.hasSpare = true;
     const u = Math.random();
     const v = Math.random();
     const mag = Math.sqrt(-2.0 * Math.log(u));
-    spare = mag * Math.cos(2.0 * Math.PI * v);
+    FFTUtilities.spare = mag * Math.cos(2.0 * Math.PI * v);
     return mag * Math.sin(2.0 * Math.PI * v);
   }
 
