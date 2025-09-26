@@ -37,6 +37,9 @@ export class OceanRenderer {
   private lastFpsUpdate: number = 0;
   private fps: number = 0;
 
+  // Debug mode
+  private debugMode: number = 0;
+
   constructor(config: RenderConfig) {
     this.canvas = config.canvas;
     this.startTime = performance.now();
@@ -59,8 +62,8 @@ export class OceanRenderer {
     this.gl = gl;
     this.shaderManager = new ShaderManager(gl);
 
-    // Create ocean surface geometry
-    this.geometry = GeometryBuilder.createPlane(20, 20, 64, 64);
+    // Create full-screen quad geometry for screen-space rendering
+    this.geometry = GeometryBuilder.createFullScreenQuad();
     this.bufferManager = new BufferManager(gl, this.geometry);
 
     // Set up WebGL state
@@ -87,8 +90,8 @@ export class OceanRenderer {
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-    // Set clear color (deep ocean blue)
-    gl.clearColor(0.05, 0.15, 0.4, 1.0);
+    // Set clear color (black for contrast with ocean)
+    gl.clearColor(0.0, 0.0, 0.0, 1.0);
     gl.clearDepth(1.0);
 
     // Enable face culling for performance
@@ -142,29 +145,21 @@ export class OceanRenderer {
 
   /**
    * Set up camera for angular top-down ocean view
+   * Note: For full-screen quad rendering, we don't need complex camera setup
    */
   private setupCamera(): void {
-    // Position camera above the ocean looking down at an angle
-    const eye = Vec3.create(0, 8, 5);      // Camera position
-    const center = Vec3.create(0, 0, 0);   // Look at center of ocean
-    const up = Vec3.create(0, 0, -1);      // Up vector for angled view
-
-    this.viewMatrix = Mat4.lookAt(eye, center, up);
-    this.updateProjectionMatrix();
+    // Simple identity matrices - no transformations needed for screen-space rendering
+    this.viewMatrix.identity();
+    this.projectionMatrix.identity();
   }
 
   /**
    * Update projection matrix based on canvas aspect ratio
+   * Note: For full-screen quad, this is mainly for aspect ratio uniform
    */
   private updateProjectionMatrix(): void {
-    const aspect = this.canvas.width / this.canvas.height;
-    const size = 12; // Orthographic size
-
-    this.projectionMatrix = Mat4.orthographic(
-      -size * aspect, size * aspect,  // left, right
-      -size, size,                    // bottom, top
-      0.1, 100                        // near, far
-    );
+    // Keep simple identity matrix for full-screen quad
+    this.projectionMatrix.identity();
   }
 
   /**
@@ -173,11 +168,10 @@ export class OceanRenderer {
   async initializeShaders(vertexSource: string, fragmentSource: string): Promise<void> {
     // Define uniforms and attributes for ocean shader
     const uniforms = [
-      'u_projection',
-      'u_view',
       'u_time',
       'u_aspectRatio',
-      'u_resolution'
+      'u_resolution',
+      'u_debugMode'
     ];
 
     const attributes = [
@@ -217,10 +211,6 @@ export class OceanRenderer {
     // Use ocean shader
     const program = this.shaderManager.useProgram('ocean');
 
-    // Set matrices
-    this.shaderManager.setUniformMatrix4fv(program, 'u_projection', this.projectionMatrix.data);
-    this.shaderManager.setUniformMatrix4fv(program, 'u_view', this.viewMatrix.data);
-
     // Set time for animation
     this.shaderManager.setUniform1f(program, 'u_time', elapsedTime);
 
@@ -230,6 +220,9 @@ export class OceanRenderer {
 
     // Set resolution
     this.shaderManager.setUniform2f(program, 'u_resolution', this.canvas.width, this.canvas.height);
+
+    // Set debug mode
+    this.shaderManager.setUniform1f(program, 'u_debugMode', this.debugMode);
 
     // Bind geometry and render
     this.bufferManager.bind();
@@ -294,6 +287,20 @@ export class OceanRenderer {
    */
   getFPS(): number {
     return this.fps;
+  }
+
+  /**
+   * Set debug mode
+   */
+  setDebugMode(mode: number): void {
+    this.debugMode = mode;
+  }
+
+  /**
+   * Get current debug mode
+   */
+  getDebugMode(): number {
+    return this.debugMode;
   }
 
   /**

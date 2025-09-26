@@ -73,6 +73,27 @@ class OceanApp {
             document.exitFullscreen();
           }
           break;
+        case 'd':
+        case 'D':
+          // Cycle through debug modes
+          if (this.renderer) {
+            const currentMode = this.renderer.getDebugMode();
+            const nextMode = (currentMode + 1) % 4; // 0-3 debug modes
+            this.renderer.setDebugMode(nextMode);
+            this.updateDebugInfo(nextMode);
+          }
+          break;
+        case '1':
+        case '2':
+        case '3':
+        case '0':
+          // Direct debug mode selection
+          if (this.renderer) {
+            const mode = parseInt(event.key);
+            this.renderer.setDebugMode(mode);
+            this.updateDebugInfo(mode);
+          }
+          break;
       }
     });
 
@@ -80,7 +101,29 @@ class OceanApp {
     console.log('Controls:');
     console.log('  F - Toggle fullscreen');
     console.log('  Escape - Exit fullscreen');
+    console.log('  D - Cycle debug modes');
+    console.log('  0-3 - Select debug mode directly');
     console.log('  Space - Reserved for future controls');
+  }
+
+  /**
+   * Update debug info display
+   */
+  private updateDebugInfo(mode: number): void {
+    const infoElement = document.getElementById('info');
+    if (infoElement) {
+      const modeNames = ['Normal', 'UV Coords', 'Wave Height', 'Normals'];
+      const modeName = modeNames[mode] || 'Unknown';
+
+      // Update the existing info or add debug info
+      let debugElement = document.getElementById('debug-mode');
+      if (!debugElement) {
+        debugElement = document.createElement('div');
+        debugElement.id = 'debug-mode';
+        infoElement.appendChild(debugElement);
+      }
+      debugElement.innerHTML = `<br>Debug Mode: ${modeName} (${mode})`;
+    }
   }
 
   /**
