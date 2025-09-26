@@ -26,6 +26,35 @@ export class Vec3 {
       this.x * other.y - this.y * other.x
     );
   }
+
+  clone(): Vec3 {
+    return new Vec3(this.x, this.y, this.z);
+  }
+
+  add(other: Vec3): Vec3 {
+    this.x += other.x;
+    this.y += other.y;
+    this.z += other.z;
+    return this;
+  }
+
+  scale(scalar: number): Vec3 {
+    this.x *= scalar;
+    this.y *= scalar;
+    this.z *= scalar;
+    return this;
+  }
+
+  lerp(target: Vec3, factor: number): Vec3 {
+    this.x += (target.x - this.x) * factor;
+    this.y += (target.y - this.y) * factor;
+    this.z += (target.z - this.z) * factor;
+    return this;
+  }
+
+  length(): number {
+    return Math.sqrt(this.x * this.x + this.y * this.y + this.z * this.z);
+  }
 }
 
 export class Mat4 {

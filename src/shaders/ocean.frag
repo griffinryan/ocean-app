@@ -10,6 +10,12 @@ uniform float u_aspectRatio;
 uniform vec2 u_resolution;
 uniform int u_debugMode;
 
+// Vessel wake uniforms
+uniform int u_vesselCount;
+uniform vec3 u_vesselPositions[5];
+uniform vec3 u_vesselVelocities[5];
+uniform bool u_wakesEnabled;
+
 out vec4 fragColor;
 
 // Ocean color palette
@@ -61,6 +67,150 @@ float sineWave(vec2 pos, vec2 direction, float wavelength, float amplitude, floa
     return amplitude * sin(phase);
 }
 
+// Constants for wake physics
+const float PI = 3.14159265359;
+const float KELVIN_ANGLE = 0.34; // ~19.47 degrees in radians
+const float GRAVITY = 9.81;
+
+// Rotate a 2D vector by angle (in radians)
+vec2 rotate2D(vec2 v, float angle) {
+    float c = cos(angle);
+    float s = sin(angle);
+    return vec2(v.x * c - v.y * s, v.x * s + v.y * c);
+}
+
+// Calculate wave number from wavelength
+float waveNumber(float wavelength) {
+    return 2.0 * PI / wavelength;
+}
+
+// Deep water dispersion relation: omega = sqrt(g * k)
+float waveFrequency(float k) {
+    return sqrt(GRAVITY * k);
+}
+
+// Calculate vessel wake contribution using Kelvin pattern
+float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float time) {
+    // Get 2D position relative to vessel
+    vec2 delta = pos - vesselPos.xz;
+    float distance = length(delta);
+
+    // Skip if too far from vessel
+    if (distance > 20.0) return 0.0;
+
+    vec2 vesselDir = normalize(vesselVel.xz);
+    float vesselSpeed = length(vesselVel.xz);
+
+    // Skip if vessel is stationary
+    if (vesselSpeed < 0.1) return 0.0;
+
+    float wakeHeight = 0.0;
+
+    // Calculate dot product for wake positioning
+    float dotProduct = dot(delta, vesselDir);
+
+    // Only generate wake behind vessel
+    if (dotProduct > 0.0) return 0.0;
+
+    // Distance along vessel's path (negative behind vessel)
+    float pathDistance = abs(dotProduct);
+
+    // Calculate wake arms (Kelvin pattern)
+    vec2 leftArm = rotate2D(vesselDir, KELVIN_ANGLE);
+    vec2 rightArm = rotate2D(vesselDir, -KELVIN_ANGLE);
+
+    // Distance from wake arm lines
+    float leftDist = abs(dot(delta, vec2(-leftArm.y, leftArm.x)));
+    float rightDist = abs(dot(delta, vec2(-rightArm.y, rightArm.x)));
+
+    // Wake amplitude based on vessel speed
+    float baseAmplitude = vesselSpeed * 0.08;
+
+    // Exponential decay with distance
+    float decay = exp(-distance * 0.15);
+
+    // Age-based decay for wake persistence
+    float wakeAge = pathDistance / vesselSpeed;
+    float ageFactor = exp(-wakeAge * 0.3);
+
+    // Left wake arm
+    if (leftDist < 1.5) {
+        float armIntensity = (1.5 - leftDist) / 1.5;
+        float wavelength = 2.0 + vesselSpeed * 0.5;
+        float k = waveNumber(wavelength);
+        float omega = waveFrequency(k);
+
+        float phase = k * pathDistance - omega * time;
+        wakeHeight += baseAmplitude * armIntensity * decay * ageFactor * sin(phase);
+    }
+
+    // Right wake arm
+    if (rightDist < 1.5) {
+        float armIntensity = (1.5 - rightDist) / 1.5;
+        float wavelength = 2.0 + vesselSpeed * 0.5;
+        float k = waveNumber(wavelength);
+        float omega = waveFrequency(k);
+
+        float phase = k * pathDistance - omega * time;
+        wakeHeight += baseAmplitude * armIntensity * decay * ageFactor * sin(phase);
+    }
+
+    // Transverse waves inside the V
+    vec2 perpDir = vec2(-vesselDir.y, vesselDir.x);
+    float lateralDist = abs(dot(delta, perpDir));
+
+    // Check if point is inside the Kelvin wake V
+    float leftArmDot = dot(delta, leftArm);
+    float rightArmDot = dot(delta, rightArm);
+
+    if (leftArmDot < 0.0 && rightArmDot < 0.0 && pathDistance < 15.0) {
+        // Generate curved transverse waves
+        float vIntensity = smoothstep(3.0, 0.5, lateralDist);
+
+        if (vIntensity > 0.0) {
+            // Multiple wavelengths for complexity
+            for (int i = 0; i < 3; i++) {
+                float wl = 1.5 + float(i) * 0.8 + vesselSpeed * 0.3;
+                float k = waveNumber(wl);
+                float omega = waveFrequency(k);
+
+                // Curved wave fronts (circular arcs)
+                float curvature = 0.1 / (pathDistance + 1.0);
+                float curvedPath = pathDistance + curvature * lateralDist * lateralDist;
+
+                float phase = k * curvedPath - omega * time + float(i) * 0.5;
+                float amplitude = baseAmplitude * 0.6 * pow(vIntensity, 1.5);
+
+                wakeHeight += amplitude * decay * ageFactor * sin(phase);
+            }
+        }
+    }
+
+    // Add turbulent water near vessel
+    if (distance < 3.0) {
+        float turbulence = (3.0 - distance) / 3.0;
+        float noiseScale = 8.0;
+        vec2 noisePos = pos * noiseScale + time * vesselSpeed * 2.0;
+        float turbNoise = fbm(noisePos) * 0.5 - 0.25;
+        wakeHeight += turbNoise * turbulence * baseAmplitude * 1.5;
+    }
+
+    return wakeHeight;
+}
+
+// Calculate all vessel wake contributions
+float getAllVesselWakes(vec2 pos, float time) {
+    if (!u_wakesEnabled || u_vesselCount == 0) return 0.0;
+
+    float totalWake = 0.0;
+
+    for (int i = 0; i < u_vesselCount && i < 5; i++) {
+        totalWake += calculateVesselWake(pos, u_vesselPositions[i], u_vesselVelocities[i], time);
+    }
+
+    return totalWake;
+}
+
 // Calculate ocean height with visible waves
 float getOceanHeight(vec2 pos, float time) {
     float height = 0.0;
@@ -82,6 +232,10 @@ float getOceanHeight(vec2 pos, float time) {
     // Fine noise for texture
     vec2 noisePos = pos * 3.0 + time * 0.2;
     height += fbm(noisePos) * 0.08;
+
+    // Add vessel wake contributions (constructive/destructive interference)
+    float wakeHeight = getAllVesselWakes(pos, time);
+    height += wakeHeight;
 
     return height;
 }
@@ -123,6 +277,13 @@ void main() {
         // Show normals as color
         vec3 normal = calculateNormal(oceanPos, v_time);
         fragColor = vec4(normal * 0.5 + 0.5, 1.0);
+        return;
+    } else if (u_debugMode == 4) {
+        // Show wake contribution map
+        float wakeContribution = getAllVesselWakes(oceanPos, v_time);
+        float intensity = clamp(abs(wakeContribution) * 5.0, 0.0, 1.0);
+        vec3 wakeColor = mix(vec3(0.0, 0.0, 0.5), vec3(1.0, 1.0, 0.0), intensity);
+        fragColor = vec4(wakeColor, 1.0);
         return;
     }
 

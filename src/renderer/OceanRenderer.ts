@@ -4,7 +4,8 @@
 
 import { ShaderManager, ShaderProgram } from './ShaderManager';
 import { GeometryBuilder, BufferManager, GeometryData } from './Geometry';
-import { Mat4, Vec3 } from '../utils/math';
+import { Mat4 } from '../utils/math';
+import { VesselSystem, VesselConfig } from './VesselSystem';
 
 export interface RenderConfig {
   canvas: HTMLCanvasElement;
@@ -30,7 +31,7 @@ export class OceanRenderer {
   private animationFrameId: number | null = null;
 
   // Resize observer for responsive canvas
-  private resizeObserver: ResizeObserver;
+  private resizeObserver!: ResizeObserver;
 
   // Performance tracking
   private frameCount: number = 0;
@@ -39,6 +40,10 @@ export class OceanRenderer {
 
   // Debug mode
   private debugMode: number = 0;
+
+  // Vessel system for wake generation
+  private vesselSystem!: VesselSystem;
+  private wakesEnabled: boolean = true;
 
   constructor(config: RenderConfig) {
     this.canvas = config.canvas;
@@ -74,6 +79,9 @@ export class OceanRenderer {
 
     // Set up camera for top-down view
     this.setupCamera();
+
+    // Initialize vessel system
+    this.initializeVesselSystem();
   }
 
   /**
@@ -163,6 +171,23 @@ export class OceanRenderer {
   }
 
   /**
+   * Initialize vessel system with default configuration
+   */
+  private initializeVesselSystem(): void {
+    const vesselConfig: VesselConfig = {
+      maxVessels: 3,
+      spawnInterval: 8000, // 8 seconds between spawns
+      vesselLifetime: 30000, // 30 seconds vessel lifetime
+      speedRange: [2.0, 5.0], // Speed range in units/second
+      oceanBounds: [-20, 20, -20, 20], // Ocean bounds [minX, maxX, minZ, maxZ]
+      wakeTrailLength: 200, // Maximum wake trail points
+      wakeDecayTime: 15000 // 15 seconds for wake to decay
+    };
+
+    this.vesselSystem = new VesselSystem(vesselConfig);
+  }
+
+  /**
    * Initialize ocean shader program
    */
   async initializeShaders(vertexSource: string, fragmentSource: string): Promise<void> {
@@ -171,7 +196,11 @@ export class OceanRenderer {
       'u_time',
       'u_aspectRatio',
       'u_resolution',
-      'u_debugMode'
+      'u_debugMode',
+      'u_vesselCount',
+      'u_vesselPositions',
+      'u_vesselVelocities',
+      'u_wakesEnabled'
     ];
 
     const attributes = [
@@ -204,6 +233,10 @@ export class OceanRenderer {
     const gl = this.gl;
     const currentTime = performance.now();
     const elapsedTime = (currentTime - this.startTime) / 1000; // Convert to seconds
+    const deltaTime = 1 / 60; // Approximate 60 FPS for vessel updates
+
+    // Update vessel system
+    this.vesselSystem.update(currentTime, deltaTime);
 
     // Clear the frame
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
@@ -223,6 +256,16 @@ export class OceanRenderer {
 
     // Set debug mode
     this.shaderManager.setUniform1f(program, 'u_debugMode', this.debugMode);
+
+    // Set vessel wake uniforms
+    const vesselData = this.vesselSystem.getVesselDataForShader(5);
+    this.shaderManager.setUniform1f(program, 'u_vesselCount', vesselData.count);
+    this.shaderManager.setUniform1f(program, 'u_wakesEnabled', this.wakesEnabled ? 1.0 : 0.0);
+
+    if (vesselData.count > 0) {
+      this.shaderManager.setUniform3fv(program, 'u_vesselPositions', vesselData.positions);
+      this.shaderManager.setUniform3fv(program, 'u_vesselVelocities', vesselData.velocities);
+    }
 
     // Bind geometry and render
     this.bufferManager.bind();
@@ -301,6 +344,28 @@ export class OceanRenderer {
    */
   getDebugMode(): number {
     return this.debugMode;
+  }
+
+  /**
+   * Toggle vessel wake system
+   */
+  toggleWakes(): void {
+    this.wakesEnabled = !this.wakesEnabled;
+    this.vesselSystem.setEnabled(this.wakesEnabled);
+  }
+
+  /**
+   * Get wake system enabled state
+   */
+  getWakesEnabled(): boolean {
+    return this.wakesEnabled;
+  }
+
+  /**
+   * Get vessel system statistics
+   */
+  getVesselStats(): { activeVessels: number; totalWakePoints: number } {
+    return this.vesselSystem.getStats();
   }
 
   /**
