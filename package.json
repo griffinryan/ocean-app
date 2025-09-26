@@ -1,0 +1,20 @@
+{
+  "name": "ocean-app",
+  "version": "1.0.0",
+  "description": "",
+  "main": "src/main.ts",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "keywords": ["webgl", "ocean", "shaders", "typescript"],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "vite": "^7.1.7",
+    "vite-plugin-glsl": "^1.5.1"
+  }
+}
