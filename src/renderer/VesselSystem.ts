@@ -45,6 +45,7 @@ export class VesselSystem {
   private config: VesselConfig;
   private lastSpawnTime: number = 0;
   private idCounter: number = 0;
+  private initialized: boolean = false;
 
   constructor(config: VesselConfig) {
     this.config = config;
@@ -54,6 +55,17 @@ export class VesselSystem {
    * Update vessel system
    */
   update(currentTime: number, deltaTime: number): void {
+    // Initialize system on first update with correct timing
+    if (!this.initialized) {
+      this.initialized = true;
+      this.lastSpawnTime = currentTime;
+
+      // Spawn initial vessel immediately with correct timing
+      const initialVessel = this.createRandomVessel(currentTime);
+      this.vessels.set(initialVessel.id, initialVessel);
+      console.log(`[VesselSystem] Initial vessel spawned: ${initialVessel.id} at position (${initialVessel.position.x}, ${initialVessel.position.z}) with speed ${initialVessel.speed}`);
+    }
+
     // Spawn new vessels if needed
     this.trySpawnVessel(currentTime);
 

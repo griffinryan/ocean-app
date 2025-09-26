@@ -255,12 +255,17 @@ export class OceanRenderer {
     this.shaderManager.setUniform2f(program, 'u_resolution', this.canvas.width, this.canvas.height);
 
     // Set debug mode
-    this.shaderManager.setUniform1f(program, 'u_debugMode', this.debugMode);
+    this.shaderManager.setUniform1i(program, 'u_debugMode', this.debugMode);
 
     // Set vessel wake uniforms
     const vesselData = this.vesselSystem.getVesselDataForShader(5);
-    this.shaderManager.setUniform1f(program, 'u_vesselCount', vesselData.count);
-    this.shaderManager.setUniform1f(program, 'u_wakesEnabled', this.wakesEnabled ? 1.0 : 0.0);
+    this.shaderManager.setUniform1i(program, 'u_vesselCount', vesselData.count);
+    this.shaderManager.setUniform1i(program, 'u_wakesEnabled', this.wakesEnabled ? 1 : 0);
+
+    // Debug logging (throttled to avoid spam)
+    if (Math.floor(elapsedTime) % 2 === 0 && Math.floor(elapsedTime * 10) % 10 === 0) {
+      console.log(`[OceanRenderer] Frame ${Math.floor(elapsedTime)}s: ${vesselData.count} vessels, wakes ${this.wakesEnabled ? 'ON' : 'OFF'}`);
+    }
 
     if (vesselData.count > 0) {
       this.shaderManager.setUniform3fv(program, 'u_vesselPositions', vesselData.positions);

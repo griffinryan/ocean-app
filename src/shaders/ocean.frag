@@ -110,7 +110,7 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float time) 
     float dotProduct = dot(delta, vesselDir);
 
     // Only generate wake behind vessel
-    if (dotProduct > 0.0) return 0.0;
+    if (dotProduct < 0.0) return 0.0;
 
     // Distance along vessel's path (negative behind vessel)
     float pathDistance = abs(dotProduct);
@@ -240,6 +240,24 @@ float getOceanHeight(vec2 pos, float time) {
     return height;
 }
 
+// Get vessel position disturbance for visual indication
+float getVesselDisturbance(vec2 pos) {
+    if (!u_wakesEnabled || u_vesselCount == 0) return 0.0;
+
+    float disturbance = 0.0;
+    for (int i = 0; i < u_vesselCount && i < 5; i++) {
+        vec2 vesselPos = u_vesselPositions[i].xz;
+        float distance = length(pos - vesselPos);
+
+        // Small circular disturbance at vessel position
+        if (distance < 1.0) {
+            disturbance += (1.0 - distance) * 0.3;
+        }
+    }
+
+    return disturbance;
+}
+
 // Calculate normal from height differences
 vec3 calculateNormal(vec2 pos, float time) {
     float eps = 0.1;
@@ -303,6 +321,13 @@ void main() {
     // Add foam at highest peaks
     float foamAmount = smoothstep(0.18, 0.35, height);
     baseColor = mix(baseColor, FOAM_COLOR, foamAmount);
+
+    // Add vessel position indicators (subtle disturbance)
+    float vesselDisturbance = getVesselDisturbance(oceanPos);
+    if (vesselDisturbance > 0.0) {
+        vec3 vesselColor = mix(baseColor, FOAM_COLOR, vesselDisturbance * 0.8);
+        baseColor = vesselColor;
+    }
 
     // Enhanced top-down lighting with multiple light sources
     vec3 mainLight = normalize(vec3(0.6, 1.0, 0.4));

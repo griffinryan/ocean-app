@@ -133,6 +133,13 @@ export class ShaderManager {
     }
   }
 
+  setUniform1i(program: ShaderProgram, name: string, value: number): void {
+    const location = program.uniformLocations.get(name);
+    if (location) {
+      this.gl.uniform1i(location, value);
+    }
+  }
+
   setUniform2f(program: ShaderProgram, name: string, x: number, y: number): void {
     const location = program.uniformLocations.get(name);
     if (location) {
