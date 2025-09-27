@@ -200,13 +200,7 @@ export class OceanRenderer {
       'u_vesselCount',
       'u_vesselPositions',
       'u_vesselVelocities',
-      'u_wakesEnabled',
-      'u_wakeTrailCount',
-      'u_wakeTrailPositions',
-      'u_wakeTrailIntensities',
-      'u_wakeTrailDisplacements',
-      'u_wakeTrailWidths',
-      'u_wakeTrailTurbulences'
+      'u_wakesEnabled'
     ];
 
     const attributes = [
@@ -273,21 +267,9 @@ export class OceanRenderer {
       this.shaderManager.setUniform3fv(program, 'u_vesselVelocities', vesselData.velocities);
     }
 
-    // Set enhanced wake trail uniforms
-    const wakeTrailData = this.vesselSystem.getWakeTrailDataForShader(100);
-    this.shaderManager.setUniform1i(program, 'u_wakeTrailCount', wakeTrailData.count);
-
-    if (wakeTrailData.count > 0) {
-      this.shaderManager.setUniform3fv(program, 'u_wakeTrailPositions', wakeTrailData.positions);
-      this.shaderManager.setUniform1fv(program, 'u_wakeTrailIntensities', wakeTrailData.intensities);
-      this.shaderManager.setUniform1fv(program, 'u_wakeTrailDisplacements', wakeTrailData.displacements);
-      this.shaderManager.setUniform1fv(program, 'u_wakeTrailWidths', wakeTrailData.widths);
-      this.shaderManager.setUniform1fv(program, 'u_wakeTrailTurbulences', wakeTrailData.turbulences);
-    }
-
     // Debug logging (throttled to avoid spam)
     if (Math.floor(elapsedTime) % 2 === 0 && Math.floor(elapsedTime * 10) % 10 === 0) {
-      console.log(`[OceanRenderer] Frame ${Math.floor(elapsedTime)}s: ${vesselData.count} vessels, ${wakeTrailData.count} wake points, wakes ${this.wakesEnabled ? 'ON' : 'OFF'}`);
+      console.log(`[OceanRenderer] Frame ${Math.floor(elapsedTime)}s: ${vesselData.count} vessels, wakes ${this.wakesEnabled ? 'ON' : 'OFF'}`);
     }
 
     // Bind geometry and render
