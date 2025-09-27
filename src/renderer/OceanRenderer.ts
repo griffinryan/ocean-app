@@ -215,7 +215,7 @@ export class OceanRenderer {
    */
   private initializeGlassRenderer(): void {
     try {
-      this.glassRenderer = new GlassRenderer(this.shaderManager, this.canvas);
+      this.glassRenderer = new GlassRenderer(this.gl, this.shaderManager, this.canvas);
       console.log('Liquid glass renderer initialized successfully!');
     } catch (error) {
       console.error('Failed to initialize liquid glass renderer:', error);
@@ -245,19 +245,7 @@ export class OceanRenderer {
       'u_vesselClasses',
       'u_vesselHullLengths',
       'u_vesselStates',
-      'u_wakesEnabled',
-      // Liquid glass uniforms
-      'u_panelCount',
-      'u_panelBounds',
-      'u_panelCenters',
-      'u_panelDistortionStrength',
-      'u_panelStates',
-      'u_liquidGlassEnabled',
-      'u_liquidViscosity',
-      'u_surfaceTension',
-      'u_refractionIndex',
-      'u_chromaticStrength',
-      'u_flowSpeed'
+      'u_wakesEnabled'
     ];
 
     const attributes = [
@@ -299,11 +287,23 @@ export class OceanRenderer {
   private renderOceanScene(elapsedTime: number): void {
     const gl = this.gl;
 
-    // Clear the screen framebuffer
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    // Two-pass rendering for liquid glass effect
+    if (this.glassEnabled && this.glassRenderer) {
+      // Pass 1: Render ocean to framebuffer
+      this.glassRenderer.captureOceanScene(() => {
+        this.drawOcean(elapsedTime);
+      });
 
-    // Render ocean with integrated liquid glass distortion
-    this.drawOcean(elapsedTime);
+      // Clear screen framebuffer
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+      // Pass 2: Render liquid glass distortion
+      this.glassRenderer.render();
+    } else {
+      // Single-pass rendering when glass is disabled
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      this.drawOcean(elapsedTime);
+    }
   }
 
   /**
@@ -342,14 +342,6 @@ export class OceanRenderer {
       this.shaderManager.setUniform1fv(program, 'u_vesselStates', vesselData.states);
     }
 
-    // Apply liquid glass uniforms if enabled
-    if (this.glassEnabled && this.glassRenderer) {
-      this.glassRenderer.applyLiquidGlassUniforms(program);
-    } else {
-      // Disable liquid glass when not enabled
-      this.shaderManager.setUniform1i(program, 'u_liquidGlassEnabled', 0);
-      this.shaderManager.setUniform1i(program, 'u_panelCount', 0);
-    }
 
     // Bind geometry and render
     this.bufferManager.bind();

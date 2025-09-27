@@ -20,20 +20,6 @@ uniform float u_vesselHullLengths[5];
 uniform float u_vesselStates[5];
 uniform bool u_wakesEnabled;
 
-// Liquid glass panel uniforms
-uniform int u_panelCount;
-uniform vec4 u_panelBounds[8]; // xy: min, zw: max in normalized coordinates
-uniform vec2 u_panelCenters[8];
-uniform float u_panelDistortionStrength[8];
-uniform float u_panelStates[8]; // 0=hidden, 1=visible, 0-1=transition
-uniform bool u_liquidGlassEnabled;
-
-// Liquid glass parameters
-uniform float u_liquidViscosity;
-uniform float u_surfaceTension;
-uniform float u_refractionIndex;
-uniform float u_chromaticStrength;
-uniform float u_flowSpeed;
 
 out vec4 fragColor;
 
@@ -79,211 +65,6 @@ float fbm(vec2 p) {
     return value;
 }
 
-// ===== LIQUID GLASS DISTORTION FUNCTIONS =====
-
-// Signed distance function to rectangle
-float sdBox(vec2 p, vec2 b) {
-    vec2 d = abs(p) - b;
-    return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
-}
-
-// Calculate signed distance to nearest panel boundary
-float computeSignedDistanceToNearestPanel(vec2 screenPos) {
-    float minDistance = 999.0;
-
-    for (int i = 0; i < u_panelCount && i < 8; i++) {
-        if (u_panelStates[i] < 0.01) continue; // Skip hidden panels
-
-        vec4 bounds = u_panelBounds[i];
-        vec2 center = u_panelCenters[i];
-        vec2 size = vec2(bounds.z - bounds.x, bounds.w - bounds.y) * 0.5;
-
-        // Calculate distance to this panel
-        vec2 localPos = screenPos - center;
-        float distance = sdBox(localPos, size);
-
-        minDistance = min(minDistance, distance);
-    }
-
-    return minDistance;
-}
-
-// Meniscus curvature based on Young-Laplace equation
-float meniscusCurvature(float d, float time) {
-    float contactAngle = 0.785; // ~45 degrees for glass-water interface
-    float surfaceTension = 0.072; // N/m for water-glass
-
-    // Young-Laplace pressure difference
-    float pressure = surfaceTension * cos(contactAngle);
-
-    // Exponential decay from edge with temporal variation
-    float timeVar = 1.0 + 0.1 * sin(time * 2.0 + d * 10.0);
-    return pressure * exp(-d * 10.0) * timeVar;
-}
-
-// Viscous boundary layer profile using Prandtl theory
-float viscousProfile(float d, float time) {
-    float reynolds = 1000.0; // Moderate viscosity regime
-    float boundaryThickness = 5.0 / sqrt(reynolds);
-
-    // Blasius solution approximation
-    float profile = 1.0 - exp(-d / boundaryThickness);
-
-    // Add time-dependent perturbations for living liquid effect
-    float perturbation = 0.1 * sin(time * 2.0 + d * 20.0);
-    perturbation += 0.05 * sin(time * 3.7 - d * 35.0);
-
-    return profile * (1.0 + perturbation);
-}
-
-// Curl noise for turbulent flow
-float curlNoise(vec2 p) {
-    float eps = 0.1;
-    float n1 = noise(p + vec2(eps, 0.0));
-    float n2 = noise(p - vec2(eps, 0.0));
-    float n3 = noise(p + vec2(0.0, eps));
-    float n4 = noise(p - vec2(0.0, eps));
-
-    return ((n1 - n2) - (n3 - n4)) / (2.0 * eps);
-}
-
-// Liquid flow field simulation around panels
-vec2 liquidFlowField(vec2 pos, float time) {
-    vec2 totalFlow = vec2(0.0);
-
-    for (int i = 0; i < u_panelCount && i < 8; i++) {
-        if (u_panelStates[i] < 0.01) continue; // Skip hidden panels
-
-        vec2 center = u_panelCenters[i];
-        vec2 toCenter = pos - center;
-        float distance = length(toCenter);
-
-        if (distance > 2.0) continue; // Only affect nearby areas
-
-        float angle = atan(toCenter.y, toCenter.x);
-
-        // Curl noise for turbulence
-        float curl = curlNoise(pos * 3.0 + time * u_flowSpeed * 0.5);
-
-        // Combine rotational and turbulent flow
-        vec2 flow = vec2(
-            -sin(angle + curl * 0.5),
-            cos(angle + curl * 0.5)
-        );
-
-        // Modulate by distance from panel and panel state
-        float falloff = exp(-distance * 0.3) * u_panelStates[i];
-        totalFlow += flow * falloff * u_panelDistortionStrength[i];
-    }
-
-    return totalFlow;
-}
-
-// Enhanced spline-wavelet decay function for liquid glass trails
-float getEnhancedLiquidDecay(float normalizedDistance, float strength) {
-    float splineDecay = 1.0;
-
-    if (normalizedDistance <= 0.15) {
-        // Stage 1: Maximum distortion at boundary (0-15%)
-        float t = normalizedDistance / 0.15;
-        splineDecay = 1.0 - t * t * 0.1; // Slight decay
-    } else if (normalizedDistance <= 0.5) {
-        // Stage 2: Viscous transition zone (15-50%)
-        float t = (normalizedDistance - 0.15) / 0.35;
-        splineDecay = 0.9 * (1.0 - t * t);
-    } else {
-        // Stage 3: Rapid fade beyond 50%
-        float t = (normalizedDistance - 0.5) / 0.5;
-        splineDecay = 0.9 * (1.0 - t) * exp(-t * 3.0);
-    }
-
-    // Apply strength modulation
-    return max(0.0, splineDecay * strength);
-}
-
-// Performance optimization: Early exit and LOD system
-float getDistortionLOD(float distance) {
-    if (distance > 0.5) return 0.0; // Skip distant pixels
-    if (distance > 0.3) return 1.0; // Low quality
-    if (distance > 0.15) return 2.0; // Medium quality
-    return 3.0; // High quality
-}
-
-// Adaptive sampling based on LOD
-int getSampleCount(float lod) {
-    if (lod < 1.0) return 0;
-    if (lod < 2.0) return 2;  // Low quality
-    if (lod < 3.0) return 8;  // Medium quality
-    return 16; // High quality
-}
-
-// Main liquid glass distortion calculation with performance optimizations
-vec2 calculateLiquidGlassDistortion(vec2 screenPos, float time) {
-    if (!u_liquidGlassEnabled || u_panelCount == 0) {
-        return vec2(0.0);
-    }
-
-    // Calculate distance to nearest panel boundary
-    float panelSDF = computeSignedDistanceToNearestPanel(screenPos);
-
-    // Early exit optimization: Skip if too far from any panel
-    if (panelSDF > 0.5) {
-        return vec2(0.0);
-    }
-
-    // LOD system based on distance
-    float lod = getDistortionLOD(abs(panelSDF));
-    if (lod < 1.0) {
-        return vec2(0.0);
-    }
-
-    // Boundary zone calculation (15% panel width)
-    float boundaryZone = 1.0 - smoothstep(0.0, 0.15, abs(panelSDF));
-
-    // Exponential falloff for intense edge distortion
-    float distortionIntensity = pow(boundaryZone, 2.2);
-
-    // LOD-based quality adjustment
-    float qualityMultiplier = lod / 3.0; // Normalize to 0-1
-
-    vec2 totalDistortion = vec2(0.0);
-
-    // Layer 1: Meniscus warping (0-5% from edge) - High quality only
-    if (abs(panelSDF) < 0.05 && lod >= 3.0) {
-        float meniscusStrength = meniscusCurvature(abs(panelSDF), time);
-        vec2 meniscusDir = normalize(vec2(dFdx(panelSDF), dFdy(panelSDF)));
-        totalDistortion += meniscusDir * meniscusStrength * 0.03 * qualityMultiplier;
-    }
-
-    // Layer 2: Viscous transition (5-15% from edge) - Medium quality and above
-    if (abs(panelSDF) < 0.15 && lod >= 2.0) {
-        float viscousStrength = viscousProfile(abs(panelSDF), time);
-        vec2 flowField = liquidFlowField(screenPos, time);
-        totalDistortion += flowField * viscousStrength * 0.02 * qualityMultiplier;
-    }
-
-    // Layer 3: Bulk liquid (15%+ from edge) - All quality levels
-    if (abs(panelSDF) < 0.5) {
-        float normalizedDistance = abs(panelSDF) / 0.5;
-        float bulkDecay = getEnhancedLiquidDecay(normalizedDistance, 1.0);
-
-        // Simplified flow calculation for lower LODs
-        vec2 bulkFlow;
-        if (lod >= 2.0) {
-            bulkFlow = liquidFlowField(screenPos, time) * 0.5;
-        } else {
-            // Simplified flow for low quality
-            bulkFlow = vec2(sin(time + screenPos.x * 2.0), cos(time + screenPos.y * 2.0)) * 0.3;
-        }
-
-        totalDistortion += bulkFlow * bulkDecay * 0.01 * qualityMultiplier;
-    }
-
-    // Apply overall intensity modulation
-    totalDistortion *= distortionIntensity;
-
-    return totalDistortion;
-}
 
 // Simple sine wave for visible patterns
 float sineWave(vec2 pos, vec2 direction, float wavelength, float amplitude, float speed, float time) {
@@ -590,9 +371,6 @@ void main() {
     vec2 oceanPos = v_screenPos * 15.0; // Scale for wave visibility
     oceanPos.x *= u_aspectRatio; // Maintain aspect ratio
 
-    // Apply liquid glass distortion to ocean sampling position
-    vec2 liquidDistortion = calculateLiquidGlassDistortion(v_screenPos, v_time);
-    vec2 distortedOceanPos = oceanPos + liquidDistortion * 10.0; // Scale distortion for ocean coordinates
 
     // Debug mode outputs
     if (u_debugMode == 1) {
@@ -601,69 +379,29 @@ void main() {
         return;
     } else if (u_debugMode == 2) {
         // Show wave height as grayscale
-        float height = getOceanHeight(distortedOceanPos, v_time);
+        float height = getOceanHeight(oceanPos, v_time);
         float gray = height + 0.5;
         fragColor = vec4(vec3(gray), 1.0);
         return;
     } else if (u_debugMode == 3) {
         // Show normals as color
-        vec3 normal = calculateNormal(distortedOceanPos, v_time);
+        vec3 normal = calculateNormal(oceanPos, v_time);
         fragColor = vec4(normal * 0.5 + 0.5, 1.0);
         return;
     } else if (u_debugMode == 4) {
         // Show wake contribution map
-        float wakeContribution = getAllVesselWakes(distortedOceanPos, v_time);
+        float wakeContribution = getAllVesselWakes(oceanPos, v_time);
         float intensity = clamp(abs(wakeContribution) * 5.0, 0.0, 1.0);
         vec3 wakeColor = mix(vec3(0.0, 0.0, 0.5), vec3(1.0, 1.0, 0.0), intensity);
         fragColor = vec4(wakeColor, 1.0);
         return;
-    } else if (u_debugMode == 5) {
-        // Show liquid glass distance field
-        float panelSDF = computeSignedDistanceToNearestPanel(v_screenPos);
-        float visualSDF = 1.0 - smoothstep(-0.5, 0.5, panelSDF);
-        vec3 sdfColor = mix(vec3(1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0), visualSDF);
-        fragColor = vec4(sdfColor, 1.0);
-        return;
-    } else if (u_debugMode == 6) {
-        // Show liquid glass distortion intensity
-        vec2 distortion = calculateLiquidGlassDistortion(v_screenPos, v_time);
-        float intensity = length(distortion) * 50.0; // Scale for visibility
-        vec3 distortionColor = mix(vec3(0.0, 0.0, 0.5), vec3(1.0, 1.0, 0.0), clamp(intensity, 0.0, 1.0));
-        fragColor = vec4(distortionColor, 1.0);
-        return;
-    } else if (u_debugMode == 7) {
-        // Show liquid flow vectors
-        vec2 flowField = liquidFlowField(v_screenPos, v_time);
-        vec3 flowColor = vec3(flowField.x * 0.5 + 0.5, flowField.y * 0.5 + 0.5, 0.5);
-        fragColor = vec4(flowColor, 1.0);
-        return;
-    } else if (u_debugMode == 8) {
-        // Show performance LOD zones
-        if (u_liquidGlassEnabled && u_panelCount > 0) {
-            float panelSDF = computeSignedDistanceToNearestPanel(v_screenPos);
-            float lod = getDistortionLOD(abs(panelSDF));
-            vec3 lodColor;
-            if (lod < 1.0) {
-                lodColor = vec3(0.2, 0.2, 0.2); // Gray - no computation
-            } else if (lod < 2.0) {
-                lodColor = vec3(0.0, 1.0, 0.0); // Green - low quality
-            } else if (lod < 3.0) {
-                lodColor = vec3(1.0, 1.0, 0.0); // Yellow - medium quality
-            } else {
-                lodColor = vec3(1.0, 0.0, 0.0); // Red - high quality
-            }
-            fragColor = vec4(lodColor, 1.0);
-        } else {
-            fragColor = vec4(0.0, 0.0, 0.5, 1.0); // Blue when disabled
-        }
-        return;
     }
 
-    // Get wave height using distorted position
-    float height = getOceanHeight(distortedOceanPos, v_time);
+    // Get wave height
+    float height = getOceanHeight(oceanPos, v_time);
 
-    // Calculate normal for lighting using distorted position
-    vec3 normal = calculateNormal(distortedOceanPos, v_time);
+    // Calculate normal for lighting
+    vec3 normal = calculateNormal(oceanPos, v_time);
 
     // Base ocean color based on height
     vec3 baseColor = mix(DEEP_WATER, SHALLOW_WATER, smoothstep(-0.3, 0.3, height));
@@ -677,7 +415,7 @@ void main() {
     baseColor = mix(baseColor, FOAM_COLOR, foamAmount);
 
     // Add vessel position indicators (subtle disturbance)
-    float vesselDisturbance = getVesselDisturbance(distortedOceanPos);
+    float vesselDisturbance = getVesselDisturbance(oceanPos);
     if (vesselDisturbance > 0.0) {
         vec3 vesselColor = mix(baseColor, FOAM_COLOR, vesselDisturbance * 0.8);
         baseColor = vesselColor;
@@ -693,9 +431,9 @@ void main() {
     float totalLighting = mainLighting + rimLighting;
     baseColor *= clamp(totalLighting, 0.3, 1.3);
 
-    // Enhanced caustics with multiple layers (using distorted position for liquid glass effect)
-    vec2 causticPos1 = distortedOceanPos * 18.0 + v_time * 2.5;
-    vec2 causticPos2 = distortedOceanPos * 25.0 - v_time * 1.8;
+    // Enhanced caustics with multiple layers
+    vec2 causticPos1 = oceanPos * 18.0 + v_time * 2.5;
+    vec2 causticPos2 = oceanPos * 25.0 - v_time * 1.8;
 
     float caustic1 = fbm(causticPos1);
     float caustic2 = fbm(causticPos2);
@@ -706,46 +444,13 @@ void main() {
     float totalCaustics = caustic1 * 0.15 + caustic2 * 0.1;
     baseColor += vec3(totalCaustics);
 
-    // Add animated foam trails following wave direction (using distorted position)
+    // Add animated foam trails following wave direction
     vec2 flowDir = vec2(cos(v_time * 0.5), sin(v_time * 0.3));
-    vec2 flowPos = distortedOceanPos + flowDir * v_time * 2.0;
+    vec2 flowPos = oceanPos + flowDir * v_time * 2.0;
     float flowNoise = fbm(flowPos * 12.0);
     float flowFoam = smoothstep(0.75, 0.95, flowNoise) * foamAmount;
     baseColor += vec3(flowFoam * 0.2);
 
-    // Apply liquid glass visual enhancements
-    if (u_liquidGlassEnabled && u_panelCount > 0) {
-        float panelSDF = computeSignedDistanceToNearestPanel(v_screenPos);
-
-        // Enhanced caustics under panels
-        if (panelSDF < 0.3) {
-            float panelInfluence = 1.0 - smoothstep(-0.1, 0.3, panelSDF);
-            float enhancedCaustics = totalCaustics * (1.0 + panelInfluence * 0.5);
-            baseColor += vec3(enhancedCaustics * 0.3);
-        }
-
-        // Refraction-like color shifting near panel boundaries
-        if (abs(panelSDF) < 0.15) {
-            float boundaryEffect = 1.0 - smoothstep(0.0, 0.15, abs(panelSDF));
-            vec3 refractionTint = vec3(0.95, 0.98, 1.05); // Slight blue-white tint
-            baseColor *= mix(vec3(1.0), refractionTint, boundaryEffect * 0.3);
-        }
-
-        // Chromatic aberration effect at panel edges
-        if (abs(panelSDF) < 0.05) {
-            float chromaticStrength = (1.0 - abs(panelSDF) / 0.05) * u_chromaticStrength;
-            vec2 chromaticOffset = liquidDistortion * chromaticStrength * 0.01;
-
-            // Sample colors with slight offset for chromatic effect
-            vec3 rChannel = vec3(baseColor.r, 0.0, 0.0);
-            vec3 gChannel = vec3(0.0, baseColor.g, 0.0);
-            vec3 bChannel = vec3(0.0, 0.0, baseColor.b);
-
-            // Apply slight color separation
-            baseColor = rChannel + gChannel + bChannel;
-            baseColor *= 1.0 + chromaticStrength * 0.1; // Slight intensity boost
-        }
-    }
 
     // Stylistic quantization with dithering
     baseColor = quantizeColor(baseColor, 8);
@@ -757,7 +462,7 @@ void main() {
 
     // Optional debug grid (only in debug mode 0)
     if (u_debugMode == 0) {
-        vec2 grid = abs(fract(distortedOceanPos * 0.3) - 0.5);
+        vec2 grid = abs(fract(oceanPos * 0.3) - 0.5);
         float gridLine = smoothstep(0.015, 0.005, min(grid.x, grid.y));
         baseColor += vec3(gridLine * 0.05);
     }

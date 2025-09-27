@@ -9,8 +9,8 @@ import { Router } from './components/Router';
 // Import shaders as strings
 import oceanVertexShader from './shaders/ocean.vert';
 import oceanFragmentShader from './shaders/ocean.frag';
-import glassVertexShader from './shaders/glass.vert';
-import glassFragmentShader from './shaders/glass.frag';
+import liquidGlassVertexShader from './shaders/liquidGlass.vert';
+import liquidGlassFragmentShader from './shaders/liquidGlass.frag';
 
 class OceanApp {
   public renderer: OceanRenderer | null = null;
@@ -37,12 +37,12 @@ class OceanApp {
         alpha: false
       });
 
-      // Initialize shaders (ocean and glass)
+      // Initialize shaders (ocean and liquid glass)
       await this.renderer.initializeShaders(
         oceanVertexShader,
         oceanFragmentShader,
-        glassVertexShader,
-        glassFragmentShader
+        liquidGlassVertexShader,
+        liquidGlassFragmentShader
       );
 
       // Start rendering
@@ -135,7 +135,7 @@ class OceanApp {
           // Cycle through debug modes
           if (this.renderer) {
             const currentMode = this.renderer.getDebugMode();
-            const nextMode = (currentMode + 1) % 9; // 0-8 debug modes (added performance LOD debug mode)
+            const nextMode = (currentMode + 1) % 5; // 0-4 debug modes
             this.renderer.setDebugMode(nextMode);
             this.updateDebugInfo(nextMode);
           }
@@ -162,10 +162,6 @@ class OceanApp {
         case '2':
         case '3':
         case '4':
-        case '5':
-        case '6':
-        case '7':
-        case '8':
           // Direct debug mode selection
           if (this.renderer) {
             const mode = parseInt(event.key);
@@ -181,7 +177,7 @@ class OceanApp {
     console.log('  F - Toggle fullscreen');
     console.log('  Escape - Exit fullscreen');
     console.log('  D - Cycle debug modes');
-    console.log('  0-8 - Select debug mode directly');
+    console.log('  0-4 - Select debug mode directly');
     console.log('  V - Toggle vessel wake system');
     console.log('  G - Toggle glass panel rendering');
     console.log('  Space - Reserved for future controls');
@@ -194,8 +190,7 @@ class OceanApp {
     const infoElement = document.getElementById('info');
     if (infoElement) {
       const modeNames = [
-        'Normal', 'UV Coords', 'Wave Height', 'Normals', 'Wake Map',
-        'Glass Distance Field', 'Glass Distortion', 'Glass Flow Vectors', 'Performance LOD'
+        'Normal', 'UV Coords', 'Wave Height', 'Normals', 'Wake Map'
       ];
       const modeName = modeNames[mode] || 'Unknown';
 
