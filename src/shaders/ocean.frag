@@ -16,6 +16,14 @@ uniform vec3 u_vesselPositions[5];
 uniform vec3 u_vesselVelocities[5];
 uniform bool u_wakesEnabled;
 
+// Wake trail uniforms for historical wake rendering (reduced for performance)
+uniform int u_wakeTrailCount;
+uniform vec3 u_wakeTrailPositions[15];
+uniform vec3 u_wakeTrailVelocities[15];
+uniform float u_wakeTrailIntensities[15];
+uniform float u_wakeTrailHeadings[15];
+uniform float u_wakeTrailCurvatures[15];
+
 out vec4 fragColor;
 
 // Ocean color palette
@@ -89,20 +97,35 @@ float waveFrequency(float k) {
     return sqrt(GRAVITY * k);
 }
 
-// Calculate vessel wake contribution using Kelvin pattern
+// Calculate vessel wake contribution using Kelvin pattern with LOD
 float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float time) {
     // Get 2D position relative to vessel
     vec2 delta = pos - vesselPos.xz;
-    float distance = length(delta);
+
+    // Use squared distance for early exit (avoids expensive sqrt)
+    float distanceSquared = dot(delta, delta);
+    const float maxDistanceSquared = 400.0; // 20.0 * 20.0
 
     // Skip if too far from vessel
-    if (distance > 20.0) return 0.0;
+    if (distanceSquared > maxDistanceSquared) return 0.0;
 
-    vec2 vesselDir = normalize(vesselVel.xz);
-    float vesselSpeed = length(vesselVel.xz);
+    // Only calculate actual distance when needed
+    float distance = sqrt(distanceSquared);
 
-    // Skip if vessel is stationary
-    if (vesselSpeed < 0.1) return 0.0;
+    // LOD system: different detail levels based on distance
+    // Level 0 (0-5 units): Full quality
+    // Level 1 (5-12 units): Reduced quality
+    // Level 2 (12-20 units): Simple approximation
+    int lodLevel = distance < 5.0 ? 0 : (distance < 12.0 ? 1 : 2);
+
+    // Pre-calculate vessel velocity properties
+    float vesselSpeedSquared = dot(vesselVel.xz, vesselVel.xz);
+
+    // Skip if vessel is stationary (using squared speed)
+    if (vesselSpeedSquared < 0.01) return 0.0; // 0.1 * 0.1
+
+    float vesselSpeed = sqrt(vesselSpeedSquared);
+    vec2 vesselDir = vesselVel.xz / vesselSpeed; // Normalize efficiently
 
     float wakeHeight = 0.0;
 
@@ -110,52 +133,72 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float time) 
     float dotProduct = dot(delta, vesselDir);
 
     // Only generate wake behind vessel
-    if (dotProduct < 0.0) return 0.0;
+    if (dotProduct > 0.0) return 0.0;
 
     // Distance along vessel's path (negative behind vessel)
     float pathDistance = abs(dotProduct);
 
-    // Calculate wake arms (Kelvin pattern)
-    vec2 leftArm = rotate2D(vesselDir, KELVIN_ANGLE);
-    vec2 rightArm = rotate2D(vesselDir, -KELVIN_ANGLE);
+    // Pre-compute Kelvin wake arm directions (cache trig calculations)
+    const float cosKelvin = cos(KELVIN_ANGLE); // ≈ 0.9435
+    const float sinKelvin = sin(KELVIN_ANGLE); // ≈ 0.3311
 
-    // Distance from wake arm lines
-    float leftDist = abs(dot(delta, vec2(-leftArm.y, leftArm.x)));
-    float rightDist = abs(dot(delta, vec2(-rightArm.y, rightArm.x)));
+    // Calculate wake arms efficiently without function calls
+    vec2 leftArm = vec2(
+        vesselDir.x * cosKelvin - vesselDir.y * sinKelvin,
+        vesselDir.x * sinKelvin + vesselDir.y * cosKelvin
+    );
+    vec2 rightArm = vec2(
+        vesselDir.x * cosKelvin + vesselDir.y * sinKelvin,
+        -vesselDir.x * sinKelvin + vesselDir.y * cosKelvin
+    );
+
+    // Distance from wake arm lines (pre-compute perpendicular vectors)
+    vec2 leftPerp = vec2(-leftArm.y, leftArm.x);
+    vec2 rightPerp = vec2(-rightArm.y, rightArm.x);
+    float leftDist = abs(dot(delta, leftPerp));
+    float rightDist = abs(dot(delta, rightPerp));
 
     // Wake amplitude based on vessel speed
     float baseAmplitude = vesselSpeed * 0.08;
 
-    // Exponential decay with distance
-    float decay = exp(-distance * 0.15);
-
-    // Age-based decay for wake persistence
+    // Combined decay factors (reduce exp calls)
+    float distanceDecay = exp(-distance * 0.15);
     float wakeAge = pathDistance / vesselSpeed;
     float ageFactor = exp(-wakeAge * 0.3);
+    float combinedDecay = distanceDecay * ageFactor;
+
+    // Apply LOD-based quality levels
+    if (lodLevel == 2) {
+        // Level 2: Simple approximation for distant wakes
+        float simpleWake = baseAmplitude * combinedDecay * 0.5;
+        if (leftDist < 2.0) wakeHeight += simpleWake * (1.0 - leftDist / 2.0);
+        if (rightDist < 2.0) wakeHeight += simpleWake * (1.0 - rightDist / 2.0);
+        return wakeHeight;
+    }
+
+    // Pre-compute wave properties once for both arms
+    float wavelength = 2.0 + vesselSpeed * 0.5;
+    float k = waveNumber(wavelength);
+    float omega = waveFrequency(k);
 
     // Left wake arm
     if (leftDist < 1.5) {
         float armIntensity = (1.5 - leftDist) / 1.5;
-        float wavelength = 2.0 + vesselSpeed * 0.5;
-        float k = waveNumber(wavelength);
-        float omega = waveFrequency(k);
-
         float phase = k * pathDistance - omega * time;
-        wakeHeight += baseAmplitude * armIntensity * decay * ageFactor * sin(phase);
+        wakeHeight += baseAmplitude * armIntensity * combinedDecay * sin(phase);
     }
 
     // Right wake arm
     if (rightDist < 1.5) {
         float armIntensity = (1.5 - rightDist) / 1.5;
-        float wavelength = 2.0 + vesselSpeed * 0.5;
-        float k = waveNumber(wavelength);
-        float omega = waveFrequency(k);
-
         float phase = k * pathDistance - omega * time;
-        wakeHeight += baseAmplitude * armIntensity * decay * ageFactor * sin(phase);
+        wakeHeight += baseAmplitude * armIntensity * combinedDecay * sin(phase);
     }
 
-    // Transverse waves inside the V
+    // Skip transverse waves for LOD level 1 (medium distance)
+    if (lodLevel == 1) return wakeHeight;
+
+    // Full quality transverse waves (LOD level 0 only)
     vec2 perpDir = vec2(-vesselDir.y, vesselDir.x);
     float lateralDist = abs(dot(delta, perpDir));
 
@@ -168,21 +211,25 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float time) 
         float vIntensity = smoothstep(3.0, 0.5, lateralDist);
 
         if (vIntensity > 0.0) {
-            // Multiple wavelengths for complexity
-            for (int i = 0; i < 3; i++) {
-                float wl = 1.5 + float(i) * 0.8 + vesselSpeed * 0.3;
-                float k = waveNumber(wl);
-                float omega = waveFrequency(k);
+            // Pre-compute common values
+            float baseTransverseAmplitude = baseAmplitude * 0.6 * pow(vIntensity, 1.5);
+            float curvature = 0.1 / (pathDistance + 1.0);
+            float lateralSquared = lateralDist * lateralDist;
 
-                // Curved wave fronts (circular arcs)
-                float curvature = 0.1 / (pathDistance + 1.0);
-                float curvedPath = pathDistance + curvature * lateralDist * lateralDist;
+            // Simplified wave generation
+            float wl1 = 1.5 + vesselSpeed * 0.3;
+            float k1 = waveNumber(wl1);
+            float omega1 = waveFrequency(k1);
+            float curvedPath1 = pathDistance + curvature * lateralSquared;
+            float phase1 = k1 * curvedPath1 - omega1 * time;
+            wakeHeight += baseTransverseAmplitude * combinedDecay * sin(phase1);
 
-                float phase = k * curvedPath - omega * time + float(i) * 0.5;
-                float amplitude = baseAmplitude * 0.6 * pow(vIntensity, 1.5);
-
-                wakeHeight += amplitude * decay * ageFactor * sin(phase);
-            }
+            // Add one more wave for complexity
+            float wl2 = 2.3 + vesselSpeed * 0.3;
+            float k2 = waveNumber(wl2);
+            float omega2 = waveFrequency(k2);
+            float phase2 = k2 * curvedPath1 - omega2 * time + 0.5;
+            wakeHeight += baseTransverseAmplitude * 0.7 * combinedDecay * sin(phase2);
         }
     }
 
@@ -198,15 +245,134 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float time) 
     return wakeHeight;
 }
 
+// Calculate historical wake trail contributions
+float calculateWakeTrailContribution(vec2 pos, float time) {
+    if (!u_wakesEnabled || u_wakeTrailCount == 0) return 0.0;
+
+    float trailWake = 0.0;
+
+    for (int i = 0; i < u_wakeTrailCount && i < 15; i++) {
+        vec3 trailPos = u_wakeTrailPositions[i];
+        vec3 trailVel = u_wakeTrailVelocities[i];
+        float intensity = u_wakeTrailIntensities[i];
+        float heading = u_wakeTrailHeadings[i];
+        float curvature = u_wakeTrailCurvatures[i];
+
+        // Skip if intensity is too low
+        if (intensity < 0.1) continue;
+
+        vec2 delta = pos - trailPos.xz;
+
+        // Use squared distance for early exit
+        float distanceSquared = dot(delta, delta);
+        const float maxTrailDistanceSquared = 64.0; // 8.0 * 8.0
+
+        // Skip if too far from trail point
+        if (distanceSquared > maxTrailDistanceSquared) continue;
+
+        // Pre-calculate trail velocity properties
+        float trailSpeedSquared = dot(trailVel.xz, trailVel.xz);
+        if (trailSpeedSquared < 0.01) continue; // Skip stationary trails
+
+        float trailSpeed = sqrt(trailSpeedSquared);
+        vec2 trailDir = trailVel.xz / trailSpeed; // Efficient normalize
+
+        // Early check for wake position (only behind trail point)
+        float dotProduct = dot(delta, trailDir);
+        if (dotProduct > 0.0) continue; // Skip if in front of trail point
+
+        // Only calculate actual distance when needed for later calculations
+        float distance = sqrt(distanceSquared);
+
+        // LOD system for trail wakes: reduce quality for distant trails
+        bool useSimpleLOD = distance > 4.0;
+
+        // Calculate wake based on distance and curvature
+        float baseAmplitude = trailSpeed * 0.04 * intensity;
+
+        // Apply curvature effects for turning vessels
+        if (curvature > 0.01) {
+            // Calculate lateral displacement based on curvature
+            vec2 perpDir = vec2(-trailDir.y, trailDir.x);
+            float lateralOffset = dot(delta, perpDir);
+
+            // Wake spreads outward during turns
+            float turnFactor = 1.0 + curvature * abs(lateralOffset) * 0.5;
+            baseAmplitude *= turnFactor;
+
+            // Add asymmetric wake spreading
+            if (lateralOffset > 0.0) {
+                baseAmplitude *= (1.0 + curvature * 2.0);
+            }
+        }
+
+        // Decay with distance
+        float decay = exp(-distance * 0.2);
+        float pathDistance = abs(dotProduct);
+
+        if (useSimpleLOD) {
+            // Simplified LOD for distant trails
+            float simpleTrailWake = baseAmplitude * decay * 0.3;
+            vec2 perpDir = vec2(-trailDir.y, trailDir.x);
+            float lateralDist = abs(dot(delta, perpDir));
+            if (lateralDist < 1.5) {
+                trailWake += simpleTrailWake * (1.0 - lateralDist / 1.5);
+            }
+        } else {
+            // Full quality for nearby trails
+            // Pre-compute Kelvin wake arm directions
+            const float cosKelvin = cos(KELVIN_ANGLE);
+            const float sinKelvin = sin(KELVIN_ANGLE);
+
+            vec2 leftArm = vec2(
+                trailDir.x * cosKelvin - trailDir.y * sinKelvin,
+                trailDir.x * sinKelvin + trailDir.y * cosKelvin
+            );
+            vec2 rightArm = vec2(
+                trailDir.x * cosKelvin + trailDir.y * sinKelvin,
+                -trailDir.x * sinKelvin + trailDir.y * cosKelvin
+            );
+
+            float leftDist = abs(dot(delta, vec2(-leftArm.y, leftArm.x)));
+            float rightDist = abs(dot(delta, vec2(-rightArm.y, rightArm.x)));
+
+            // Wake wavelength varies with speed
+            float wavelength = 1.5 + trailSpeed * 0.4;
+            float k = waveNumber(wavelength);
+            float omega = waveFrequency(k);
+
+            // Left wake arm
+            if (leftDist < 1.2) {
+                float armIntensity = (1.2 - leftDist) / 1.2;
+                float phase = k * pathDistance - omega * time;
+                trailWake += baseAmplitude * armIntensity * decay * sin(phase);
+            }
+
+            // Right wake arm
+            if (rightDist < 1.2) {
+                float armIntensity = (1.2 - rightDist) / 1.2;
+                float phase = k * pathDistance - omega * time;
+                trailWake += baseAmplitude * armIntensity * decay * sin(phase);
+            }
+        }
+    }
+
+    return trailWake;
+}
+
 // Calculate all vessel wake contributions
 float getAllVesselWakes(vec2 pos, float time) {
-    if (!u_wakesEnabled || u_vesselCount == 0) return 0.0;
+    if (!u_wakesEnabled) return 0.0;
 
     float totalWake = 0.0;
 
+    // Add current vessel wakes
     for (int i = 0; i < u_vesselCount && i < 5; i++) {
         totalWake += calculateVesselWake(pos, u_vesselPositions[i], u_vesselVelocities[i], time);
     }
+
+    // Add historical wake trail contributions
+    totalWake += calculateWakeTrailContribution(pos, time);
 
     return totalWake;
 }

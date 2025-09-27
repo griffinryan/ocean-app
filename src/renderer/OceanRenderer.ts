@@ -45,6 +45,10 @@ export class OceanRenderer {
   private vesselSystem!: VesselSystem;
   private wakesEnabled: boolean = true;
 
+  // Wake data caching for performance optimization
+  private lastWakeDataUpdate: number = 0;
+  private wakeDataUpdateInterval: number = 33; // Update every ~33ms (30fps) instead of every frame
+
   constructor(config: RenderConfig) {
     this.canvas = config.canvas;
     this.startTime = performance.now();
@@ -200,7 +204,13 @@ export class OceanRenderer {
       'u_vesselCount',
       'u_vesselPositions',
       'u_vesselVelocities',
-      'u_wakesEnabled'
+      'u_wakesEnabled',
+      'u_wakeTrailCount',
+      'u_wakeTrailPositions',
+      'u_wakeTrailVelocities',
+      'u_wakeTrailIntensities',
+      'u_wakeTrailHeadings',
+      'u_wakeTrailCurvatures'
     ];
 
     const attributes = [
@@ -270,6 +280,22 @@ export class OceanRenderer {
     if (vesselData.count > 0) {
       this.shaderManager.setUniform3fv(program, 'u_vesselPositions', vesselData.positions);
       this.shaderManager.setUniform3fv(program, 'u_vesselVelocities', vesselData.velocities);
+    }
+
+    // Set wake trail uniforms with caching for performance
+    if (currentTime - this.lastWakeDataUpdate > this.wakeDataUpdateInterval) {
+      const wakeTrailData = this.vesselSystem.getWakeTrailDataForShader(15);
+      this.shaderManager.setUniform1i(program, 'u_wakeTrailCount', wakeTrailData.count);
+
+      if (wakeTrailData.count > 0) {
+        this.shaderManager.setUniform3fv(program, 'u_wakeTrailPositions', wakeTrailData.positions);
+        this.shaderManager.setUniform3fv(program, 'u_wakeTrailVelocities', wakeTrailData.velocities);
+        this.shaderManager.setUniform1fv(program, 'u_wakeTrailIntensities', wakeTrailData.intensities);
+        this.shaderManager.setUniform1fv(program, 'u_wakeTrailHeadings', wakeTrailData.headings);
+        this.shaderManager.setUniform1fv(program, 'u_wakeTrailCurvatures', wakeTrailData.curvatures);
+      }
+
+      this.lastWakeDataUpdate = currentTime;
     }
 
     // Bind geometry and render
