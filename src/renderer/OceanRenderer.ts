@@ -4,8 +4,10 @@
 
 import { ShaderManager, ShaderProgram } from './ShaderManager';
 import { GeometryBuilder, BufferManager, GeometryData } from './Geometry';
-import { Mat4 } from '../utils/math';
+import { Mat4, Vec3 } from '../utils/math';
 import { VesselSystem, VesselConfig } from './VesselSystem';
+import { CellularAutomaton } from './CellularAutomaton';
+import { createDefaultDisplacementConfig } from '../utils/WavePhysics';
 
 export interface RenderConfig {
   canvas: HTMLCanvasElement;
@@ -45,6 +47,10 @@ export class OceanRenderer {
   private vesselSystem!: VesselSystem;
   private wakesEnabled: boolean = true;
 
+  // Cellular automata wave simulation system
+  private cellularAutomaton: CellularAutomaton | null = null;
+  private useCellularAutomaton: boolean = true;
+
   constructor(config: RenderConfig) {
     this.canvas = config.canvas;
     this.startTime = performance.now();
@@ -82,6 +88,9 @@ export class OceanRenderer {
 
     // Initialize vessel system
     this.initializeVesselSystem();
+
+    // Initialize cellular automata system
+    this.initializeCellularAutomaton();
   }
 
   /**
@@ -188,6 +197,31 @@ export class OceanRenderer {
   }
 
   /**
+   * Initialize cellular automata wave simulation system
+   */
+  private initializeCellularAutomaton(): void {
+    if (!this.useCellularAutomaton) return;
+
+    try {
+      // Create cellular automata configuration
+      const caConfig = createDefaultDisplacementConfig();
+
+      // Initialize cellular automata system
+      this.cellularAutomaton = new CellularAutomaton(
+        this.gl,
+        this.shaderManager,
+        caConfig
+      );
+
+      console.log('[OceanRenderer] Cellular automata system initialized');
+    } catch (error) {
+      console.error('[OceanRenderer] Failed to initialize cellular automata:', error);
+      this.useCellularAutomaton = false;
+      this.cellularAutomaton = null;
+    }
+  }
+
+  /**
    * Initialize ocean shader program
    */
   async initializeShaders(vertexSource: string, fragmentSource: string): Promise<void> {
@@ -200,7 +234,12 @@ export class OceanRenderer {
       'u_vesselCount',
       'u_vesselPositions',
       'u_vesselVelocities',
-      'u_wakesEnabled'
+      'u_wakesEnabled',
+      'u_useCellularAutomaton',
+      'u_displacementTexture',
+      'u_velocityTexture',
+      'u_energyTexture',
+      'u_foamTexture'
     ];
 
     const attributes = [
@@ -238,6 +277,20 @@ export class OceanRenderer {
     // Update vessel system
     this.vesselSystem.update(currentTime, deltaTime);
 
+    // Update cellular automata system
+    if (this.useCellularAutomaton && this.cellularAutomaton) {
+      // Convert vessel data for cellular automata
+      const activeVessels = this.vesselSystem.getActiveVessels();
+      const vesselPositions: Vec3[] = activeVessels.map(vessel => vessel.position);
+      const vesselVelocities: Vec3[] = activeVessels.map(vessel => vessel.velocity);
+
+      // Add vessel wakes to cellular automata
+      this.cellularAutomaton.addVesselWakes(vesselPositions, vesselVelocities);
+
+      // Update the cellular automata simulation
+      this.cellularAutomaton.update(deltaTime);
+    }
+
     // Clear the frame
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
@@ -270,6 +323,30 @@ export class OceanRenderer {
     if (vesselData.count > 0) {
       this.shaderManager.setUniform3fv(program, 'u_vesselPositions', vesselData.positions);
       this.shaderManager.setUniform3fv(program, 'u_vesselVelocities', vesselData.velocities);
+    }
+
+    // Set cellular automata uniforms
+    this.shaderManager.setUniform1i(program, 'u_useCellularAutomaton', this.useCellularAutomaton ? 1 : 0);
+
+    if (this.useCellularAutomaton && this.cellularAutomaton) {
+      const displacementTextures = this.cellularAutomaton.getDisplacementTextures();
+
+      // Bind displacement textures
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, displacementTextures.heightCurrent);
+      this.shaderManager.setUniform1i(program, 'u_displacementTexture', 0);
+
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, displacementTextures.velocity);
+      this.shaderManager.setUniform1i(program, 'u_velocityTexture', 1);
+
+      gl.activeTexture(gl.TEXTURE2);
+      gl.bindTexture(gl.TEXTURE_2D, displacementTextures.energy);
+      this.shaderManager.setUniform1i(program, 'u_energyTexture', 2);
+
+      gl.activeTexture(gl.TEXTURE3);
+      gl.bindTexture(gl.TEXTURE_2D, displacementTextures.foam);
+      this.shaderManager.setUniform1i(program, 'u_foamTexture', 3);
     }
 
     // Bind geometry and render
@@ -374,6 +451,29 @@ export class OceanRenderer {
   }
 
   /**
+   * Toggle cellular automata system
+   */
+  toggleCellularAutomaton(): void {
+    this.useCellularAutomaton = !this.useCellularAutomaton;
+    console.log(`[OceanRenderer] Cellular automata ${this.useCellularAutomaton ? 'enabled' : 'disabled'}`);
+  }
+
+  /**
+   * Get cellular automata enabled state
+   */
+  getCellularAutomatonEnabled(): boolean {
+    return this.useCellularAutomaton;
+  }
+
+  /**
+   * Get cellular automata debug information
+   */
+  getCellularAutomatonDebugInfo(): any {
+    if (!this.cellularAutomaton) return null;
+    return this.cellularAutomaton.getDebugInfo();
+  }
+
+  /**
    * Clean up resources
    */
   dispose(): void {
@@ -381,5 +481,11 @@ export class OceanRenderer {
     this.resizeObserver.disconnect();
     this.bufferManager.dispose();
     this.shaderManager.dispose();
+
+    // Clean up cellular automata system
+    if (this.cellularAutomaton) {
+      this.cellularAutomaton.dispose();
+      this.cellularAutomaton = null;
+    }
   }
 }

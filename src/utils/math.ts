@@ -55,6 +55,10 @@ export class Vec3 {
   length(): number {
     return Math.sqrt(this.x * this.x + this.y * this.y + this.z * this.z);
   }
+
+  magnitude(): number {
+    return this.length();
+  }
 }
 
 export class Mat4 {

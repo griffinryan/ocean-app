@@ -16,6 +16,13 @@ uniform vec3 u_vesselPositions[5];
 uniform vec3 u_vesselVelocities[5];
 uniform bool u_wakesEnabled;
 
+// Cellular automata uniforms
+uniform bool u_useCellularAutomaton;
+uniform sampler2D u_displacementTexture;  // Height displacement from CA
+uniform sampler2D u_velocityTexture;      // Velocity field from CA
+uniform sampler2D u_energyTexture;        // Energy distribution from CA
+uniform sampler2D u_foamTexture;          // Foam generation from CA
+
 out vec4 fragColor;
 
 // Ocean color palette
@@ -211,31 +218,103 @@ float getAllVesselWakes(vec2 pos, float time) {
     return totalWake;
 }
 
+// Sample cellular automata displacement data
+vec4 sampleCellularAutomaton(vec2 worldPos) {
+    if (!u_useCellularAutomaton) return vec4(0.0);
+
+    // Convert world position to texture coordinates
+    // Assuming world size of 40 units as defined in the CA system
+    vec2 uv = (worldPos / 40.0) + 0.5;
+    uv = clamp(uv, vec2(0.0), vec2(1.0));
+
+    // Sample displacement texture (height, previous_height, velocity, energy)
+    vec4 displacement = texture(u_displacementTexture, uv);
+
+    return displacement;
+}
+
+// Get cellular automata wave height
+float getCellularAutomatonHeight(vec2 pos) {
+    if (!u_useCellularAutomaton) return 0.0;
+
+    vec4 caData = sampleCellularAutomaton(pos);
+    return caData.x; // Current height
+}
+
+// Get cellular automata energy for effects
+float getCellularAutomatonEnergy(vec2 pos) {
+    if (!u_useCellularAutomaton) return 0.0;
+
+    vec2 uv = (pos / 40.0) + 0.5;
+    uv = clamp(uv, vec2(0.0), vec2(1.0));
+
+    vec4 energyData = texture(u_energyTexture, uv);
+    return energyData.x; // Total energy
+}
+
+// Get cellular automata foam amount
+float getCellularAutomatonFoam(vec2 pos) {
+    if (!u_useCellularAutomaton) return 0.0;
+
+    vec2 uv = (pos / 40.0) + 0.5;
+    uv = clamp(uv, vec2(0.0), vec2(1.0));
+
+    vec4 foamData = texture(u_foamTexture, uv);
+    return foamData.x; // Foam amount
+}
+
+// Get cellular automata velocity for flow effects
+vec2 getCellularAutomatonVelocity(vec2 pos) {
+    if (!u_useCellularAutomaton) return vec2(0.0);
+
+    vec2 uv = (pos / 40.0) + 0.5;
+    uv = clamp(uv, vec2(0.0), vec2(1.0));
+
+    vec4 velocityData = texture(u_velocityTexture, uv);
+    return velocityData.xy; // 2D velocity field
+}
+
 // Calculate ocean height with visible waves
 float getOceanHeight(vec2 pos, float time) {
     float height = 0.0;
 
-    // Primary waves - much larger amplitude for visibility
-    height += sineWave(pos, vec2(1.0, 0.0), 8.0, 0.4, 1.0, time);
-    height += sineWave(pos, vec2(0.7, 0.7), 6.0, 0.3, 1.2, time);
-    height += sineWave(pos, vec2(0.0, 1.0), 10.0, 0.35, 0.8, time);
-    height += sineWave(pos, vec2(-0.6, 0.8), 4.0, 0.2, 1.5, time);
+    // Choose between cellular automata and traditional wave simulation
+    if (u_useCellularAutomaton) {
+        // Use cellular automata displacement as primary height source
+        height = getCellularAutomatonHeight(pos);
 
-    // Secondary detail waves
-    height += sineWave(pos, vec2(0.9, 0.4), 3.0, 0.15, 2.0, time);
-    height += sineWave(pos, vec2(0.2, -0.9), 2.5, 0.12, 2.2, time);
+        // Add subtle traditional waves for visual richness (reduced amplitude)
+        height += sineWave(pos, vec2(1.0, 0.0), 12.0, 0.08, 0.6, time);
+        height += sineWave(pos, vec2(0.7, 0.7), 10.0, 0.06, 0.8, time);
+        height += sineWave(pos, vec2(0.0, 1.0), 15.0, 0.05, 0.4, time);
 
-    // Interference patterns for more complexity
-    height += sineWave(pos, vec2(0.5, -0.5), 5.0, 0.1, 0.9, time);
-    height += sineWave(pos, vec2(-0.8, 0.2), 7.0, 0.08, 1.1, time);
+        // Fine noise for texture
+        vec2 noisePos = pos * 2.0 + time * 0.15;
+        height += fbm(noisePos) * 0.03;
+    } else {
+        // Traditional wave simulation (original behavior)
+        // Primary waves - much larger amplitude for visibility
+        height += sineWave(pos, vec2(1.0, 0.0), 8.0, 0.4, 1.0, time);
+        height += sineWave(pos, vec2(0.7, 0.7), 6.0, 0.3, 1.2, time);
+        height += sineWave(pos, vec2(0.0, 1.0), 10.0, 0.35, 0.8, time);
+        height += sineWave(pos, vec2(-0.6, 0.8), 4.0, 0.2, 1.5, time);
 
-    // Fine noise for texture
-    vec2 noisePos = pos * 3.0 + time * 0.2;
-    height += fbm(noisePos) * 0.08;
+        // Secondary detail waves
+        height += sineWave(pos, vec2(0.9, 0.4), 3.0, 0.15, 2.0, time);
+        height += sineWave(pos, vec2(0.2, -0.9), 2.5, 0.12, 2.2, time);
 
-    // Add vessel wake contributions (constructive/destructive interference)
-    float wakeHeight = getAllVesselWakes(pos, time);
-    height += wakeHeight;
+        // Interference patterns for more complexity
+        height += sineWave(pos, vec2(0.5, -0.5), 5.0, 0.1, 0.9, time);
+        height += sineWave(pos, vec2(-0.8, 0.2), 7.0, 0.08, 1.1, time);
+
+        // Fine noise for texture
+        vec2 noisePos = pos * 3.0 + time * 0.2;
+        height += fbm(noisePos) * 0.08;
+
+        // Add vessel wake contributions (constructive/destructive interference)
+        float wakeHeight = getAllVesselWakes(pos, time);
+        height += wakeHeight;
+    }
 
     return height;
 }
@@ -303,6 +382,48 @@ void main() {
         vec3 wakeColor = mix(vec3(0.0, 0.0, 0.5), vec3(1.0, 1.0, 0.0), intensity);
         fragColor = vec4(wakeColor, 1.0);
         return;
+    } else if (u_debugMode == 5) {
+        // Show cellular automata displacement
+        if (u_useCellularAutomaton) {
+            float caHeight = getCellularAutomatonHeight(oceanPos);
+            float intensity = clamp(caHeight + 0.5, 0.0, 1.0);
+            vec3 caColor = mix(vec3(0.0, 0.0, 1.0), vec3(1.0, 0.0, 0.0), intensity);
+            fragColor = vec4(caColor, 1.0);
+        } else {
+            fragColor = vec4(0.2, 0.2, 0.2, 1.0); // Gray for disabled CA
+        }
+        return;
+    } else if (u_debugMode == 6) {
+        // Show cellular automata energy distribution
+        if (u_useCellularAutomaton) {
+            float energy = getCellularAutomatonEnergy(oceanPos);
+            float intensity = clamp(energy * 0.5, 0.0, 1.0);
+            vec3 energyColor = mix(vec3(0.0, 0.0, 0.2), vec3(1.0, 1.0, 0.0), intensity);
+            fragColor = vec4(energyColor, 1.0);
+        } else {
+            fragColor = vec4(0.2, 0.2, 0.2, 1.0);
+        }
+        return;
+    } else if (u_debugMode == 7) {
+        // Show cellular automata velocity field
+        if (u_useCellularAutomaton) {
+            vec2 velocity = getCellularAutomatonVelocity(oceanPos);
+            vec3 velColor = vec3(velocity.x * 0.5 + 0.5, velocity.y * 0.5 + 0.5, 0.5);
+            fragColor = vec4(velColor, 1.0);
+        } else {
+            fragColor = vec4(0.2, 0.2, 0.2, 1.0);
+        }
+        return;
+    } else if (u_debugMode == 8) {
+        // Show cellular automata foam generation
+        if (u_useCellularAutomaton) {
+            float foam = getCellularAutomatonFoam(oceanPos);
+            vec3 foamColor = mix(vec3(0.0, 0.0, 0.4), FOAM_COLOR, foam);
+            fragColor = vec4(foamColor, 1.0);
+        } else {
+            fragColor = vec4(0.2, 0.2, 0.2, 1.0);
+        }
+        return;
     }
 
     // Get wave height
@@ -320,6 +441,20 @@ void main() {
 
     // Add foam at highest peaks
     float foamAmount = smoothstep(0.18, 0.35, height);
+
+    // Enhanced foam with cellular automata data
+    if (u_useCellularAutomaton) {
+        float caFoam = getCellularAutomatonFoam(oceanPos);
+        float caEnergy = getCellularAutomatonEnergy(oceanPos);
+
+        // Combine traditional foam with CA foam
+        foamAmount = max(foamAmount, caFoam);
+
+        // Energy-based foam enhancement
+        float energyFoam = smoothstep(1.5, 3.0, caEnergy);
+        foamAmount = max(foamAmount, energyFoam);
+    }
+
     baseColor = mix(baseColor, FOAM_COLOR, foamAmount);
 
     // Add vessel position indicators (subtle disturbance)
@@ -353,11 +488,27 @@ void main() {
     baseColor += vec3(totalCaustics);
 
     // Add animated foam trails following wave direction
-    vec2 flowDir = vec2(cos(v_time * 0.5), sin(v_time * 0.3));
-    vec2 flowPos = oceanPos + flowDir * v_time * 2.0;
-    float flowNoise = fbm(flowPos * 12.0);
-    float flowFoam = smoothstep(0.75, 0.95, flowNoise) * foamAmount;
-    baseColor += vec3(flowFoam * 0.2);
+    vec2 flowDir;
+    if (u_useCellularAutomaton) {
+        // Use cellular automata velocity field for realistic flow
+        flowDir = getCellularAutomatonVelocity(oceanPos);
+        vec2 flowPos = oceanPos + flowDir * v_time * 3.0;
+        float flowNoise = fbm(flowPos * 10.0);
+        float flowFoam = smoothstep(0.7, 0.9, flowNoise) * foamAmount;
+
+        // Flow-based caustics distortion
+        causticPos1 += flowDir * 2.0;
+        causticPos2 += flowDir * 1.5;
+
+        baseColor += vec3(flowFoam * 0.25);
+    } else {
+        // Traditional flow simulation
+        flowDir = vec2(cos(v_time * 0.5), sin(v_time * 0.3));
+        vec2 flowPos = oceanPos + flowDir * v_time * 2.0;
+        float flowNoise = fbm(flowPos * 12.0);
+        float flowFoam = smoothstep(0.75, 0.95, flowNoise) * foamAmount;
+        baseColor += vec3(flowFoam * 0.2);
+    }
 
     // Stylistic quantization with dithering
     baseColor = quantizeColor(baseColor, 8);

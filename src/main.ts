@@ -78,7 +78,7 @@ class OceanApp {
           // Cycle through debug modes
           if (this.renderer) {
             const currentMode = this.renderer.getDebugMode();
-            const nextMode = (currentMode + 1) % 5; // 0-4 debug modes (added wake debug)
+            const nextMode = (currentMode + 1) % 9; // 0-8 debug modes (added CA debug modes)
             this.renderer.setDebugMode(nextMode);
             this.updateDebugInfo(nextMode);
           }
@@ -91,10 +91,22 @@ class OceanApp {
             this.updateVesselInfo();
           }
           break;
+        case 'c':
+        case 'C':
+          // Toggle cellular automata system
+          if (this.renderer) {
+            this.renderer.toggleCellularAutomaton();
+            this.updateCellularAutomatonInfo();
+          }
+          break;
         case '1':
         case '2':
         case '3':
         case '4':
+        case '5':
+        case '6':
+        case '7':
+        case '8':
         case '0':
           // Direct debug mode selection
           if (this.renderer) {
@@ -111,8 +123,9 @@ class OceanApp {
     console.log('  F - Toggle fullscreen');
     console.log('  Escape - Exit fullscreen');
     console.log('  D - Cycle debug modes');
-    console.log('  0-4 - Select debug mode directly');
+    console.log('  0-8 - Select debug mode directly');
     console.log('  V - Toggle vessel wake system');
+    console.log('  C - Toggle cellular automata system');
     console.log('  Space - Reserved for future controls');
   }
 
@@ -122,7 +135,17 @@ class OceanApp {
   private updateDebugInfo(mode: number): void {
     const infoElement = document.getElementById('info');
     if (infoElement) {
-      const modeNames = ['Normal', 'UV Coords', 'Wave Height', 'Normals', 'Wake Map'];
+      const modeNames = [
+        'Normal',
+        'UV Coords',
+        'Wave Height',
+        'Normals',
+        'Wake Map',
+        'CA Displacement',
+        'CA Energy',
+        'CA Velocity',
+        'CA Foam'
+      ];
       const modeName = modeNames[mode] || 'Unknown';
 
       // Update the existing info or add debug info
@@ -154,6 +177,36 @@ class OceanApp {
       }
 
       vesselElement.innerHTML = `<br>Vessel Wakes: ${wakesEnabled ? 'ON' : 'OFF'}<br>Active Vessels: ${stats.activeVessels}<br>Wake Points: ${stats.totalWakePoints}`;
+    }
+  }
+
+  /**
+   * Update cellular automata system info display
+   */
+  private updateCellularAutomatonInfo(): void {
+    const infoElement = document.getElementById('info');
+    if (infoElement && this.renderer) {
+      const caEnabled = this.renderer.getCellularAutomatonEnabled();
+      const debugInfo = this.renderer.getCellularAutomatonDebugInfo();
+
+      // Update the existing info or add CA info
+      let caElement = document.getElementById('ca-info');
+      if (!caElement) {
+        caElement = document.createElement('div');
+        caElement.id = 'ca-info';
+        infoElement.appendChild(caElement);
+      }
+
+      let infoText = `<br>Cellular Automata: ${caEnabled ? 'ON' : 'OFF'}`;
+
+      if (caEnabled && debugInfo) {
+        const perf = debugInfo.performanceMetrics;
+        infoText += `<br>CA Update Time: ${perf.averageUpdateTime.toFixed(2)}ms`;
+        infoText += `<br>Injection Points: ${debugInfo.injectionPoints}`;
+        infoText += `<br>Grid Size: ${debugInfo.displacementInfo.gridSize}x${debugInfo.displacementInfo.gridSize}`;
+      }
+
+      caElement.innerHTML = infoText;
     }
   }
 
