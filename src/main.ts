@@ -9,7 +9,7 @@ import vertexShader from './shaders/ocean.vert';
 import fragmentShader from './shaders/ocean.frag';
 
 class OceanApp {
-  private renderer: OceanRenderer | null = null;
+  public renderer: OceanRenderer | null = null;
 
   async init(): Promise<void> {
     try {
@@ -78,14 +78,23 @@ class OceanApp {
           // Cycle through debug modes
           if (this.renderer) {
             const currentMode = this.renderer.getDebugMode();
-            const nextMode = (currentMode + 1) % 4; // 0-3 debug modes
+            const nextMode = (currentMode + 1) % 5; // 0-4 debug modes (added wake debug)
             this.renderer.setDebugMode(nextMode);
             this.updateDebugInfo(nextMode);
+          }
+          break;
+        case 'v':
+        case 'V':
+          // Toggle vessel wake system
+          if (this.renderer) {
+            this.renderer.toggleWakes();
+            this.updateVesselInfo();
           }
           break;
         case '1':
         case '2':
         case '3':
+        case '4':
         case '0':
           // Direct debug mode selection
           if (this.renderer) {
@@ -102,7 +111,8 @@ class OceanApp {
     console.log('  F - Toggle fullscreen');
     console.log('  Escape - Exit fullscreen');
     console.log('  D - Cycle debug modes');
-    console.log('  0-3 - Select debug mode directly');
+    console.log('  0-4 - Select debug mode directly');
+    console.log('  V - Toggle vessel wake system');
     console.log('  Space - Reserved for future controls');
   }
 
@@ -112,7 +122,7 @@ class OceanApp {
   private updateDebugInfo(mode: number): void {
     const infoElement = document.getElementById('info');
     if (infoElement) {
-      const modeNames = ['Normal', 'UV Coords', 'Wave Height', 'Normals'];
+      const modeNames = ['Normal', 'UV Coords', 'Wave Height', 'Normals', 'Wake Map'];
       const modeName = modeNames[mode] || 'Unknown';
 
       // Update the existing info or add debug info
@@ -123,6 +133,27 @@ class OceanApp {
         infoElement.appendChild(debugElement);
       }
       debugElement.innerHTML = `<br>Debug Mode: ${modeName} (${mode})`;
+    }
+  }
+
+  /**
+   * Update vessel system info display
+   */
+  private updateVesselInfo(): void {
+    const infoElement = document.getElementById('info');
+    if (infoElement && this.renderer) {
+      const wakesEnabled = this.renderer.getWakesEnabled();
+      const stats = this.renderer.getVesselStats();
+
+      // Update the existing info or add vessel info
+      let vesselElement = document.getElementById('vessel-info');
+      if (!vesselElement) {
+        vesselElement = document.createElement('div');
+        vesselElement.id = 'vessel-info';
+        infoElement.appendChild(vesselElement);
+      }
+
+      vesselElement.innerHTML = `<br>Vessel Wakes: ${wakesEnabled ? 'ON' : 'OFF'}<br>Active Vessels: ${stats.activeVessels}<br>Wake Points: ${stats.totalWakePoints}`;
     }
   }
 
