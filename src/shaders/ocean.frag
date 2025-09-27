@@ -31,6 +31,52 @@ const vec3 AERATED_WATER = vec3(0.4, 0.7, 0.85);
 const vec3 WAKE_FOAM = vec3(0.95, 0.98, 1.0);
 const vec3 TURBULENT_WATER = vec3(0.2, 0.5, 0.8);
 
+// Wake data structure for enhanced physics
+struct WakeData {
+    float height;
+    float foamIntensity;
+    float disturbance;
+    vec2 velocity;
+};
+
+// Wave state structure for directional wave physics
+struct WaveState {
+    float height;
+    vec2 velocity;     // Horizontal particle velocity
+    vec2 gradient;     // Height gradient for flow direction
+    float energy;      // Wave energy density
+};
+
+// Complete ocean state for rendering
+struct CompleteOceanState {
+    WaveState oceanWaves;
+    WakeData vesselWakes;
+    float totalHeight;
+    vec2 totalVelocity;
+};
+
+// Constants for wake physics
+const float PI = 3.14159265359;
+const float KELVIN_ANGLE = 0.34; // ~19.47 degrees in radians
+const float GRAVITY = 9.81;
+
+// Calculate wave number from wavelength
+float waveNumber(float wavelength) {
+    return 2.0 * PI / wavelength;
+}
+
+// Deep water dispersion relation: omega = sqrt(g * k)
+float waveFrequency(float k) {
+    return sqrt(GRAVITY * k);
+}
+
+// Rotate a 2D vector by angle (in radians)
+vec2 rotate2D(vec2 v, float angle) {
+    float c = cos(angle);
+    float s = sin(angle);
+    return vec2(v.x * c - v.y * s, v.x * s + v.y * c);
+}
+
 // Hash function for procedural noise
 float hash21(vec2 p) {
     p = fract(p * vec2(127.1, 311.7));
@@ -74,35 +120,52 @@ float sineWave(vec2 pos, vec2 direction, float wavelength, float amplitude, floa
     return amplitude * sin(phase);
 }
 
-// Constants for wake physics
-const float PI = 3.14159265359;
-const float KELVIN_ANGLE = 0.34; // ~19.47 degrees in radians
-const float GRAVITY = 9.81;
+// Enhanced directional wave with velocity field
+WaveState calculateDirectionalWave(vec2 pos, vec2 direction, float wavelength, float amplitude, float speed, float time) {
+    WaveState wave;
 
-// Rotate a 2D vector by angle (in radians)
-vec2 rotate2D(vec2 v, float angle) {
-    float c = cos(angle);
-    float s = sin(angle);
-    return vec2(v.x * c - v.y * s, v.x * s + v.y * c);
+    float k = waveNumber(wavelength);
+    float omega = waveFrequency(k);
+    float phase = k * dot(direction, pos) - omega * time;
+
+    // Wave height
+    wave.height = amplitude * sin(phase);
+
+    // Particle velocity using linear wave theory
+    // For deep water waves: horizontal velocity = amplitude * omega * cos(phase)
+    float velMagnitude = amplitude * omega * cos(phase);
+    wave.velocity = direction * velMagnitude;
+
+    // Height gradient for flow direction
+    float dHeight_dx = amplitude * k * direction.x * cos(phase);
+    float dHeight_dy = amplitude * k * direction.y * cos(phase);
+    wave.gradient = vec2(dHeight_dx, dHeight_dy);
+
+    // Wave energy density (proportional to amplitude squared)
+    wave.energy = amplitude * amplitude * 0.5;
+
+    return wave;
 }
 
-// Calculate wave number from wavelength
-float waveNumber(float wavelength) {
-    return 2.0 * PI / wavelength;
+// Combine multiple wave states with proper superposition
+WaveState combineWaveStates(WaveState wave1, WaveState wave2) {
+    WaveState combined;
+
+    // Linear superposition for height
+    combined.height = wave1.height + wave2.height;
+
+    // Vector addition for velocities
+    combined.velocity = wave1.velocity + wave2.velocity;
+
+    // Gradient addition
+    combined.gradient = wave1.gradient + wave2.gradient;
+
+    // Energy addition
+    combined.energy = wave1.energy + wave2.energy;
+
+    return combined;
 }
 
-// Deep water dispersion relation: omega = sqrt(g * k)
-float waveFrequency(float k) {
-    return sqrt(GRAVITY * k);
-}
-
-// Wake data structure for enhanced physics
-struct WakeData {
-    float height;
-    float foamIntensity;
-    float disturbance;
-    vec2 velocity;
-};
 
 // Calculate bow wave contribution at vessel front
 float calculateBowWave(vec2 pos, vec3 vesselPos, vec3 vesselVel, float time) {
@@ -142,8 +205,8 @@ float calculateBowWave(vec2 pos, vec3 vesselPos, vec3 vesselVel, float time) {
     return bowAmplitude * lateralModulation * sin(phase);
 }
 
-// Enhanced vessel wake calculation with comprehensive physics
-WakeData calculateVesselWakeData(vec2 pos, vec3 vesselPos, vec3 vesselVel, float time) {
+// Enhanced vessel wake calculation with wave state integration
+WakeData calculateVesselWakeData(vec2 pos, vec3 vesselPos, vec3 vesselVel, float time, WaveState oceanState) {
     WakeData wake;
     wake.height = 0.0;
     wake.foamIntensity = 0.0;
@@ -170,7 +233,7 @@ WakeData calculateVesselWakeData(vec2 pos, vec3 vesselPos, vec3 vesselVel, float
     wake.height += calculateBowWave(pos, vesselPos, vesselVel, time);
 
     // Only generate wake behind vessel for remaining calculations
-    if (dotProduct < 0.0) return wake;
+    if (dotProduct > 0.0) return wake;
 
     // Distance along vessel's path
     float pathDistance = abs(dotProduct);
@@ -282,18 +345,32 @@ WakeData calculateVesselWakeData(vec2 pos, vec3 vesselPos, vec3 vesselVel, float
         float foamNoise = fbm(noisePos * 1.5 + time * 0.5);
         wake.foamIntensity += turbulence * (0.8 + foamNoise * 0.4);
 
-        // Set water velocity for foam trails
+        // Set water velocity for foam trails, influenced by ocean waves
         wake.velocity = vesselDir * vesselSpeed * turbulence * 0.3;
+
+        // Add ocean wave velocity interaction
+        wake.velocity += oceanState.velocity * 0.2;
     }
 
-    // General disturbance factor for color blending
-    wake.disturbance = clamp(distanceDecay * ageDecay * speedBoost, 0.0, 1.0);
+    // Enhanced disturbance calculation including wave energy
+    float waveInfluence = min(oceanState.energy * 0.5, 0.3);
+    wake.disturbance = clamp(distanceDecay * ageDecay * speedBoost + waveInfluence, 0.0, 1.0);
+
+    // Wave-wake interference: modify wake based on ocean wave direction
+    vec2 oceanFlow = normalize(oceanState.velocity + vec2(0.001)); // Avoid zero division
+    vec2 wakeFlow = normalize(vesselDir);
+    float flowAlignment = dot(oceanFlow, wakeFlow);
+
+    // Enhance wake when aligned with ocean flow, reduce when opposing
+    float flowModifier = 1.0 + flowAlignment * 0.3;
+    wake.height *= flowModifier;
+    wake.foamIntensity *= max(flowModifier, 0.8); // Don't reduce foam too much
 
     return wake;
 }
 
 // Calculate all vessel wake contributions with enhanced superposition
-WakeData getAllVesselWakeData(vec2 pos, float time) {
+WakeData getAllVesselWakeData(vec2 pos, float time, WaveState oceanState) {
     WakeData totalWake;
     totalWake.height = 0.0;
     totalWake.foamIntensity = 0.0;
@@ -307,7 +384,7 @@ WakeData getAllVesselWakeData(vec2 pos, float time) {
     int activeWakes = 0;
 
     for (int i = 0; i < u_vesselCount && i < 5; i++) {
-        wakes[i] = calculateVesselWakeData(pos, u_vesselPositions[i], u_vesselVelocities[i], time);
+        wakes[i] = calculateVesselWakeData(pos, u_vesselPositions[i], u_vesselVelocities[i], time, oceanState);
         if (wakes[i].height != 0.0 || wakes[i].foamIntensity > 0.0) {
             activeWakes++;
         }
@@ -351,35 +428,58 @@ WakeData getAllVesselWakeData(vec2 pos, float time) {
     return totalWake;
 }
 
+// Calculate complete ocean wave state with velocity field
+WaveState getOceanWaveState(vec2 pos, float time) {
+    WaveState oceanState;
+    oceanState.height = 0.0;
+    oceanState.velocity = vec2(0.0);
+    oceanState.gradient = vec2(0.0);
+    oceanState.energy = 0.0;
+
+    // Primary directional waves with proper velocity fields
+    WaveState wave1 = calculateDirectionalWave(pos, vec2(1.0, 0.0), 8.0, 0.4, 1.0, time);
+    WaveState wave2 = calculateDirectionalWave(pos, normalize(vec2(0.7, 0.7)), 6.0, 0.3, 1.2, time);
+    WaveState wave3 = calculateDirectionalWave(pos, vec2(0.0, 1.0), 10.0, 0.35, 0.8, time);
+    WaveState wave4 = calculateDirectionalWave(pos, normalize(vec2(-0.6, 0.8)), 4.0, 0.2, 1.5, time);
+
+    // Secondary detail waves
+    WaveState wave5 = calculateDirectionalWave(pos, normalize(vec2(0.9, 0.4)), 3.0, 0.15, 2.0, time);
+    WaveState wave6 = calculateDirectionalWave(pos, normalize(vec2(0.2, -0.9)), 2.5, 0.12, 2.2, time);
+
+    // Interference pattern waves
+    WaveState wave7 = calculateDirectionalWave(pos, normalize(vec2(0.5, -0.5)), 5.0, 0.1, 0.9, time);
+    WaveState wave8 = calculateDirectionalWave(pos, normalize(vec2(-0.8, 0.2)), 7.0, 0.08, 1.1, time);
+
+    // Combine all wave states
+    oceanState = combineWaveStates(oceanState, wave1);
+    oceanState = combineWaveStates(oceanState, wave2);
+    oceanState = combineWaveStates(oceanState, wave3);
+    oceanState = combineWaveStates(oceanState, wave4);
+    oceanState = combineWaveStates(oceanState, wave5);
+    oceanState = combineWaveStates(oceanState, wave6);
+    oceanState = combineWaveStates(oceanState, wave7);
+    oceanState = combineWaveStates(oceanState, wave8);
+
+    // Add fine noise for texture (affects height only)
+    vec2 noisePos = pos * 3.0 + time * 0.2;
+    oceanState.height += fbm(noisePos) * 0.08;
+
+    return oceanState;
+}
+
 // Legacy function for backward compatibility
 float getAllVesselWakes(vec2 pos, float time) {
-    return getAllVesselWakeData(pos, time).height;
+    WaveState oceanState = getOceanWaveState(pos, time);
+    return getAllVesselWakeData(pos, time, oceanState).height;
 }
 
 // Enhanced ocean height calculation with wake integration
 float getOceanHeight(vec2 pos, float time) {
-    float height = 0.0;
+    // Get complete ocean wave state
+    WaveState oceanState = getOceanWaveState(pos, time);
 
-    // Primary waves - much larger amplitude for visibility
-    height += sineWave(pos, vec2(1.0, 0.0), 8.0, 0.4, 1.0, time);
-    height += sineWave(pos, vec2(0.7, 0.7), 6.0, 0.3, 1.2, time);
-    height += sineWave(pos, vec2(0.0, 1.0), 10.0, 0.35, 0.8, time);
-    height += sineWave(pos, vec2(-0.6, 0.8), 4.0, 0.2, 1.5, time);
-
-    // Secondary detail waves
-    height += sineWave(pos, vec2(0.9, 0.4), 3.0, 0.15, 2.0, time);
-    height += sineWave(pos, vec2(0.2, -0.9), 2.5, 0.12, 2.2, time);
-
-    // Interference patterns for more complexity
-    height += sineWave(pos, vec2(0.5, -0.5), 5.0, 0.1, 0.9, time);
-    height += sineWave(pos, vec2(-0.8, 0.2), 7.0, 0.08, 1.1, time);
-
-    // Fine noise for texture
-    vec2 noisePos = pos * 3.0 + time * 0.2;
-    height += fbm(noisePos) * 0.08;
-
-    // Get enhanced wake data for superposition
-    WakeData wakeData = getAllVesselWakeData(pos, time);
+    // Get enhanced wake data for superposition with wave interaction
+    WakeData wakeData = getAllVesselWakeData(pos, time, oceanState);
 
     // Enhanced wave-wake interaction with non-linear effects
     float wakeHeight = wakeData.height;
@@ -389,18 +489,36 @@ float getOceanHeight(vec2 pos, float time) {
         wakeHeight *= 0.7; // Simulate wave breaking
     }
 
-    // Add wake with proper superposition
-    height += wakeHeight;
+    // Combine ocean waves and wake with proper superposition
+    float totalHeight = oceanState.height + wakeHeight;
 
     // Apply overall wave amplitude limits
-    height = clamp(height, -2.0, 2.0);
+    totalHeight = clamp(totalHeight, -2.0, 2.0);
 
-    return height;
+    return totalHeight;
 }
 
-// Get complete wake data for rendering
-WakeData getOceanWakeData(vec2 pos, float time) {
-    return getAllVesselWakeData(pos, time);
+
+CompleteOceanState getCompleteOceanState(vec2 pos, float time) {
+    CompleteOceanState state;
+
+    // Calculate ocean wave state
+    state.oceanWaves = getOceanWaveState(pos, time);
+
+    // Calculate vessel wake data with ocean interaction
+    state.vesselWakes = getAllVesselWakeData(pos, time, state.oceanWaves);
+
+    // Combined height with wave breaking
+    float wakeHeight = state.vesselWakes.height;
+    if (abs(wakeHeight) > 0.6) {
+        wakeHeight *= 0.7;
+    }
+    state.totalHeight = clamp(state.oceanWaves.height + wakeHeight, -2.0, 2.0);
+
+    // Combined velocity field
+    state.totalVelocity = state.oceanWaves.velocity + state.vesselWakes.velocity;
+
+    return state;
 }
 
 // Get vessel position disturbance for visual indication
@@ -460,34 +578,41 @@ void main() {
         fragColor = vec4(normal * 0.5 + 0.5, 1.0);
         return;
     } else if (u_debugMode == 4) {
+        // Show flow field visualization
+        CompleteOceanState oceanState = getCompleteOceanState(oceanPos, v_time);
+        vec2 flow = normalize(oceanState.totalVelocity + vec2(0.001));
+        vec3 flowColor = vec3(flow.x * 0.5 + 0.5, flow.y * 0.5 + 0.5, length(oceanState.totalVelocity) * 0.2);
+        fragColor = vec4(flowColor, 1.0);
+        return;
+    } else if (u_debugMode == 5) {
         // Show enhanced wake contribution map
-        WakeData wakeData = getAllVesselWakeData(oceanPos, v_time);
-        float intensity = clamp(abs(wakeData.height) * 3.0, 0.0, 1.0);
-        float foamVis = clamp(wakeData.foamIntensity, 0.0, 1.0);
+        CompleteOceanState oceanState = getCompleteOceanState(oceanPos, v_time);
+        float intensity = clamp(abs(oceanState.vesselWakes.height) * 3.0, 0.0, 1.0);
+        float foamVis = clamp(oceanState.vesselWakes.foamIntensity, 0.0, 1.0);
         vec3 wakeColor = mix(vec3(0.0, 0.0, 0.5), vec3(1.0, 1.0, 0.0), intensity);
         wakeColor = mix(wakeColor, vec3(1.0, 0.5, 0.5), foamVis);
         fragColor = vec4(wakeColor, 1.0);
         return;
     }
 
-    // Get enhanced wave and wake data
-    float height = getOceanHeight(oceanPos, v_time);
-    WakeData wakeData = getOceanWakeData(oceanPos, v_time);
+    // Get complete ocean state with enhanced wave and wake data
+    CompleteOceanState oceanState = getCompleteOceanState(oceanPos, v_time);
+    float height = oceanState.totalHeight;
 
     // Calculate normal for lighting
     vec3 normal = calculateNormal(oceanPos, v_time);
 
-    // Enhanced color calculation with wake integration
+    // Enhanced color calculation with wave and wake integration
     vec3 baseColor;
 
     // Choose base color palette based on wake disturbance
-    if (wakeData.disturbance > 0.1) {
+    if (oceanState.vesselWakes.disturbance > 0.1) {
         // Use disturbed water colors
         baseColor = mix(DISTURBED_DEEP, DISTURBED_SHALLOW, smoothstep(-0.3, 0.3, height));
 
         // Add aeration effects for high disturbance
-        if (wakeData.disturbance > 0.5) {
-            float aerationFactor = (wakeData.disturbance - 0.5) * 2.0;
+        if (oceanState.vesselWakes.disturbance > 0.5) {
+            float aerationFactor = (oceanState.vesselWakes.disturbance - 0.5) * 2.0;
             baseColor = mix(baseColor, AERATED_WATER, aerationFactor * 0.6);
         }
     } else {
@@ -497,23 +622,31 @@ void main() {
 
     // Enhanced wave crests with wake consideration
     float crestAmount = smoothstep(0.12, 0.28, height);
-    vec3 crestColor = mix(WAVE_CREST, TURBULENT_WATER, wakeData.disturbance);
+    vec3 crestColor = mix(WAVE_CREST, TURBULENT_WATER, oceanState.vesselWakes.disturbance);
     baseColor = mix(baseColor, crestColor, crestAmount);
 
     // Enhanced foam system - separate ocean foam and wake foam
     float oceanFoam = smoothstep(0.18, 0.35, height);
-    float wakeFoam = wakeData.foamIntensity;
+    float wakeFoam = oceanState.vesselWakes.foamIntensity;
 
     // Combine foam types with different characteristics
     vec3 foamColor = mix(FOAM_COLOR, WAKE_FOAM, wakeFoam);
     float totalFoam = clamp(oceanFoam + wakeFoam * 1.5, 0.0, 1.0);
     baseColor = mix(baseColor, foamColor, totalFoam);
 
-    // Persistent foam trails using wake velocity
-    if (length(wakeData.velocity) > 0.1) {
-        vec2 foamTrailPos = oceanPos + wakeData.velocity * v_time * 3.0;
+    // Enhanced persistent foam trails using directional flow
+    if (length(oceanState.totalVelocity) > 0.1) {
+        vec2 flowDirection = normalize(oceanState.totalVelocity);
+        vec2 foamTrailPos = oceanPos + flowDirection * v_time * 2.5;
         float trailNoise = fbm(foamTrailPos * 8.0 + v_time * 0.3);
-        float trailFoam = smoothstep(0.6, 0.9, trailNoise) * wakeFoam * 0.6;
+        float trailFoam = smoothstep(0.6, 0.9, trailNoise) * totalFoam * 0.4;
+
+        // Add directional streaks based on flow
+        float flowStrength = length(oceanState.totalVelocity) * 0.3;
+        vec2 streakPos = oceanPos + flowDirection * v_time * 5.0;
+        float streakPattern = sin(dot(streakPos, vec2(-flowDirection.y, flowDirection.x)) * 15.0) * 0.5 + 0.5;
+        trailFoam *= smoothstep(0.7, 1.0, streakPattern) * flowStrength;
+
         baseColor = mix(baseColor, WAKE_FOAM, trailFoam);
     }
 
@@ -524,26 +657,29 @@ void main() {
         baseColor = vesselColor;
     }
 
-    // Enhanced lighting with wake considerations
+    // Enhanced lighting with wave and wake considerations
     vec3 mainLight = normalize(vec3(0.6, 1.0, 0.4));
     vec3 rimLight = normalize(vec3(-0.3, 0.8, -0.5));
 
     float mainLighting = max(0.2, dot(normal, mainLight));
     float rimLighting = max(0.0, dot(normal, rimLight)) * 0.3;
 
-    // Enhance lighting in wake areas for better visibility
-    float wakeLightBoost = 1.0 + wakeData.disturbance * 0.2;
-    float totalLighting = (mainLighting + rimLighting) * wakeLightBoost;
+    // Enhance lighting in wake areas and high-energy wave areas
+    float wakeLightBoost = 1.0 + oceanState.vesselWakes.disturbance * 0.2;
+    float waveLightBoost = 1.0 + min(oceanState.oceanWaves.energy, 0.5) * 0.15;
+    float totalLighting = (mainLighting + rimLighting) * wakeLightBoost * waveLightBoost;
     baseColor *= clamp(totalLighting, 0.3, 1.4);
 
-    // Enhanced caustics with wake interaction
+    // Enhanced caustics with directional flow interaction
     vec2 causticPos1 = oceanPos * 18.0 + v_time * 2.5;
     vec2 causticPos2 = oceanPos * 25.0 - v_time * 1.8;
 
-    // Modify caustics in wake areas
-    if (wakeData.disturbance > 0.0) {
-        causticPos1 += wakeData.velocity * v_time * 2.0;
-        causticPos2 += wakeData.velocity * v_time * 1.5;
+    // Modify caustics based on total flow field
+    if (length(oceanState.totalVelocity) > 0.0) {
+        vec2 flowDirection = normalize(oceanState.totalVelocity);
+        float flowMagnitude = length(oceanState.totalVelocity);
+        causticPos1 += flowDirection * v_time * flowMagnitude * 1.5;
+        causticPos2 += flowDirection * v_time * flowMagnitude * 1.0;
     }
 
     float caustic1 = fbm(causticPos1);
@@ -552,30 +688,32 @@ void main() {
     caustic1 = smoothstep(0.6, 0.85, caustic1);
     caustic2 = smoothstep(0.65, 0.9, caustic2);
 
-    float causticIntensity = 0.15 + wakeData.disturbance * 0.1;
+    float causticIntensity = 0.15 + oceanState.vesselWakes.disturbance * 0.1 + oceanState.oceanWaves.energy * 0.05;
     float totalCaustics = caustic1 * causticIntensity + caustic2 * 0.1;
     baseColor += vec3(totalCaustics);
 
-    // Enhanced foam trails with better physics
-    vec2 flowDir = vec2(cos(v_time * 0.5), sin(v_time * 0.3));
-    vec2 flowPos = oceanPos + flowDir * v_time * 2.0;
+    // Enhanced foam trails following true ocean flow
+    vec2 baseFlowDir = vec2(cos(v_time * 0.5), sin(v_time * 0.3));
+    vec2 flowPos = oceanPos + baseFlowDir * v_time * 2.0;
 
-    // Add wake velocity influence to flow
-    if (length(wakeData.velocity) > 0.0) {
-        flowPos += normalize(wakeData.velocity) * v_time * 1.5;
+    // Add directional flow influence
+    if (length(oceanState.totalVelocity) > 0.0) {
+        vec2 realFlowDir = normalize(oceanState.totalVelocity);
+        float flowStrength = length(oceanState.totalVelocity) * 0.5;
+        flowPos += realFlowDir * v_time * flowStrength * 2.0;
     }
 
     float flowNoise = fbm(flowPos * 12.0);
     float flowFoam = smoothstep(0.75, 0.95, flowNoise) * totalFoam;
-    baseColor += vec3(flowFoam * 0.15);
+    baseColor += vec3(flowFoam * 0.12);
 
     // Stylistic quantization with enhanced dithering
     baseColor = quantizeColor(baseColor, 8);
 
-    // Enhanced dithering for wake areas
+    // Enhanced dithering for wake and high-energy areas
     vec2 ditherPos = gl_FragCoord.xy * 0.75;
     float dither = fract(sin(dot(ditherPos, vec2(12.9898, 78.233))) * 43758.5453);
-    float ditherStrength = 0.02 + wakeData.disturbance * 0.01;
+    float ditherStrength = 0.02 + oceanState.vesselWakes.disturbance * 0.01 + oceanState.oceanWaves.energy * 0.005;
     baseColor += vec3((dither - 0.5) * ditherStrength);
 
     // Optional debug grid (only in debug mode 0)

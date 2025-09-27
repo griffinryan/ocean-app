@@ -3,6 +3,7 @@
  */
 
 import { Vec3 } from '../utils/math';
+import { VesselPhysics, VesselPhysicsState } from './VesselPhysics';
 
 export interface Vessel {
   id: string;
@@ -15,6 +16,12 @@ export interface Vessel {
   wakeTrail: WakePoint[];
   movementPattern: MovementPattern;
   patternData: any;
+
+  // Enhanced physics
+  physics: VesselPhysicsState;
+  vesselType: 'small' | 'medium' | 'large';
+  currentWaypoint: number;
+  waypoints: Vec3[];
 }
 
 export interface WakePoint {
@@ -108,43 +115,59 @@ export class VesselSystem {
   }
 
   /**
-   * Create a random vessel with random properties
+   * Create a random vessel with realistic physics
    */
   private createRandomVessel(currentTime: number): Vessel {
     const id = `vessel_${this.idCounter++}`;
     const pattern = this.getRandomMovementPattern();
+
+    // Choose vessel type randomly
+    const vesselTypes: ('small' | 'medium' | 'large')[] = ['small', 'medium', 'large'];
+    const vesselType = vesselTypes[Math.floor(Math.random() * vesselTypes.length)];
 
     // Random spawn position at ocean edge
     const [minX, maxX, minZ, maxZ] = this.config.oceanBounds;
     const edge = Math.floor(Math.random() * 4); // 0=left, 1=right, 2=top, 3=bottom
 
     let position: Vec3;
-    let velocity: Vec3;
+    let initialHeading: number;
 
     switch (edge) {
       case 0: // Left edge, moving right
-        position = new Vec3(minX, 0, minZ + Math.random() * (maxZ - minZ));
-        velocity = new Vec3(1, 0, (Math.random() - 0.5) * 0.5);
+        position = new Vec3(minX - 5, 0, minZ + Math.random() * (maxZ - minZ));
+        initialHeading = (Math.random() - 0.5) * Math.PI / 3; // Roughly east
         break;
       case 1: // Right edge, moving left
-        position = new Vec3(maxX, 0, minZ + Math.random() * (maxZ - minZ));
-        velocity = new Vec3(-1, 0, (Math.random() - 0.5) * 0.5);
+        position = new Vec3(maxX + 5, 0, minZ + Math.random() * (maxZ - minZ));
+        initialHeading = Math.PI + (Math.random() - 0.5) * Math.PI / 3; // Roughly west
         break;
       case 2: // Top edge, moving down
-        position = new Vec3(minX + Math.random() * (maxX - minX), 0, minZ);
-        velocity = new Vec3((Math.random() - 0.5) * 0.5, 0, 1);
+        position = new Vec3(minX + Math.random() * (maxX - minX), 0, minZ - 5);
+        initialHeading = Math.PI / 2 + (Math.random() - 0.5) * Math.PI / 3; // Roughly south
         break;
       default: // Bottom edge, moving up
-        position = new Vec3(minX + Math.random() * (maxX - minX), 0, maxZ);
-        velocity = new Vec3((Math.random() - 0.5) * 0.5, 0, -1);
+        position = new Vec3(minX + Math.random() * (maxX - minX), 0, maxZ + 5);
+        initialHeading = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI / 3; // Roughly north
         break;
     }
 
     const speed = this.config.speedRange[0] +
                   Math.random() * (this.config.speedRange[1] - this.config.speedRange[0]);
 
-    velocity.normalize();
-    velocity.scale(speed);
+    // Initialize physics
+    const physics = VesselPhysics.createPhysicsState(vesselType);
+    physics.yaw = initialHeading;
+    physics.desiredSpeed = speed;
+
+    // Create initial velocity from heading
+    const velocity = new Vec3(
+      Math.cos(initialHeading) * speed,
+      0,
+      Math.sin(initialHeading) * speed
+    );
+
+    // Generate waypoints for navigation
+    const waypoints = this.generateWaypoints(position, pattern, minX, maxX, minZ, maxZ);
 
     return {
       id,
@@ -156,8 +179,90 @@ export class VesselSystem {
       active: true,
       wakeTrail: [],
       movementPattern: pattern,
-      patternData: this.initializePatternData(pattern, position, velocity)
+      patternData: this.initializePatternData(pattern, position, velocity),
+      physics,
+      vesselType,
+      currentWaypoint: 0,
+      waypoints
     };
+  }
+
+  /**
+   * Generate realistic waypoints for vessel navigation
+   */
+  private generateWaypoints(
+    startPos: Vec3,
+    pattern: MovementPattern,
+    minX: number,
+    maxX: number,
+    minZ: number,
+    maxZ: number
+  ): Vec3[] {
+    const waypoints: Vec3[] = [];
+
+    switch (pattern) {
+      case MovementPattern.STRAIGHT:
+        // Create 2-3 waypoints in roughly the same direction
+        const direction = this.getRandomDirection();
+        for (let i = 1; i <= 3; i++) {
+          const distance = 10 + i * 8;
+          const waypoint = startPos.clone().add(direction.clone().scale(distance));
+          waypoints.push(this.clampToOceanBounds(waypoint, minX, maxX, minZ, maxZ));
+        }
+        break;
+
+      case MovementPattern.CURVED:
+        // Create curved path waypoints
+        const center = startPos.clone().add(new Vec3(
+          (Math.random() - 0.5) * 20,
+          0,
+          (Math.random() - 0.5) * 20
+        ));
+        const radius = 8 + Math.random() * 12;
+        for (let i = 0; i < 5; i++) {
+          const angle = (i / 4) * Math.PI + Math.random() * 0.5;
+          const waypoint = center.clone().add(new Vec3(
+            Math.cos(angle) * radius,
+            0,
+            Math.sin(angle) * radius
+          ));
+          waypoints.push(this.clampToOceanBounds(waypoint, minX, maxX, minZ, maxZ));
+        }
+        break;
+
+      case MovementPattern.RANDOM:
+        // Create random waypoints for wandering
+        for (let i = 0; i < 6; i++) {
+          const waypoint = new Vec3(
+            minX + Math.random() * (maxX - minX),
+            0,
+            minZ + Math.random() * (maxZ - minZ)
+          );
+          waypoints.push(waypoint);
+        }
+        break;
+    }
+
+    return waypoints;
+  }
+
+  /**
+   * Get random direction vector
+   */
+  private getRandomDirection(): Vec3 {
+    const angle = Math.random() * 2 * Math.PI;
+    return new Vec3(Math.cos(angle), 0, Math.sin(angle));
+  }
+
+  /**
+   * Clamp waypoint to ocean bounds
+   */
+  private clampToOceanBounds(waypoint: Vec3, minX: number, maxX: number, minZ: number, maxZ: number): Vec3 {
+    return new Vec3(
+      Math.max(minX, Math.min(maxX, waypoint.x)),
+      0,
+      Math.max(minZ, Math.min(maxZ, waypoint.z))
+    );
   }
 
   /**
@@ -202,71 +307,111 @@ export class VesselSystem {
   }
 
   /**
-   * Update vessel movement based on pattern
+   * Update vessel movement using realistic physics
    */
   private updateVesselMovement(vessel: Vessel, deltaTime: number): void {
+    // Update navigation based on movement pattern
+    this.updateVesselNavigation(vessel);
+
+    // Get ocean state at vessel position (simplified for now)
+    const oceanHeight = 0; // TODO: Get actual ocean height
+    const oceanVelocity = new Vec3(0, 0, 0); // TODO: Get actual ocean velocity
+
+    // Update physics
+    const physicsUpdate = VesselPhysics.updatePhysics(
+      vessel.position,
+      vessel.velocity,
+      vessel.physics,
+      deltaTime,
+      oceanHeight,
+      oceanVelocity
+    );
+
+    // Update vessel state
+    vessel.position = physicsUpdate.position;
+    vessel.velocity = physicsUpdate.velocity;
+    vessel.physics = physicsUpdate.physics;
+    vessel.speed = vessel.velocity.length();
+  }
+
+  /**
+   * Update vessel navigation AI based on movement pattern
+   */
+  private updateVesselNavigation(vessel: Vessel): void {
     switch (vessel.movementPattern) {
       case MovementPattern.STRAIGHT:
-        this.updateStraightMovement(vessel, deltaTime);
+        this.updateStraightNavigation(vessel);
         break;
       case MovementPattern.CURVED:
-        this.updateCurvedMovement(vessel, deltaTime);
+        this.updateCurvedNavigation(vessel);
         break;
       case MovementPattern.RANDOM:
-        this.updateRandomMovement(vessel, deltaTime);
+        this.updateRandomNavigation(vessel);
         break;
     }
   }
 
   /**
-   * Straight line movement
+   * Navigate to waypoints in sequence
    */
-  private updateStraightMovement(vessel: Vessel, deltaTime: number): void {
-    const displacement = vessel.velocity.clone().scale(deltaTime);
-    vessel.position.add(displacement);
+  private updateStraightNavigation(vessel: Vessel): void {
+    if (vessel.waypoints.length === 0) return;
+
+    const currentTarget = vessel.waypoints[vessel.currentWaypoint];
+    const distance = vessel.position.distanceTo(currentTarget);
+
+    if (distance < 3.0) {
+      // Reached waypoint, move to next
+      vessel.currentWaypoint = (vessel.currentWaypoint + 1) % vessel.waypoints.length;
+      currentTarget.copy(vessel.waypoints[vessel.currentWaypoint]);
+    }
+
+    // Set heading toward current waypoint
+    const direction = currentTarget.clone().subtract(vessel.position);
+    const targetHeading = Math.atan2(direction.z, direction.x);
+
+    VesselPhysics.setNavigationTarget(vessel.physics, targetHeading, vessel.physics.desiredSpeed);
   }
 
   /**
-   * Curved movement (circular arcs)
+   * Follow curved path with smooth turns
    */
-  private updateCurvedMovement(vessel: Vessel, deltaTime: number): void {
-    const data = vessel.patternData;
-    const angleChange = data.angularSpeed * deltaTime;
+  private updateCurvedNavigation(vessel: Vessel): void {
+    if (vessel.waypoints.length === 0) return;
 
-    // Rotate velocity around Y axis
-    const cos = Math.cos(angleChange);
-    const sin = Math.sin(angleChange);
-    const newVx = vessel.velocity.x * cos - vessel.velocity.z * sin;
-    const newVz = vessel.velocity.x * sin + vessel.velocity.z * cos;
+    const currentTarget = vessel.waypoints[vessel.currentWaypoint];
+    const distance = vessel.position.distanceTo(currentTarget);
 
-    vessel.velocity.x = newVx;
-    vessel.velocity.z = newVz;
+    if (distance < 4.0) {
+      // Reached waypoint, move to next
+      vessel.currentWaypoint = (vessel.currentWaypoint + 1) % vessel.waypoints.length;
+    }
 
-    // Update position
-    const displacement = vessel.velocity.clone().scale(deltaTime);
-    vessel.position.add(displacement);
+    // Look ahead to next waypoint for smoother turns
+    const nextIndex = (vessel.currentWaypoint + 1) % vessel.waypoints.length;
+    const nextTarget = vessel.waypoints[nextIndex];
+
+    // Weighted direction toward current and next waypoint
+    const currentDir = currentTarget.clone().subtract(vessel.position).normalize();
+    const nextDir = nextTarget.clone().subtract(vessel.position).normalize();
+    const blendedDir = currentDir.scale(0.7).add(nextDir.scale(0.3));
+
+    const targetHeading = Math.atan2(blendedDir.z, blendedDir.x);
+    VesselPhysics.setNavigationTarget(vessel.physics, targetHeading, vessel.physics.desiredSpeed);
   }
 
   /**
-   * Random wandering movement
+   * Wander randomly with occasional direction changes
    */
-  private updateRandomMovement(vessel: Vessel, deltaTime: number): void {
-    const data = vessel.patternData;
+  private updateRandomNavigation(vessel: Vessel): void {
     const time = performance.now() * 0.001;
+    const data = vessel.patternData;
 
-    // Use simple noise-like function for direction changes
-    const noiseX = Math.sin(time * data.changeFrequency + data.noiseOffset) * 0.5;
-    const noiseZ = Math.cos(time * data.changeFrequency * 1.3 + data.noiseOffset + 100) * 0.5;
-
-    // Gradually adjust velocity
-    const targetVel = new Vec3(noiseX, 0, noiseZ).normalize().scale(vessel.speed);
-    const lerpFactor = Math.min(deltaTime * 2, 1);
-
-    vessel.velocity.lerp(targetVel, lerpFactor);
-
-    // Update position
-    const displacement = vessel.velocity.clone().scale(deltaTime);
-    vessel.position.add(displacement);
+    // Change direction occasionally
+    if (Math.floor(time) % 5 === 0 && Math.floor(time * 10) % 10 === 0) {
+      const randomAngle = vessel.physics.yaw + (Math.random() - 0.5) * Math.PI / 2;
+      VesselPhysics.setNavigationTarget(vessel.physics, randomAngle, vessel.physics.desiredSpeed);
+    }
   }
 
   /**
