@@ -42,6 +42,18 @@ float hash21(vec2 p) {
     return fract(p.x * p.y);
 }
 
+// Fast pseudo-random for glass distortion (cheaper than full noise)
+float cheapNoise(vec2 p) {
+    return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+// Quick directional noise for glass gradients
+vec2 gradientNoise(vec2 p) {
+    float n = cheapNoise(p);
+    float angle = n * 6.28318; // 2 * PI
+    return vec2(cos(angle), sin(angle)) * (n - 0.5) * 2.0;
+}
+
 // Improved noise function
 float noise(vec2 p) {
     vec2 i = floor(p);
@@ -310,6 +322,20 @@ float getAllVesselWakes(vec2 pos, float time) {
 vec2 getGlassDistortion(vec2 screenPos, float time) {
     if (!u_glassEnabled || u_glassPanelCount == 0) return vec2(0.0);
 
+    // Early bounds check across all panels before expensive calculations
+    bool inAnyPanel = false;
+    for (int i = 0; i < u_glassPanelCount && i < 2; i++) {
+        vec2 delta = abs(screenPos - u_glassPanelPositions[i]);
+        vec2 halfSize = u_glassPanelSizes[i] * 0.5;
+        if (delta.x < halfSize.x * 0.7 && delta.y < halfSize.y * 0.7) {
+            inAnyPanel = true;
+            break;
+        }
+    }
+
+    // Early exit if not in any panel region
+    if (!inAnyPanel) return vec2(0.0);
+
     vec2 totalDistortion = vec2(0.0);
 
     for (int i = 0; i < u_glassPanelCount && i < 2; i++) {
@@ -325,41 +351,52 @@ vec2 getGlassDistortion(vec2 screenPos, float time) {
             // Distance from center for falloff calculations
             float distFromCenter = length(localPos);
 
-            // Liquid flow patterns with multiple frequencies
-            float flow1 = sin(localPos.y * 12.0 + time * 2.5) * cos(localPos.x * 8.0 + time * 1.8);
-            float flow2 = cos(localPos.x * 15.0 + time * 3.2) * sin(localPos.y * 10.0 + time * 2.1);
+            // LOD-based quality reduction (reduce complexity near edges)
+            float lod = smoothstep(0.0, 0.5, distFromCenter);
+            bool isHighQuality = lod < 0.7;
 
-            // Bubble-like distortions using noise
-            float bubbleNoise1 = noise(localPos * 18.0 + time * 0.8);
-            float bubbleNoise2 = noise(localPos * 25.0 - time * 0.6);
+            vec2 liquidDistortion;
 
-            // Create flowing bubble patterns
-            vec2 bubbleOffset = vec2(
-                bubbleNoise1 * sin(time * 1.2),
-                bubbleNoise2 * cos(time * 0.9)
-            ) * 0.3;
+            if (isHighQuality) {
+                // High quality: Full liquid simulation for center regions
+                float flow1 = sin(localPos.y * 12.0 + time * 2.5) * cos(localPos.x * 8.0 + time * 1.8);
+                float flow2 = cos(localPos.x * 15.0 + time * 3.2) * sin(localPos.y * 10.0 + time * 2.1);
 
-            // Ripple effects emanating from center
-            float ripplePhase = distFromCenter * 15.0 - time * 4.0;
-            float ripple = sin(ripplePhase) * exp(-distFromCenter * 2.0) * 0.2;
+                // Bubble-like distortions using cheaper noise
+                float bubbleNoise1 = cheapNoise(localPos * 18.0 + time * 0.8);
+                float bubbleNoise2 = cheapNoise(localPos * 25.0 - time * 0.6);
 
-            // Combine all distortion effects with increased strength
-            vec2 liquidDistortion = vec2(
-                (flow1 + bubbleOffset.x + ripple) * 0.035,
-                (flow2 + bubbleOffset.y + ripple) * 0.035
-            );
+                vec2 bubbleOffset = vec2(
+                    bubbleNoise1 * sin(time * 1.2),
+                    bubbleNoise2 * cos(time * 0.9)
+                ) * 0.3;
 
-            // Refraction-like warping based on local gradient
-            vec2 gradient = vec2(
-                noise(localPos + vec2(0.01, 0.0)) - noise(localPos - vec2(0.01, 0.0)),
-                noise(localPos + vec2(0.0, 0.01)) - noise(localPos - vec2(0.0, 0.01))
-            );
-            liquidDistortion += gradient * 0.025;
+                // Ripple effects
+                float ripplePhase = distFromCenter * 15.0 - time * 4.0;
+                float ripple = sin(ripplePhase) * exp(-distFromCenter * 2.0) * 0.2;
 
-            // Add swirling motion for more dynamic liquid effect
-            float swirl = atan(localPos.y, localPos.x) + time * 0.5;
-            vec2 swirlOffset = vec2(cos(swirl), sin(swirl)) * distFromCenter * 0.01;
-            liquidDistortion += swirlOffset;
+                liquidDistortion = vec2(
+                    (flow1 + bubbleOffset.x + ripple) * 0.035,
+                    (flow2 + bubbleOffset.y + ripple) * 0.035
+                );
+
+                // Refraction-like warping
+                vec2 gradient = gradientNoise(localPos * 50.0 + time * 0.3);
+                liquidDistortion += gradient * 0.015;
+            } else {
+                // Low quality: Simple distortion for edge regions (3x faster)
+                liquidDistortion = vec2(
+                    sin(localPos.x * 8.0 + time * 2.0) * 0.025,
+                    cos(localPos.y * 6.0 + time * 1.5) * 0.025
+                );
+            }
+
+            // Add swirling motion (only in high quality mode for performance)
+            if (isHighQuality) {
+                float swirl = atan(localPos.y, localPos.x) + time * 0.5;
+                vec2 swirlOffset = vec2(cos(swirl), sin(swirl)) * distFromCenter * 0.01;
+                liquidDistortion += swirlOffset;
+            }
 
             // Edge falloff for smooth panel boundaries
             float edgeFade = smoothstep(0.6, 0.4, max(abs(localPos.x), abs(localPos.y)));

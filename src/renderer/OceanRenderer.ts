@@ -50,6 +50,25 @@ export class OceanRenderer {
   private glassRenderer: GlassRenderer | null = null;
   private glassEnabled: boolean = false;
 
+  // Cached panel data for performance
+  private panelCache = {
+    positions: new Float32Array(4), // Reusable buffer for 2 panels * 2 coords
+    sizes: new Float32Array(4),     // Reusable buffer for 2 panels * 2 coords
+    strengths: new Float32Array(2), // Reusable buffer for 2 panels
+    count: 0,
+    lastUpdate: 0,
+    updateInterval: 250, // Update every 250ms instead of every frame
+    dirty: true
+  };
+
+  // Pre-cached DOM elements
+  private cachedElements = {
+    landingPanel: null as HTMLElement | null,
+    appPanel: null as HTMLElement | null,
+    fpsElement: null as HTMLElement | null,
+    elementsInitialized: false
+  };
+
   constructor(config: RenderConfig) {
     this.canvas = config.canvas;
     this.startTime = performance.now();
@@ -161,6 +180,9 @@ export class OceanRenderer {
       if (this.glassRenderer) {
         this.glassRenderer.resizeFramebuffer(canvasWidth, canvasHeight);
       }
+
+      // Mark panel cache as dirty since canvas size changed
+      this.markPanelCacheDirty();
     }
   }
 
@@ -381,10 +403,10 @@ export class OceanRenderer {
       this.frameCount = 0;
       this.lastFpsUpdate = currentTime;
 
-      // Update FPS display if element exists
-      const fpsElement = document.getElementById('fps');
-      if (fpsElement) {
-        fpsElement.textContent = `FPS: ${this.fps}`;
+      // Update FPS display if element exists (using cached reference)
+      this.initializeCachedElements();
+      if (this.cachedElements.fpsElement) {
+        this.cachedElements.fpsElement.textContent = `FPS: ${this.fps}`;
       }
     }
   }
@@ -468,6 +490,16 @@ export class OceanRenderer {
    */
   setGlassEnabled(enabled: boolean): void {
     this.glassEnabled = enabled && this.glassRenderer !== null;
+    if (this.glassEnabled) {
+      this.markPanelCacheDirty();
+    }
+  }
+
+  /**
+   * Mark panel cache as dirty to force update on next frame
+   */
+  public markPanelCacheDirty(): void {
+    this.panelCache.dirty = true;
   }
 
   /**
@@ -485,55 +517,90 @@ export class OceanRenderer {
   }
 
   /**
-   * Get glass panel data for ocean shader
+   * Initialize cached DOM elements for performance
    */
-  private getGlassPanelDataForShader(): { count: number; positions: Float32Array; sizes: Float32Array; strengths: Float32Array } {
-    if (!this.glassEnabled) {
-      return { count: 0, positions: new Float32Array(4), sizes: new Float32Array(4), strengths: new Float32Array(2) };
+  private initializeCachedElements(): void {
+    if (this.cachedElements.elementsInitialized) return;
+
+    this.cachedElements.landingPanel = document.getElementById('landing-panel');
+    this.cachedElements.appPanel = document.getElementById('app-panel');
+    this.cachedElements.fpsElement = document.getElementById('fps');
+    this.cachedElements.elementsInitialized = true;
+  }
+
+  /**
+   * Update panel cache with current panel positions
+   */
+  private updatePanelCache(): void {
+    const now = performance.now();
+
+    // Skip update if not dirty and within update interval
+    if (!this.panelCache.dirty && (now - this.panelCache.lastUpdate) < this.panelCache.updateInterval) {
+      return;
     }
 
-    const panels = [];
+    this.initializeCachedElements();
+
     const canvasRect = this.canvas.getBoundingClientRect();
+    let count = 0;
+
+    // Reset arrays (reuse existing buffers)
+    this.panelCache.positions.fill(0);
+    this.panelCache.sizes.fill(0);
+    this.panelCache.strengths.fill(0);
 
     // Check landing panel
-    const landingElement = document.getElementById('landing-panel');
-    if (landingElement && !landingElement.classList.contains('hidden')) {
-      const rect = landingElement.getBoundingClientRect();
+    if (this.cachedElements.landingPanel && !this.cachedElements.landingPanel.classList.contains('hidden')) {
+      const rect = this.cachedElements.landingPanel.getBoundingClientRect();
       const panelData = this.htmlRectToShaderCoords(rect, canvasRect);
-      panels.push({
-        position: panelData.position,
-        size: panelData.size,
-        strength: 2.0 // Strong distortion for landing panel
-      });
+
+      this.panelCache.positions[count * 2] = panelData.position[0];
+      this.panelCache.positions[count * 2 + 1] = panelData.position[1];
+      this.panelCache.sizes[count * 2] = panelData.size[0];
+      this.panelCache.sizes[count * 2 + 1] = panelData.size[1];
+      this.panelCache.strengths[count] = 2.0; // Strong distortion for landing panel
+      count++;
     }
 
     // Check app panel
-    const appElement = document.getElementById('app-panel');
-    if (appElement && !appElement.classList.contains('hidden')) {
-      const rect = appElement.getBoundingClientRect();
+    if (this.cachedElements.appPanel && !this.cachedElements.appPanel.classList.contains('hidden')) {
+      const rect = this.cachedElements.appPanel.getBoundingClientRect();
       const panelData = this.htmlRectToShaderCoords(rect, canvasRect);
-      panels.push({
-        position: panelData.position,
-        size: panelData.size,
-        strength: 1.5 // Medium distortion for app panel
-      });
+
+      this.panelCache.positions[count * 2] = panelData.position[0];
+      this.panelCache.positions[count * 2 + 1] = panelData.position[1];
+      this.panelCache.sizes[count * 2] = panelData.size[0];
+      this.panelCache.sizes[count * 2 + 1] = panelData.size[1];
+      this.panelCache.strengths[count] = 1.5; // Medium distortion for app panel
+      count++;
     }
 
-    // Convert to shader format (max 2 panels)
-    const count = Math.min(panels.length, 2);
-    const positions = new Float32Array(4); // 2 panels * 2 coords
-    const sizes = new Float32Array(4); // 2 panels * 2 coords
-    const strengths = new Float32Array(2); // 2 panels
+    this.panelCache.count = count;
+    this.panelCache.lastUpdate = now;
+    this.panelCache.dirty = false;
+  }
 
-    for (let i = 0; i < count; i++) {
-      positions[i * 2] = panels[i].position[0];
-      positions[i * 2 + 1] = panels[i].position[1];
-      sizes[i * 2] = panels[i].size[0];
-      sizes[i * 2 + 1] = panels[i].size[1];
-      strengths[i] = panels[i].strength;
+  /**
+   * Get glass panel data for ocean shader (optimized)
+   */
+  private getGlassPanelDataForShader(): { count: number; positions: Float32Array; sizes: Float32Array; strengths: Float32Array } {
+    if (!this.glassEnabled) {
+      return {
+        count: 0,
+        positions: this.panelCache.positions,
+        sizes: this.panelCache.sizes,
+        strengths: this.panelCache.strengths
+      };
     }
 
-    return { count, positions, sizes, strengths };
+    this.updatePanelCache();
+
+    return {
+      count: this.panelCache.count,
+      positions: this.panelCache.positions,
+      sizes: this.panelCache.sizes,
+      strengths: this.panelCache.strengths
+    };
   }
 
   /**
