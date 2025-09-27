@@ -135,7 +135,7 @@ class OceanApp {
           // Cycle through debug modes
           if (this.renderer) {
             const currentMode = this.renderer.getDebugMode();
-            const nextMode = (currentMode + 1) % 5; // 0-4 debug modes (added wake debug)
+            const nextMode = (currentMode + 1) % 9; // 0-8 debug modes (added performance LOD debug mode)
             this.renderer.setDebugMode(nextMode);
             this.updateDebugInfo(nextMode);
           }
@@ -157,11 +157,15 @@ class OceanApp {
             this.updateGlassInfo(!isEnabled);
           }
           break;
+        case '0':
         case '1':
         case '2':
         case '3':
         case '4':
-        case '0':
+        case '5':
+        case '6':
+        case '7':
+        case '8':
           // Direct debug mode selection
           if (this.renderer) {
             const mode = parseInt(event.key);
@@ -177,7 +181,7 @@ class OceanApp {
     console.log('  F - Toggle fullscreen');
     console.log('  Escape - Exit fullscreen');
     console.log('  D - Cycle debug modes');
-    console.log('  0-4 - Select debug mode directly');
+    console.log('  0-8 - Select debug mode directly');
     console.log('  V - Toggle vessel wake system');
     console.log('  G - Toggle glass panel rendering');
     console.log('  Space - Reserved for future controls');
@@ -189,7 +193,10 @@ class OceanApp {
   private updateDebugInfo(mode: number): void {
     const infoElement = document.getElementById('info');
     if (infoElement) {
-      const modeNames = ['Normal', 'UV Coords', 'Wave Height', 'Normals', 'Wake Map'];
+      const modeNames = [
+        'Normal', 'UV Coords', 'Wave Height', 'Normals', 'Wake Map',
+        'Glass Distance Field', 'Glass Distortion', 'Glass Flow Vectors', 'Performance LOD'
+      ];
       const modeName = modeNames[mode] || 'Unknown';
 
       // Update the existing info or add debug info
