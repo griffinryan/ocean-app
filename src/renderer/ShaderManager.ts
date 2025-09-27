@@ -188,7 +188,7 @@ export class ShaderManager {
    * Clean up all shader programs
    */
   dispose(): void {
-    for (const [name, shaderProgram] of this.programs) {
+    for (const [, shaderProgram] of this.programs) {
       this.gl.deleteProgram(shaderProgram.program);
     }
     this.programs.clear();
