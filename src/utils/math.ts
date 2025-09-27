@@ -26,6 +26,35 @@ export class Vec3 {
       this.x * other.y - this.y * other.x
     );
   }
+
+  clone(): Vec3 {
+    return new Vec3(this.x, this.y, this.z);
+  }
+
+  add(other: Vec3): Vec3 {
+    this.x += other.x;
+    this.y += other.y;
+    this.z += other.z;
+    return this;
+  }
+
+  scale(scalar: number): Vec3 {
+    this.x *= scalar;
+    this.y *= scalar;
+    this.z *= scalar;
+    return this;
+  }
+
+  lerp(target: Vec3, factor: number): Vec3 {
+    this.x += (target.x - this.x) * factor;
+    this.y += (target.y - this.y) * factor;
+    this.z += (target.z - this.z) * factor;
+    return this;
+  }
+
+  length(): number {
+    return Math.sqrt(this.x * this.x + this.y * this.y + this.z * this.z);
+  }
 }
 
 export class Mat4 {
@@ -140,4 +169,210 @@ export function clamp(value: number, min: number, max: number): number {
 
 export function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
+}
+
+export interface SplineControlPoint {
+  position: number;
+  value: number;
+  tangent?: number;
+}
+
+/**
+ * Cubic Hermite spline for smooth wake decay interpolation
+ */
+export class CubicSpline {
+  private controlPoints: SplineControlPoint[];
+
+  constructor(points: SplineControlPoint[]) {
+    this.controlPoints = [...points].sort((a, b) => a.position - b.position);
+
+    // Auto-calculate tangents if not provided
+    this.autoCalculateTangents();
+  }
+
+  private autoCalculateTangents(): void {
+    for (let i = 0; i < this.controlPoints.length; i++) {
+      if (this.controlPoints[i].tangent !== undefined) continue;
+
+      let tangent = 0;
+      if (i === 0 && this.controlPoints.length > 1) {
+        // First point: use slope to next point
+        tangent = (this.controlPoints[i + 1].value - this.controlPoints[i].value) /
+                  (this.controlPoints[i + 1].position - this.controlPoints[i].position);
+      } else if (i === this.controlPoints.length - 1 && i > 0) {
+        // Last point: use slope from previous point
+        tangent = (this.controlPoints[i].value - this.controlPoints[i - 1].value) /
+                  (this.controlPoints[i].position - this.controlPoints[i - 1].position);
+      } else if (i > 0 && i < this.controlPoints.length - 1) {
+        // Middle points: use average of adjacent slopes
+        const leftSlope = (this.controlPoints[i].value - this.controlPoints[i - 1].value) /
+                         (this.controlPoints[i].position - this.controlPoints[i - 1].position);
+        const rightSlope = (this.controlPoints[i + 1].value - this.controlPoints[i].value) /
+                          (this.controlPoints[i + 1].position - this.controlPoints[i].position);
+        tangent = (leftSlope + rightSlope) * 0.5;
+      }
+
+      this.controlPoints[i].tangent = tangent;
+    }
+  }
+
+  evaluate(t: number): number {
+    if (this.controlPoints.length === 0) return 0;
+    if (this.controlPoints.length === 1) return this.controlPoints[0].value;
+
+    // Clamp to bounds
+    if (t <= this.controlPoints[0].position) return this.controlPoints[0].value;
+    if (t >= this.controlPoints[this.controlPoints.length - 1].position) {
+      return this.controlPoints[this.controlPoints.length - 1].value;
+    }
+
+    // Find the segment
+    let i = 0;
+    while (i < this.controlPoints.length - 1 && this.controlPoints[i + 1].position < t) {
+      i++;
+    }
+
+    const p0 = this.controlPoints[i];
+    const p1 = this.controlPoints[i + 1];
+
+    // Normalize t to [0, 1] within this segment
+    const segmentT = (t - p0.position) / (p1.position - p0.position);
+
+    // Cubic Hermite interpolation
+    const t2 = segmentT * segmentT;
+    const t3 = t2 * segmentT;
+
+    const h00 = 2 * t3 - 3 * t2 + 1;
+    const h10 = t3 - 2 * t2 + segmentT;
+    const h01 = -2 * t3 + 3 * t2;
+    const h11 = t3 - t2;
+
+    const dt = p1.position - p0.position;
+
+    return h00 * p0.value +
+           h10 * dt * (p0.tangent || 0) +
+           h01 * p1.value +
+           h11 * dt * (p1.tangent || 0);
+  }
+}
+
+/**
+ * Mexican Hat wavelet function for natural amplitude modulation
+ */
+export class WaveletTransform {
+  static mexicanHat(x: number, sigma: number = 1.0): number {
+    const normalized = x / sigma;
+    const x2 = normalized * normalized;
+    return (1 - x2) * Math.exp(-x2 * 0.5);
+  }
+
+  static mexicanHatDerivative(x: number, sigma: number = 1.0): number {
+    const normalized = x / sigma;
+    const x2 = normalized * normalized;
+    return (-3 * normalized + normalized * x2) * Math.exp(-x2 * 0.5) / sigma;
+  }
+
+  /**
+   * Apply wavelet-based amplitude modulation
+   */
+  static applyWaveletDecay(distance: number, maxDistance: number, sigma: number = 0.3): number {
+    const normalizedDistance = distance / maxDistance;
+    return Math.max(0, this.mexicanHat(normalizedDistance, sigma));
+  }
+}
+
+/**
+ * 2D shear transformation for progressive wake spreading
+ */
+export class ShearTransform2D {
+  static applyShear(point: Vec3, shearMatrix: number[]): Vec3 {
+    // Apply 2D shear transformation matrix to XZ plane
+    const newX = shearMatrix[0] * point.x + shearMatrix[1] * point.z;
+    const newZ = shearMatrix[2] * point.x + shearMatrix[3] * point.z;
+    return new Vec3(newX, point.y, newZ);
+  }
+
+  /**
+   * Create progressive shear matrix for wake spreading
+   */
+  static createProgressiveShearMatrix(distance: number, shearRate: number = 0.1): number[] {
+    const shearAmount = shearRate * Math.log(1 + distance);
+    return [
+      1.0, shearAmount,
+      0.0, 1.0
+    ];
+  }
+
+  /**
+   * Calculate dynamic wake angle with progressive shear
+   */
+  static calculateDynamicWakeAngle(baseAngle: number, distance: number, shearRate: number = 0.1): number {
+    return baseAngle * (1.0 + shearRate * Math.log(1 + distance * 0.1));
+  }
+}
+
+/**
+ * B-Spline basis functions for smooth local control
+ */
+export class BSplineBasis {
+  /**
+   * Cubic B-spline basis function
+   */
+  static cubicBasis(t: number, i: number): number {
+    const u = Math.abs(t - i);
+
+    if (u >= 2) return 0;
+
+    if (u < 1) {
+      return (1 - 1.5 * u * u + 0.75 * u * u * u);
+    } else {
+      const u2 = 2 - u;
+      return 0.25 * u2 * u2 * u2;
+    }
+  }
+
+  /**
+   * Evaluate B-spline with given control points
+   */
+  static evaluate(t: number, controlPoints: number[], degree: number = 3): number {
+    let result = 0;
+    const n = controlPoints.length;
+
+    for (let i = 0; i < n; i++) {
+      const basisValue = this.cubicBasis(t * (n - degree), i);
+      result += controlPoints[i] * basisValue;
+    }
+
+    return result;
+  }
+
+  /**
+   * Create smooth decay curve using B-spline
+   */
+  static createDecayCurve(stages: number[]): (t: number) => number {
+    return (t: number) => {
+      const clampedT = clamp(t, 0, 1);
+      return this.evaluate(clampedT, stages);
+    };
+  }
+}
+
+/**
+ * Enhanced wake decay function using spline-wavelet transforms
+ */
+export function createWakeDecayFunction(
+  stages: SplineControlPoint[],
+  waveletSigma: number = 0.3
+): (distance: number, maxDistance: number, weight: number) => number {
+  const spline = new CubicSpline(stages);
+
+  return (distance: number, maxDistance: number, weight: number) => {
+    const normalizedDistance = distance / maxDistance;
+    const splineDecay = spline.evaluate(normalizedDistance);
+    const waveletModulation = WaveletTransform.applyWaveletDecay(distance, maxDistance, waveletSigma);
+
+    // Combine spline and wavelet with weight influence
+    const weightFactor = 1.0 + weight * 0.3;
+    return Math.max(0, splineDecay * waveletModulation * weightFactor);
+  };
 }
