@@ -171,7 +171,7 @@ export class OceanRenderer {
   }
 
   /**
-   * Initialize vessel system with default configuration
+   * Initialize vessel system with enhanced configuration for long curling wakes
    */
   private initializeVesselSystem(): void {
     const vesselConfig: VesselConfig = {
@@ -180,8 +180,18 @@ export class OceanRenderer {
       vesselLifetime: 30000, // 30 seconds vessel lifetime
       speedRange: [2.0, 5.0], // Speed range in units/second
       oceanBounds: [-20, 20, -20, 20], // Ocean bounds [minX, maxX, minZ, maxZ]
-      wakeTrailLength: 200, // Maximum wake trail points
-      wakeDecayTime: 15000 // 15 seconds for wake to decay
+      wakeTrailLength: 150, // Maximum wake trail points (increased from 20)
+      wakeDecayTime: 35000, // 35 seconds for wake to decay (increased from 15)
+      shearRate: 0.15, // Progressive wake curling rate
+      waveletSigma: 0.35, // Wavelet decay spread
+      maxTrailDistance: 80.0, // Maximum trail distance in units
+      splineControlPoints: [
+        { position: 0.0, value: 1.0, tangent: -0.5 }, // Strong start
+        { position: 0.3, value: 0.85, tangent: -0.8 }, // Gentle initial decay
+        { position: 0.6, value: 0.5, tangent: -1.2 }, // Mid-trail fade
+        { position: 0.85, value: 0.2, tangent: -2.0 }, // Rapid final fade
+        { position: 1.0, value: 0.0, tangent: -3.0 } // Complete fade
+      ]
     };
 
     this.vesselSystem = new VesselSystem(vesselConfig);

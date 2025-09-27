@@ -2,7 +2,7 @@
  * Vessel system for managing boat movements and wake generation
  */
 
-import { Vec3 } from '../utils/math';
+import { Vec3, createWakeDecayFunction, SplineControlPoint, ShearTransform2D } from '../utils/math';
 
 export interface Vessel {
   id: string;
@@ -28,6 +28,10 @@ export interface WakePoint {
   velocity: Vec3;
   intensity: number;
   timestamp: number;
+  age: number;
+  splineWeight: number;
+  shearFactor: number;
+  distanceFromVessel: number;
 }
 
 export enum MovementPattern {
@@ -64,6 +68,10 @@ export interface VesselConfig {
   oceanBounds: [number, number, number, number]; // [minX, maxX, minZ, maxZ]
   wakeTrailLength: number;
   wakeDecayTime: number;
+  shearRate: number;
+  waveletSigma: number;
+  maxTrailDistance: number;
+  splineControlPoints: SplineControlPoint[];
 }
 
 export class VesselSystem {
@@ -72,6 +80,7 @@ export class VesselSystem {
   private lastSpawnTime: number = 0;
   private idCounter: number = 0;
   private initialized: boolean = false;
+  private wakeDecayFunction: (distance: number, maxDistance: number, weight: number) => number;
 
   // Vessel class configurations
   private static readonly VESSEL_CLASS_CONFIGS: Record<VesselClass, VesselClassConfig> = {
@@ -104,6 +113,12 @@ export class VesselSystem {
 
   constructor(config: VesselConfig) {
     this.config = config;
+
+    // Initialize enhanced wake decay function
+    this.wakeDecayFunction = createWakeDecayFunction(
+      config.splineControlPoints,
+      config.waveletSigma
+    );
   }
 
   /**
@@ -327,36 +342,80 @@ export class VesselSystem {
 
 
   /**
-   * Add wake trail point - simplified
+   * Add wake trail point with enhanced properties
    */
   private addWakeTrailPoint(vessel: Vessel, currentTime: number): void {
+    // Calculate distance from vessel for the most recent wake point
+    let distanceFromVessel = 0;
+    if (vessel.wakeTrail.length > 0) {
+      const lastPoint = vessel.wakeTrail[vessel.wakeTrail.length - 1];
+      distanceFromVessel = lastPoint.distanceFromVessel + vessel.speed * (currentTime - lastPoint.timestamp) / 1000;
+    }
+
+    // Calculate progressive shear factor
+    const shearFactor = ShearTransform2D.calculateDynamicWakeAngle(
+      1.0, // Base factor
+      distanceFromVessel,
+      this.config.shearRate
+    );
+
+    // Calculate spline weight based on distance along trail
+    const splineWeight = this.wakeDecayFunction(distanceFromVessel, this.config.maxTrailDistance, vessel.weight);
+
     const wakePoint: WakePoint = {
       position: vessel.position.clone(),
       velocity: vessel.velocity.clone(),
-      intensity: 1.0,
-      timestamp: currentTime
+      intensity: splineWeight,
+      timestamp: currentTime,
+      age: 0,
+      splineWeight,
+      shearFactor,
+      distanceFromVessel
     };
 
     vessel.wakeTrail.push(wakePoint);
 
-    // Limit trail length to 20 points for debugging only
-    if (vessel.wakeTrail.length > 20) {
+    // Increase trail length significantly for longer wakes
+    if (vessel.wakeTrail.length > this.config.wakeTrailLength) {
       vessel.wakeTrail.shift();
     }
   }
 
   /**
-   * Clean old wake trail points
+   * Clean old wake trail points with enhanced spline-based decay
    */
   private cleanWakeTrail(vessel: Vessel, currentTime: number): void {
-    vessel.wakeTrail = vessel.wakeTrail.filter(point =>
-      currentTime - point.timestamp < this.config.wakeDecayTime
-    );
-
-    // Update intensities based on age
-    vessel.wakeTrail.forEach(point => {
+    // Filter points that are too old or too far away
+    vessel.wakeTrail = vessel.wakeTrail.filter(point => {
       const age = currentTime - point.timestamp;
-      point.intensity = Math.max(0, 1 - (age / this.config.wakeDecayTime));
+      const isWithinTimeLimit = age < this.config.wakeDecayTime;
+      const isWithinDistanceLimit = point.distanceFromVessel < this.config.maxTrailDistance;
+      return isWithinTimeLimit && isWithinDistanceLimit;
+    });
+
+    // Update wake point properties with enhanced calculations
+    vessel.wakeTrail.forEach(point => {
+      // Update age
+      point.age = currentTime - point.timestamp;
+
+      // Recalculate intensity using spline-wavelet function
+      const timeBasedDecay = Math.max(0, 1 - (point.age / this.config.wakeDecayTime));
+      const distanceBasedDecay = this.wakeDecayFunction(
+        point.distanceFromVessel,
+        this.config.maxTrailDistance,
+        vessel.weight
+      );
+
+      // Combine time and distance decay
+      point.intensity = timeBasedDecay * distanceBasedDecay;
+      point.splineWeight = distanceBasedDecay;
+
+      // Update shear factor for progressive curling
+      point.shearFactor = ShearTransform2D.calculateDynamicWakeAngle(
+        1.0,
+        point.distanceFromVessel,
+        this.config.shearRate
+      );
     });
   }
 

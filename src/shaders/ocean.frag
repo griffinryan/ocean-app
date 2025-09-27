@@ -94,31 +94,56 @@ float waveFrequency(float k) {
 }
 
 
-// Multi-stage decay function for extended trails
-float getTrailDecay(float wakeAge, float weight) {
-    float stage1 = 5.0;  // First 5 seconds - minimal decay
-    float stage2 = 15.0; // Next 10 seconds - gradual decay
-    float stage3 = 30.0; // Final 15 seconds - rapid fade
+// Mexican Hat wavelet function for natural amplitude modulation
+float mexicanHat(float x, float sigma) {
+    float normalized = x / sigma;
+    float x2 = normalized * normalized;
+    return (1.0 - x2) * exp(-x2 * 0.5);
+}
 
-    float decay = 1.0;
+// Cubic Hermite spline interpolation
+float cubicHermite(float t, float p0, float p1, float m0, float m1) {
+    float t2 = t * t;
+    float t3 = t2 * t;
 
-    if (wakeAge < stage1) {
-        // Stage 1: Almost no decay (95-100%)
-        decay = 1.0 - wakeAge * 0.01;
-    } else if (wakeAge < stage2) {
-        // Stage 2: Gradual decay (95% to 30%)
-        float t = (wakeAge - stage1) / (stage2 - stage1);
-        decay = mix(0.95, 0.3, t);
-    } else if (wakeAge < stage3) {
-        // Stage 3: Rapid fade to zero
-        float t = (wakeAge - stage2) / (stage3 - stage2);
-        decay = mix(0.3, 0.0, smoothstep(0.0, 1.0, t));
+    float h00 = 2.0 * t3 - 3.0 * t2 + 1.0;
+    float h10 = t3 - 2.0 * t2 + t;
+    float h01 = -2.0 * t3 + 3.0 * t2;
+    float h11 = t3 - t2;
+
+    return h00 * p0 + h10 * m0 + h01 * p1 + h11 * m1;
+}
+
+// Enhanced spline-wavelet decay function for extended graceful trails
+float getEnhancedTrailDecay(float normalizedDistance, float weight) {
+    // Spline control points for smooth decay curve
+    // Strong start -> gentle initial decay -> mid-trail fade -> rapid final fade -> complete fade
+    float splineDecay = 1.0;
+
+    if (normalizedDistance <= 0.3) {
+        // Stage 1: Strong start to gentle initial decay
+        float t = normalizedDistance / 0.3;
+        splineDecay = cubicHermite(t, 1.0, 0.85, -0.5, -0.8);
+    } else if (normalizedDistance <= 0.6) {
+        // Stage 2: Gentle decay to mid-trail fade
+        float t = (normalizedDistance - 0.3) / 0.3;
+        splineDecay = cubicHermite(t, 0.85, 0.5, -0.8, -1.2);
+    } else if (normalizedDistance <= 0.85) {
+        // Stage 3: Mid-trail to rapid fade
+        float t = (normalizedDistance - 0.6) / 0.25;
+        splineDecay = cubicHermite(t, 0.5, 0.2, -1.2, -2.0);
     } else {
-        decay = 0.0;
+        // Stage 4: Rapid final fade to complete fade
+        float t = (normalizedDistance - 0.85) / 0.15;
+        splineDecay = cubicHermite(t, 0.2, 0.0, -2.0, -3.0);
     }
 
-    // Heavier vessels decay slower
-    return decay * (1.0 + weight * 0.3);
+    // Apply Mexican Hat wavelet for natural amplitude modulation
+    float waveletModulation = mexicanHat(normalizedDistance, 0.35);
+
+    // Combine spline and wavelet with weight influence
+    float weightFactor = 1.0 + weight * 0.3;
+    return max(0.0, splineDecay * waveletModulation * weightFactor);
 }
 
 // Calculate vessel wake contribution using dynamic vessel properties
@@ -133,12 +158,12 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float weight
     // Skip if vessel is stationary
     if (vesselSpeed < 0.1) return 0.0;
 
-    // Extended wake range for longer trails
-    float maxTrailDistance = 50.0 + weight * 20.0; // Up to 70 units for heavy vessels
-    float wakeRange = 15.0 + weight * 10.0 + vesselSpeed * 3.0; // Immediate wake range
+    // Significantly extended wake range for longer, more visible trails
+    float maxTrailDistance = 80.0 + weight * 25.0; // Up to 105 units for heavy vessels
+    float wakeRange = 25.0 + weight * 15.0 + vesselSpeed * 4.0; // Expanded immediate wake range
 
     // Quick rejection for very distant points
-    if (distance > 80.0) return 0.0;
+    if (distance > 120.0) return 0.0;
 
     // Calculate dot product for wake positioning
     float dotProduct = dot(delta, vesselDir);
@@ -162,8 +187,13 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float weight
     // Froude adjustment for speed effects
     float froudeModifier = 1.0 + froudeNumber * 0.2;
 
-    // Combined dynamic angle
-    float dynamicAngle = baseAngle * froudeModifier;
+    // Progressive shear mapping for outward curling
+    // Angle increases logarithmically with distance for natural curling
+    float shearRate = 0.15; // Progressive wake curling rate
+    float progressiveShear = 1.0 + shearRate * log(1.0 + pathDistance * 0.1);
+
+    // Combined dynamic angle with progressive shear
+    float dynamicAngle = baseAngle * froudeModifier * progressiveShear;
 
     // Calculate wake arms with dynamic angle
     vec2 leftArm = rotate2D(vesselDir, dynamicAngle);
@@ -182,29 +212,29 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float weight
         stateIntensity = 0.7 * (1.0 - fadeFactor);
     }
 
-    // Dynamic wake amplitude based on weight and speed
-    float baseAmplitude = vesselSpeed * (0.08 + weight * 0.12) * stateIntensity;
+    // Enhanced dynamic wake amplitude with increased intensity
+    float baseAmplitude = vesselSpeed * (0.15 + weight * 0.25) * stateIntensity; // Increased for visibility
 
-    // Decay slower for heavier vessels
-    float decayRate = 0.08 - weight * 0.04; // Range: 0.04-0.08
-    float decay = exp(-distance * decayRate);
+    // Enhanced spline-wavelet decay for graceful trail fading
+    float normalizedPathDistance = min(pathDistance / maxTrailDistance, 1.0);
+    float enhancedDecay = getEnhancedTrailDecay(normalizedPathDistance, weight);
 
-    // Smooth fade as vessel approaches edge of wake range
+    // Smooth fade as vessel approaches edge of wake range with expanded transition
     float edgeFade = 1.0;
-    if (distance > wakeRange * 0.7) {
-        // Smooth sigmoid fade from 70% to 100% of range
-        float t = (distance - wakeRange * 0.7) / (wakeRange * 0.3);
+    if (distance > wakeRange * 0.6) {
+        // Expanded smooth transition from 60% to 100% of range
+        float t = (distance - wakeRange * 0.6) / (wakeRange * 0.4);
         edgeFade = 1.0 - smoothstep(0.0, 1.0, t);
     }
 
-    // Use multi-stage trail decay for extended persistence
-    float wakeAge = pathDistance / vesselSpeed;
-    float ageFactor = getTrailDecay(wakeAge, weight);
+    // Combined decay factor using enhanced spline-wavelet function
+    float ageFactor = enhancedDecay;
 
-    // Wake width increases with weight and spreads logarithmically
-    float baseWakeWidth = 1.5 + weight * 2.0; // Range: 1.7-3.5 units
-    float spreadFactor = 1.0 + log(pathDistance + 1.0) * 0.2;
-    float effectiveWidth = baseWakeWidth * spreadFactor;
+    // Enhanced wake width with progressive spreading for curling effect
+    float baseWakeWidth = 2.0 + weight * 3.0; // Increased range: 2.0-5.0 units for visibility
+    float spreadFactor = 1.0 + log(pathDistance + 1.0) * 0.3; // Enhanced spreading
+    float curlSpread = 1.0 + progressiveShear * 0.2; // Additional spreading from curling
+    float effectiveWidth = baseWakeWidth * spreadFactor * curlSpread;
 
     float wakeHeight = 0.0;
 
@@ -215,9 +245,9 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float weight
     if (leftDist < effectiveWidth) {
         float armIntensity = smoothstep(effectiveWidth, effectiveWidth * 0.3, leftDist);
 
-        // Multiple wave components with golden ratio relationships
-        for (int j = 0; j < 2; j++) {
-            float wavelength = (2.0 + vesselSpeed * 0.4) * pow(phi, float(j) * 0.5);
+        // Enhanced wave components with more layers for richer wake patterns
+        for (int j = 0; j < 3; j++) {
+            float wavelength = (2.5 + vesselSpeed * 0.5) * pow(phi, float(j) * 0.4);
             float k = waveNumber(wavelength);
             float omega = waveFrequency(k);
 
@@ -225,7 +255,9 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float weight
             float phase = k * pathDistance - omega * time + float(j) * 2.39;
             float amplitude = baseAmplitude * pow(0.618, float(j));
 
-            wakeHeight += amplitude * armIntensity * decay * ageFactor * sin(phase);
+            // Apply enhanced decay and curling effects
+            float waveComponent = amplitude * armIntensity * ageFactor * edgeFade * sin(phase);
+            wakeHeight += waveComponent;
         }
     }
 
@@ -233,9 +265,9 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float weight
     if (rightDist < effectiveWidth) {
         float armIntensity = smoothstep(effectiveWidth, effectiveWidth * 0.3, rightDist);
 
-        // Multiple wave components with golden ratio relationships
-        for (int j = 0; j < 2; j++) {
-            float wavelength = (2.0 + vesselSpeed * 0.4) * pow(phi, float(j) * 0.5);
+        // Enhanced wave components with more layers for richer wake patterns
+        for (int j = 0; j < 3; j++) {
+            float wavelength = (2.5 + vesselSpeed * 0.5) * pow(phi, float(j) * 0.4);
             float k = waveNumber(wavelength);
             float omega = waveFrequency(k);
 
@@ -243,12 +275,14 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float weight
             float phase = k * pathDistance - omega * time + float(j) * 2.39;
             float amplitude = baseAmplitude * pow(0.618, float(j));
 
-            wakeHeight += amplitude * armIntensity * decay * ageFactor * sin(phase);
+            // Apply enhanced decay and curling effects
+            float waveComponent = amplitude * armIntensity * ageFactor * edgeFade * sin(phase);
+            wakeHeight += waveComponent;
         }
     }
 
-    // Apply edge fade for smooth transition
-    return wakeHeight * edgeFade;
+    // Enhanced wake intensity multiplier for better visibility
+    return wakeHeight * 1.5; // Increased intensity for clearer wake trails
 }
 
 // Calculate all vessel wake contributions
