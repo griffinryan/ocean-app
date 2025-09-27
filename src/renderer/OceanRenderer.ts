@@ -246,7 +246,12 @@ export class OceanRenderer {
       'u_vesselClasses',
       'u_vesselHullLengths',
       'u_vesselStates',
-      'u_wakesEnabled'
+      'u_wakesEnabled',
+      'u_glassEnabled',
+      'u_glassPanelCount',
+      'u_glassPanelPositions',
+      'u_glassPanelSizes',
+      'u_glassDistortionStrengths'
     ];
 
     const attributes = [
@@ -283,22 +288,13 @@ export class OceanRenderer {
   }
 
   /**
-   * Render ocean scene (for both framebuffer and screen)
+   * Render ocean scene with integrated glass distortion
    */
   private renderOceanScene(elapsedTime: number): void {
     const gl = this.gl;
 
-    // If glass is enabled, first render to framebuffer for distortion
-    if (this.glassEnabled && this.glassRenderer) {
-      this.glassRenderer.captureOceanScene(() => {
-        this.drawOcean(elapsedTime);
-      });
-    }
-
-    // Clear the screen framebuffer
+    // Clear and render ocean with integrated glass distortion
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-    // Render ocean to screen
     this.drawOcean(elapsedTime);
   }
 
@@ -338,6 +334,17 @@ export class OceanRenderer {
       this.shaderManager.setUniform1fv(program, 'u_vesselStates', vesselData.states);
     }
 
+    // Set glass panel uniforms
+    this.shaderManager.setUniform1i(program, 'u_glassEnabled', this.glassEnabled ? 1 : 0);
+    const glassData = this.getGlassPanelDataForShader();
+    this.shaderManager.setUniform1i(program, 'u_glassPanelCount', glassData.count);
+
+    if (glassData.count > 0) {
+      this.shaderManager.setUniform2fv(program, 'u_glassPanelPositions', glassData.positions);
+      this.shaderManager.setUniform2fv(program, 'u_glassPanelSizes', glassData.sizes);
+      this.shaderManager.setUniform1fv(program, 'u_glassDistortionStrengths', glassData.strengths);
+    }
+
     // Bind geometry and render
     this.bufferManager.bind();
     gl.drawElements(gl.TRIANGLES, this.geometry.indexCount, gl.UNSIGNED_SHORT, 0);
@@ -356,13 +363,8 @@ export class OceanRenderer {
     // Update vessel system
     this.vesselSystem.update(currentTime, deltaTime);
 
-    // Render ocean scene
+    // Render ocean scene with integrated glass distortion
     this.renderOceanScene(elapsedTime);
-
-    // Render glass panels if enabled
-    if (this.glassEnabled && this.glassRenderer) {
-      this.glassRenderer.render();
-    }
 
     // Update FPS counter
     this.updateFPS(currentTime);
@@ -480,6 +482,79 @@ export class OceanRenderer {
    */
   getGlassRenderer(): GlassRenderer | null {
     return this.glassRenderer;
+  }
+
+  /**
+   * Get glass panel data for ocean shader
+   */
+  private getGlassPanelDataForShader(): { count: number; positions: Float32Array; sizes: Float32Array; strengths: Float32Array } {
+    if (!this.glassEnabled) {
+      return { count: 0, positions: new Float32Array(4), sizes: new Float32Array(4), strengths: new Float32Array(2) };
+    }
+
+    const panels = [];
+    const canvasRect = this.canvas.getBoundingClientRect();
+
+    // Check landing panel
+    const landingElement = document.getElementById('landing-panel');
+    if (landingElement && !landingElement.classList.contains('hidden')) {
+      const rect = landingElement.getBoundingClientRect();
+      const panelData = this.htmlRectToShaderCoords(rect, canvasRect);
+      panels.push({
+        position: panelData.position,
+        size: panelData.size,
+        strength: 2.0 // Strong distortion for landing panel
+      });
+    }
+
+    // Check app panel
+    const appElement = document.getElementById('app-panel');
+    if (appElement && !appElement.classList.contains('hidden')) {
+      const rect = appElement.getBoundingClientRect();
+      const panelData = this.htmlRectToShaderCoords(rect, canvasRect);
+      panels.push({
+        position: panelData.position,
+        size: panelData.size,
+        strength: 1.5 // Medium distortion for app panel
+      });
+    }
+
+    // Convert to shader format (max 2 panels)
+    const count = Math.min(panels.length, 2);
+    const positions = new Float32Array(4); // 2 panels * 2 coords
+    const sizes = new Float32Array(4); // 2 panels * 2 coords
+    const strengths = new Float32Array(2); // 2 panels
+
+    for (let i = 0; i < count; i++) {
+      positions[i * 2] = panels[i].position[0];
+      positions[i * 2 + 1] = panels[i].position[1];
+      sizes[i * 2] = panels[i].size[0];
+      sizes[i * 2 + 1] = panels[i].size[1];
+      strengths[i] = panels[i].strength;
+    }
+
+    return { count, positions, sizes, strengths };
+  }
+
+  /**
+   * Convert HTML element rect to ocean shader coordinates
+   */
+  private htmlRectToShaderCoords(elementRect: DOMRect, canvasRect: DOMRect): { position: [number, number], size: [number, number] } {
+    // Convert to normalized screen coordinates (-1 to 1)
+    const centerX = ((elementRect.left + elementRect.width / 2) - canvasRect.left) / canvasRect.width * 2.0 - 1.0;
+    const centerY = ((elementRect.top + elementRect.height / 2) - canvasRect.top) / canvasRect.height * 2.0 - 1.0;
+
+    // Flip Y coordinate for WebGL
+    const flippedY = -centerY;
+
+    // Calculate size in screen space
+    const sizeX = elementRect.width / canvasRect.width * 2.0;
+    const sizeY = elementRect.height / canvasRect.height * 2.0;
+
+    return {
+      position: [centerX, flippedY],
+      size: [sizeX, sizeY]
+    };
   }
 
   /**

@@ -17,10 +17,12 @@ uniform float u_refractionIndex;    // Index of refraction for glass
 out vec4 fragColor;
 
 // Glass properties
-const float GLASS_THICKNESS = 0.02;
-const float SURFACE_ROUGHNESS = 0.1;
-const vec3 GLASS_TINT = vec3(0.95, 0.98, 1.0);
-const float FRESNEL_POWER = 2.0;
+const float GLASS_THICKNESS = 0.05;
+const float SURFACE_ROUGHNESS = 0.25;
+const vec3 GLASS_TINT = vec3(0.92, 0.96, 1.0);
+const float FRESNEL_POWER = 1.8;
+const float LIQUID_FLOW_SPEED = 0.4;
+const float DISTORTION_SCALE = 15.0;
 
 // Hash function for noise
 float hash21(vec2 p) {
@@ -44,24 +46,40 @@ float noise(vec2 p) {
     return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
 }
 
-// Calculate normal from height function for glass surface
-vec3 calculateGlassNormal(vec2 uv, float time) {
-    float scale = 8.0;
-    float speed = 0.3;
+// Advanced liquid glass surface calculation with flow
+vec3 calculateLiquidGlassNormal(vec2 uv, float time) {
+    // Multi-scale liquid distortion
+    float flow1 = time * LIQUID_FLOW_SPEED;
+    float flow2 = time * LIQUID_FLOW_SPEED * 1.7;
 
-    // Create subtle surface distortion
-    float h = noise(uv * scale + time * speed) * 0.02;
-    h += noise(uv * scale * 2.0 + time * speed * 1.5) * 0.01;
-    h += noise(uv * scale * 4.0 - time * speed * 0.8) * 0.005;
+    // Create flowing liquid patterns
+    vec2 flowDir1 = vec2(cos(flow1 * 0.8), sin(flow1 * 1.2));
+    vec2 flowDir2 = vec2(cos(flow2 * 1.3), sin(flow2 * 0.9));
 
-    // Calculate gradient for normal
-    float epsilon = 0.001;
-    float hx = noise((uv + vec2(epsilon, 0.0)) * scale + time * speed) * 0.02;
-    float hy = noise((uv + vec2(0.0, epsilon)) * scale + time * speed) * 0.02;
+    // Flowing noise layers for liquid effect
+    float h = noise(uv * DISTORTION_SCALE + flowDir1 * 2.0) * 0.08;
+    h += noise(uv * DISTORTION_SCALE * 1.5 + flowDir2 * 1.5) * 0.05;
+    h += noise(uv * DISTORTION_SCALE * 2.5 + time * 0.6) * 0.03;
+
+    // Add ripple patterns for liquid surface
+    float ripple = sin(length(uv - 0.5) * 20.0 - time * 4.0) * 0.02;
+    h += ripple * exp(-length(uv - 0.5) * 3.0);
+
+    // Voronio-like cell patterns for liquid bubbles
+    vec2 cellUv = uv * 8.0 + time * 0.2;
+    vec2 cellId = floor(cellUv);
+    vec2 cellPos = fract(cellUv);
+    float cellDist = length(cellPos - 0.5);
+    h += (0.5 - cellDist) * 0.01;
+
+    // Calculate enhanced gradient for stronger normal perturbation
+    float epsilon = 0.002;
+    float hx = noise((uv + vec2(epsilon, 0.0)) * DISTORTION_SCALE + flowDir1 * 2.0) * 0.08;
+    float hy = noise((uv + vec2(0.0, epsilon)) * DISTORTION_SCALE + flowDir1 * 2.0) * 0.08;
 
     vec3 normal = normalize(vec3(
-        (h - hx) / epsilon,
-        (h - hy) / epsilon,
+        (h - hx) / epsilon * 2.0,
+        (h - hy) / epsilon * 2.0,
         1.0
     ));
 
@@ -100,8 +118,8 @@ void main() {
         discard;
     }
 
-    // Calculate glass surface normal with subtle animation
-    vec3 glassNormal = calculateGlassNormal(panelUV, v_time);
+    // Calculate liquid glass surface normal with flowing animation
+    vec3 glassNormal = calculateLiquidGlassNormal(panelUV, v_time);
 
     // View direction (looking into the screen)
     vec3 viewDir = vec3(0.0, 0.0, -1.0);
@@ -115,22 +133,39 @@ void main() {
     // Calculate refraction direction
     vec3 refractionDir = calculateRefraction(viewDir, glassNormal, 1.0 / u_refractionIndex);
 
-    // Calculate distorted UV coordinates for sampling ocean texture
+    // Calculate advanced distorted UV coordinates with liquid warping
     vec2 distortedUV = screenUV;
 
     if (length(refractionDir) > 0.0) {
-        // Apply refraction offset
+        // Apply enhanced refraction offset
         vec2 refractionOffset = refractionDir.xy * u_distortionStrength;
 
-        // Add position-dependent distortion based on distance from panel center
+        // Add flowing liquid distortion patterns
+        vec2 liquidOffset = vec2(
+            sin(panelUV.y * 12.0 + v_time * 2.0) * 0.01,
+            cos(panelUV.x * 10.0 + v_time * 1.5) * 0.01
+        );
+
+        // Create bubble-like distortions
+        vec2 bubbleUV = panelUV * 6.0 + v_time * 0.3;
+        vec2 bubbleId = floor(bubbleUV);
+        vec2 bubblePos = fract(bubbleUV);
+        float bubbleDist = length(bubblePos - 0.5);
+        vec2 bubbleOffset = normalize(bubblePos - 0.5) * (0.5 - bubbleDist) * 0.008;
+
+        // Combine all distortion effects
+        vec2 totalOffset = refractionOffset + liquidOffset + bubbleOffset;
+
+        // Add position-dependent distortion with stronger center effects
         vec2 centerOffset = panelUV - 0.5;
         float distanceFromCenter = length(centerOffset);
-        float edgeFalloff = smoothstep(0.3, 0.5, distanceFromCenter);
+        float centerAmplify = 1.0 + (1.0 - distanceFromCenter) * 0.8; // Stronger in center
+        float edgeFalloff = smoothstep(0.4, 0.6, distanceFromCenter);
 
-        // Reduce distortion near edges for realistic glass effect
-        refractionOffset *= (1.0 - edgeFalloff * 0.6);
+        // Apply distortion with center amplification
+        totalOffset *= centerAmplify * (1.0 - edgeFalloff * 0.3);
 
-        distortedUV += refractionOffset;
+        distortedUV += totalOffset;
     }
 
     // Ensure UV coordinates stay within bounds
@@ -142,40 +177,79 @@ void main() {
     // Apply glass tinting
     oceanColor *= GLASS_TINT;
 
-    // Add chromatic aberration for more realistic glass effect
-    float chromaticAberration = u_distortionStrength * 0.003;
+    // Enhanced chromatic aberration for stronger glass effect
+    float chromaticAberration = u_distortionStrength * 0.008;
+    float chromaticFlow = sin(v_time * 1.2) * 0.002;
+
     vec3 chromaticColor = vec3(
-        texture(u_oceanTexture, distortedUV + vec2(chromaticAberration, 0.0)).r,
+        texture(u_oceanTexture, distortedUV + vec2(chromaticAberration + chromaticFlow, 0.0)).r,
         texture(u_oceanTexture, distortedUV).g,
-        texture(u_oceanTexture, distortedUV - vec2(chromaticAberration, 0.0)).b
+        texture(u_oceanTexture, distortedUV - vec2(chromaticAberration - chromaticFlow, 0.0)).b
     );
 
-    // Mix chromatic aberration based on distance from center
+    // Stronger chromatic aberration mixing
     vec2 centerOffset = panelUV - 0.5;
     float distanceFromCenter = length(centerOffset);
-    float chromaticMix = smoothstep(0.2, 0.5, distanceFromCenter);
-    oceanColor = mix(oceanColor, chromaticColor * GLASS_TINT, chromaticMix * 0.3);
+    float chromaticMix = smoothstep(0.1, 0.6, distanceFromCenter);
+    oceanColor = mix(oceanColor, chromaticColor * GLASS_TINT, chromaticMix * 0.6);
 
-    // Add subtle glass surface reflection
-    vec3 reflection = vec3(0.9, 0.95, 1.0) * fresnelReflection * 0.1;
+    // Enhanced glass surface reflection with flow
+    vec3 reflection = vec3(0.85, 0.92, 1.0) * fresnelReflection * 0.15;
 
-    // Calculate edge glow effect
-    float edgeGlow = 1.0 - smoothstep(0.0, 0.1, min(
+    // Add flowing highlights
+    float flowHighlight = sin(panelUV.x * 8.0 + v_time * 3.0) * cos(panelUV.y * 6.0 + v_time * 2.0);
+    reflection += vec3(0.9, 0.95, 1.0) * flowHighlight * 0.03;
+
+    // Enhanced edge glow with liquid-like variation
+    float edgeGlow = 1.0 - smoothstep(0.0, 0.08, min(
         min(panelUV.x, 1.0 - panelUV.x),
         min(panelUV.y, 1.0 - panelUV.y)
     ));
 
-    // Add subtle edge illumination
-    vec3 edgeLight = vec3(1.0, 1.0, 1.0) * edgeGlow * 0.05;
+    // Add pulsing edge effect
+    float edgePulse = 0.5 + 0.5 * sin(v_time * 4.0);
+    edgeGlow *= (0.7 + 0.3 * edgePulse);
 
-    // Combine all effects
-    vec3 finalColor = oceanColor + reflection + edgeLight;
+    // Stronger edge illumination with blue tint
+    vec3 edgeLight = vec3(0.8, 0.9, 1.0) * edgeGlow * 0.12;
 
-    // Apply glass opacity based on Fresnel and position
-    float alpha = 0.15 + fresnelReflection * 0.05;
+    // Add caustic light patterns for underwater glass effect
+    vec2 causticUV = panelUV * 3.0 + v_time * 0.1;
+    float caustic1 = sin(causticUV.x * 12.0) * sin(causticUV.y * 8.0);
+    float caustic2 = cos(causticUV.x * 8.0 + v_time * 2.0) * cos(causticUV.y * 10.0 + v_time * 1.5);
+    float causticPattern = (caustic1 + caustic2) * 0.5;
+    causticPattern = max(0.0, causticPattern) * 0.08;
 
-    // Increase opacity near edges for border effect
-    alpha += edgeGlow * 0.1;
+    vec3 causticLight = vec3(0.7, 0.9, 1.0) * causticPattern * fresnelReflection;
+
+    // Add surface imperfections and micro-scratches
+    float scratchPattern = noise(panelUV * 50.0 + v_time * 0.05);
+    scratchPattern = smoothstep(0.4, 0.6, scratchPattern) * 0.02;
+    vec3 scratches = vec3(1.0, 1.0, 1.0) * scratchPattern;
+
+    // Apple-style rim lighting
+    float rimIntensity = pow(1.0 - abs(dot(normalize(vec3(0, 0, 1)), glassNormal)), 2.0);
+    vec3 rimLight = vec3(0.9, 0.95, 1.0) * rimIntensity * 0.1;
+
+    // Depth-based color tinting (thicker glass appears more blue)
+    float depth = length(centerOffset) * GLASS_THICKNESS;
+    vec3 depthTint = mix(vec3(1.0), vec3(0.85, 0.92, 1.0), depth * 2.0);
+
+    // Combine all effects with proper layering
+    vec3 finalColor = oceanColor * depthTint + reflection + edgeLight + causticLight + scratches + rimLight;
+
+    // Enhanced glass opacity with liquid variation
+    float alpha = 0.25 + fresnelReflection * 0.08;
+
+    // Add flowing opacity variation
+    float opacityFlow = sin(panelUV.x * 5.0 + v_time * 1.8) * cos(panelUV.y * 4.0 + v_time * 1.2);
+    alpha += opacityFlow * 0.03;
+
+    // Stronger edge opacity for more visible borders
+    alpha += edgeGlow * 0.15;
+
+    // Add depth-based opacity
+    alpha += depth * 0.1;
 
     fragColor = vec4(finalColor, alpha);
 }

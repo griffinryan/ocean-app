@@ -175,6 +175,13 @@ export class ShaderManager {
     }
   }
 
+  setUniform2fv(program: ShaderProgram, name: string, values: Float32Array): void {
+    const location = program.uniformLocations.get(name);
+    if (location) {
+      this.gl.uniform2fv(location, values);
+    }
+  }
+
   setUniform3fv(program: ShaderProgram, name: string, values: Float32Array): void {
     const location = program.uniformLocations.get(name);
     if (location) {

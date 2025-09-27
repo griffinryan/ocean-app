@@ -20,6 +20,13 @@ uniform float u_vesselHullLengths[5];
 uniform float u_vesselStates[5];
 uniform bool u_wakesEnabled;
 
+// Glass panel uniforms
+uniform bool u_glassEnabled;
+uniform int u_glassPanelCount;
+uniform vec2 u_glassPanelPositions[2];
+uniform vec2 u_glassPanelSizes[2];
+uniform float u_glassDistortionStrengths[2];
+
 out vec4 fragColor;
 
 // Ocean color palette
@@ -299,6 +306,77 @@ float getAllVesselWakes(vec2 pos, float time) {
     return totalWake;
 }
 
+// Calculate liquid glass distortion for screen position
+vec2 getGlassDistortion(vec2 screenPos, float time) {
+    if (!u_glassEnabled || u_glassPanelCount == 0) return vec2(0.0);
+
+    vec2 totalDistortion = vec2(0.0);
+
+    for (int i = 0; i < u_glassPanelCount && i < 2; i++) {
+        vec2 panelCenter = u_glassPanelPositions[i];
+        vec2 panelSize = u_glassPanelSizes[i];
+        float distortionStrength = u_glassDistortionStrengths[i];
+
+        // Convert screen position to panel-relative coordinates
+        vec2 localPos = (screenPos - panelCenter) / panelSize;
+
+        // Check if within panel bounds with some padding for smooth edges
+        if (abs(localPos.x) < 0.6 && abs(localPos.y) < 0.6) {
+            // Distance from center for falloff calculations
+            float distFromCenter = length(localPos);
+
+            // Liquid flow patterns with multiple frequencies
+            float flow1 = sin(localPos.y * 12.0 + time * 2.5) * cos(localPos.x * 8.0 + time * 1.8);
+            float flow2 = cos(localPos.x * 15.0 + time * 3.2) * sin(localPos.y * 10.0 + time * 2.1);
+
+            // Bubble-like distortions using noise
+            float bubbleNoise1 = noise(localPos * 18.0 + time * 0.8);
+            float bubbleNoise2 = noise(localPos * 25.0 - time * 0.6);
+
+            // Create flowing bubble patterns
+            vec2 bubbleOffset = vec2(
+                bubbleNoise1 * sin(time * 1.2),
+                bubbleNoise2 * cos(time * 0.9)
+            ) * 0.3;
+
+            // Ripple effects emanating from center
+            float ripplePhase = distFromCenter * 15.0 - time * 4.0;
+            float ripple = sin(ripplePhase) * exp(-distFromCenter * 2.0) * 0.2;
+
+            // Combine all distortion effects with increased strength
+            vec2 liquidDistortion = vec2(
+                (flow1 + bubbleOffset.x + ripple) * 0.035,
+                (flow2 + bubbleOffset.y + ripple) * 0.035
+            );
+
+            // Refraction-like warping based on local gradient
+            vec2 gradient = vec2(
+                noise(localPos + vec2(0.01, 0.0)) - noise(localPos - vec2(0.01, 0.0)),
+                noise(localPos + vec2(0.0, 0.01)) - noise(localPos - vec2(0.0, 0.01))
+            );
+            liquidDistortion += gradient * 0.025;
+
+            // Add swirling motion for more dynamic liquid effect
+            float swirl = atan(localPos.y, localPos.x) + time * 0.5;
+            vec2 swirlOffset = vec2(cos(swirl), sin(swirl)) * distFromCenter * 0.01;
+            liquidDistortion += swirlOffset;
+
+            // Edge falloff for smooth panel boundaries
+            float edgeFade = smoothstep(0.6, 0.4, max(abs(localPos.x), abs(localPos.y)));
+
+            // Center amplification (stronger distortion in center)
+            float centerAmp = 1.0 + (1.0 - smoothstep(0.0, 0.3, distFromCenter)) * 1.2;
+
+            // Apply all modulation with enhanced strength
+            liquidDistortion *= distortionStrength * edgeFade * centerAmp;
+
+            totalDistortion += liquidDistortion;
+        }
+    }
+
+    return totalDistortion;
+}
+
 
 // Calculate ocean height with visible waves
 float getOceanHeight(vec2 pos, float time) {
@@ -368,6 +446,10 @@ void main() {
     // Convert screen position to ocean coordinates
     vec2 oceanPos = v_screenPos * 15.0; // Scale for wave visibility
     oceanPos.x *= u_aspectRatio; // Maintain aspect ratio
+
+    // Apply glass distortion to ocean sampling position
+    vec2 glassDistortion = getGlassDistortion(v_screenPos, v_time);
+    oceanPos += glassDistortion * 12.0; // Increased scale for dramatic distortion visibility
 
     // Debug mode outputs
     if (u_debugMode == 1) {

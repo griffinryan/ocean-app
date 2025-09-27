@@ -142,26 +142,55 @@ export class GlassRenderer {
   }
 
   /**
-   * Capture ocean scene to texture
+   * Capture ocean scene to texture for glass distortion
    */
   public captureOceanScene(renderOceanCallback: () => void): void {
     const gl = this.gl;
 
-    if (!this.oceanFramebuffer) {
+    if (!this.oceanFramebuffer || !this.oceanTexture) {
       return;
     }
 
-    // Bind framebuffer
+    // Store current viewport
+    const viewport = gl.getParameter(gl.VIEWPORT);
+
+    // Bind framebuffer for rendering
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.oceanFramebuffer);
+
+    // Set viewport to match framebuffer size
+    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
 
     // Clear framebuffer
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-    // Render ocean scene
+    // Render ocean scene to framebuffer
     renderOceanCallback();
 
-    // Unbind framebuffer (render to screen)
+    // Restore screen framebuffer
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+    // Restore viewport
+    gl.viewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+  }
+
+  /**
+   * Copy current screen contents to ocean texture (alternative method)
+   */
+  public copyScreenToTexture(): void {
+    const gl = this.gl;
+
+    if (!this.oceanTexture) {
+      return;
+    }
+
+    // Bind the ocean texture
+    gl.bindTexture(gl.TEXTURE_2D, this.oceanTexture);
+
+    // Copy current framebuffer to texture
+    gl.copyTexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 0, 0, gl.canvas.width, gl.canvas.height, 0);
+
+    // Unbind texture
+    gl.bindTexture(gl.TEXTURE_2D, null);
   }
 
   /**
@@ -255,21 +284,67 @@ export class GlassRenderer {
    * Set up default panel configurations
    */
   public setupDefaultPanels(): void {
-    // Landing panel configuration
+    // Landing panel configuration - centered
     this.addPanel('landing', {
-      position: [0.3, 0.3], // Centered
-      size: [0.4, 0.4],     // 40% of screen
-      distortionStrength: 0.015,
+      position: [0.3, 0.25], // Properly centered position
+      size: [0.4, 0.5],      // Larger size for better visibility
+      distortionStrength: 0.08, // Much stronger distortion
       refractionIndex: 1.52 // Glass refractive index
     });
 
-    // App panel configuration
+    // App panel configuration - top-left
     this.addPanel('app', {
-      position: [0.05, 0.05], // Top-left
-      size: [0.35, 0.25],     // Smaller panel
-      distortionStrength: 0.012,
+      position: [0.05, 0.05], // Top-left position
+      size: [0.35, 0.3],      // Slightly taller panel
+      distortionStrength: 0.06, // Strong distortion
       refractionIndex: 1.52
     });
+  }
+
+  /**
+   * Update panel positions based on HTML element positions
+   */
+  public updatePanelPositions(): void {
+    const canvas = this.gl.canvas as HTMLCanvasElement;
+    const canvasRect = canvas.getBoundingClientRect();
+
+    // Update landing panel position
+    const landingElement = document.getElementById('landing-panel');
+    if (landingElement && !landingElement.classList.contains('hidden')) {
+      const rect = landingElement.getBoundingClientRect();
+      const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
+      this.updatePanel('landing', {
+        position: normalizedPos.position,
+        size: normalizedPos.size
+      });
+    }
+
+    // Update app panel position
+    const appElement = document.getElementById('app-panel');
+    if (appElement && !appElement.classList.contains('hidden')) {
+      const rect = appElement.getBoundingClientRect();
+      const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
+      this.updatePanel('app', {
+        position: normalizedPos.position,
+        size: normalizedPos.size
+      });
+    }
+  }
+
+  /**
+   * Convert HTML element rect to normalized WebGL coordinates
+   */
+  private htmlRectToNormalized(elementRect: DOMRect, canvasRect: DOMRect): { position: [number, number], size: [number, number] } {
+    // Convert to normalized coordinates (0-1 range)
+    const x = (elementRect.left - canvasRect.left) / canvasRect.width;
+    const y = (elementRect.top - canvasRect.top) / canvasRect.height;
+    const width = elementRect.width / canvasRect.width;
+    const height = elementRect.height / canvasRect.height;
+
+    return {
+      position: [x, y],
+      size: [width, height]
+    };
   }
 
   /**

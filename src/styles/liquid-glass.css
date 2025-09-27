@@ -376,6 +376,21 @@ body {
   /* WebGL renderer will add dynamic distortion */
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+
+  /* Ensure proper layering with WebGL canvas */
+  z-index: 150;
+
+  /* Reduce CSS background when WebGL is active */
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.05) 0%,
+    rgba(255, 255, 255, 0.02) 100%
+  );
+
+  /* Add subtle CSS backup effects */
+  box-shadow:
+    var(--glass-shadow),
+    inset 0 1px 1px rgba(255, 255, 255, 0.1);
 }
 
 /* Fallback for browsers without backdrop-filter support */
