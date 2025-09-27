@@ -15,6 +15,9 @@ export interface Vessel {
   spawnTime: number;
   lifetime: number;
   active: boolean;
+  state: VesselState;
+  ghostStartTime?: number;
+  fadeStartTime?: number;
   wakeTrail: WakePoint[];
   movementPattern: MovementPattern;
   patternData: any;
@@ -38,6 +41,12 @@ export enum VesselClass {
   FAST_HEAVY = 1,  // Cargo ship: weight 1.0, speed 3-4
   SLOW_LIGHT = 2,  // Sailboat: weight 0.2, speed 1-2
   SLOW_HEAVY = 3   // Barge: weight 0.8, speed 1-2
+}
+
+export enum VesselState {
+  ACTIVE = 'active',      // Visible on screen
+  GHOST = 'ghost',        // Off-screen but wake persists
+  FADING = 'fading'       // Final fade-out phase
 }
 
 export interface VesselClassConfig {
@@ -134,9 +143,15 @@ export class VesselSystem {
       // Clean old wake trail points
       this.cleanWakeTrail(vessel, currentTime);
 
-      // Check if vessel is out of bounds
-      if (this.isVesselOutOfBounds(vessel)) {
-        this.despawnVessel(id);
+      // Handle vessel state transitions based on bounds and timing
+      this.updateVesselState(vessel, currentTime);
+
+      // Only despawn vessels that have completed fading
+      if (vessel.state === VesselState.FADING) {
+        const fadeDuration = 5000; // 5 seconds smooth fade
+        if (vessel.fadeStartTime && currentTime - vessel.fadeStartTime > fadeDuration) {
+          this.despawnVessel(id);
+        }
       }
     }
   }
@@ -206,6 +221,7 @@ export class VesselSystem {
       spawnTime: currentTime,
       lifetime: this.config.vesselLifetime,
       active: true,
+      state: VesselState.ACTIVE,
       wakeTrail: [],
       movementPattern: pattern,
       patternData: this.initializePatternData(pattern, position, velocity)
@@ -241,6 +257,36 @@ export class VesselSystem {
     }
 
     return VesselClass.FAST_LIGHT;
+  }
+
+  /**
+   * Update vessel state based on bounds and timing
+   */
+  private updateVesselState(vessel: Vessel, currentTime: number): void {
+    switch (vessel.state) {
+      case VesselState.ACTIVE:
+        // Check if vessel should transition to ghost state
+        if (this.isVesselOutOfBounds(vessel)) {
+          vessel.state = VesselState.GHOST;
+          vessel.ghostStartTime = currentTime;
+          console.log(`[VesselSystem] Vessel ${vessel.id} transitioned to GHOST state`);
+        }
+        break;
+
+      case VesselState.GHOST:
+        // Check if ghost duration has elapsed
+        const ghostDuration = 10000; // 10 seconds
+        if (vessel.ghostStartTime && currentTime - vessel.ghostStartTime > ghostDuration) {
+          vessel.state = VesselState.FADING;
+          vessel.fadeStartTime = currentTime;
+          console.log(`[VesselSystem] Vessel ${vessel.id} transitioned to FADING state`);
+        }
+        break;
+
+      case VesselState.FADING:
+        // Fading is handled in the main update loop
+        break;
+    }
   }
 
   /**
@@ -348,22 +394,24 @@ export class VesselSystem {
   /**
    * Get vessel data for shader uniforms (up to maxCount vessels)
    */
-  getVesselDataForShader(maxCount: number = 5): {
+  getVesselDataForShader(maxCount: number = 5, currentTime: number = performance.now()): {
     positions: Float32Array;
     velocities: Float32Array;
     weights: Float32Array;
     classes: Float32Array;
     hullLengths: Float32Array;
+    states: Float32Array;
     count: number;
   } {
-    const activeVessels = this.getActiveVessels().slice(0, maxCount);
+    const allVessels = Array.from(this.vessels.values()).slice(0, maxCount);
     const positions = new Float32Array(maxCount * 3);
     const velocities = new Float32Array(maxCount * 3);
     const weights = new Float32Array(maxCount);
     const classes = new Float32Array(maxCount);
     const hullLengths = new Float32Array(maxCount);
+    const states = new Float32Array(maxCount);
 
-    activeVessels.forEach((vessel, index) => {
+    allVessels.forEach((vessel, index) => {
       const i = index * 3;
       positions[i] = vessel.position.x;
       positions[i + 1] = vessel.position.y;
@@ -376,6 +424,22 @@ export class VesselSystem {
       weights[index] = vessel.weight;
       classes[index] = vessel.vesselClass;
       hullLengths[index] = vessel.hullLength;
+
+      // Encode vessel state as float for shader
+      let stateValue = 0.0; // ACTIVE
+      if (vessel.state === VesselState.GHOST) {
+        stateValue = 1.0;
+      } else if (vessel.state === VesselState.FADING) {
+        // Encode fade progress: 2.0 = start, 3.0 = complete
+        const fadeDuration = 5000;
+        if (vessel.fadeStartTime) {
+          const fadeProgress = Math.min(1.0, (currentTime - vessel.fadeStartTime) / fadeDuration);
+          stateValue = 2.0 + fadeProgress;
+        } else {
+          stateValue = 2.0;
+        }
+      }
+      states[index] = stateValue;
     });
 
     return {
@@ -384,7 +448,8 @@ export class VesselSystem {
       weights,
       classes,
       hullLengths,
-      count: activeVessels.length
+      states,
+      count: allVessels.length
     };
   }
 

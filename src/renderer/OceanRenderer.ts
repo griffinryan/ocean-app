@@ -203,6 +203,7 @@ export class OceanRenderer {
       'u_vesselWeights',
       'u_vesselClasses',
       'u_vesselHullLengths',
+      'u_vesselStates',
       'u_wakesEnabled'
     ];
 
@@ -261,7 +262,7 @@ export class OceanRenderer {
     this.shaderManager.setUniform1i(program, 'u_debugMode', this.debugMode);
 
     // Set vessel wake uniforms
-    const vesselData = this.vesselSystem.getVesselDataForShader(5);
+    const vesselData = this.vesselSystem.getVesselDataForShader(5, currentTime);
     this.shaderManager.setUniform1i(program, 'u_vesselCount', vesselData.count);
     this.shaderManager.setUniform1i(program, 'u_wakesEnabled', this.wakesEnabled ? 1 : 0);
 
@@ -271,6 +272,7 @@ export class OceanRenderer {
       this.shaderManager.setUniform1fv(program, 'u_vesselWeights', vesselData.weights);
       this.shaderManager.setUniform1fv(program, 'u_vesselClasses', vesselData.classes);
       this.shaderManager.setUniform1fv(program, 'u_vesselHullLengths', vesselData.hullLengths);
+      this.shaderManager.setUniform1fv(program, 'u_vesselStates', vesselData.states);
     }
 
     // Debug logging (throttled to avoid spam)

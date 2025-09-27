@@ -17,6 +17,7 @@ uniform vec3 u_vesselVelocities[5];
 uniform float u_vesselWeights[5];
 uniform float u_vesselClasses[5];
 uniform float u_vesselHullLengths[5];
+uniform float u_vesselStates[5];
 uniform bool u_wakesEnabled;
 
 out vec4 fragColor;
@@ -93,8 +94,35 @@ float waveFrequency(float k) {
 }
 
 
+// Multi-stage decay function for extended trails
+float getTrailDecay(float wakeAge, float weight) {
+    float stage1 = 5.0;  // First 5 seconds - minimal decay
+    float stage2 = 15.0; // Next 10 seconds - gradual decay
+    float stage3 = 30.0; // Final 15 seconds - rapid fade
+
+    float decay = 1.0;
+
+    if (wakeAge < stage1) {
+        // Stage 1: Almost no decay (95-100%)
+        decay = 1.0 - wakeAge * 0.01;
+    } else if (wakeAge < stage2) {
+        // Stage 2: Gradual decay (95% to 30%)
+        float t = (wakeAge - stage1) / (stage2 - stage1);
+        decay = mix(0.95, 0.3, t);
+    } else if (wakeAge < stage3) {
+        // Stage 3: Rapid fade to zero
+        float t = (wakeAge - stage2) / (stage3 - stage2);
+        decay = mix(0.3, 0.0, smoothstep(0.0, 1.0, t));
+    } else {
+        decay = 0.0;
+    }
+
+    // Heavier vessels decay slower
+    return decay * (1.0 + weight * 0.3);
+}
+
 // Calculate vessel wake contribution using dynamic vessel properties
-float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float weight, float hullLength, float time) {
+float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float weight, float hullLength, float vesselState, float time) {
     // Get 2D position relative to vessel
     vec2 delta = pos - vesselPos.xz;
     float distance = length(delta);
@@ -105,9 +133,12 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float weight
     // Skip if vessel is stationary
     if (vesselSpeed < 0.1) return 0.0;
 
-    // Dynamic wake range based on vessel weight and speed
-    float wakeRange = 12.0 + weight * 8.0 + vesselSpeed * 2.0;
-    if (distance > wakeRange) return 0.0;
+    // Extended wake range for longer trails
+    float maxTrailDistance = 50.0 + weight * 20.0; // Up to 70 units for heavy vessels
+    float wakeRange = 15.0 + weight * 10.0 + vesselSpeed * 3.0; // Immediate wake range
+
+    // Quick rejection for very distant points
+    if (distance > 80.0) return 0.0;
 
     // Calculate dot product for wake positioning
     float dotProduct = dot(delta, vesselDir);
@@ -118,11 +149,21 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float weight
     // Distance along vessel's path (behind vessel)
     float pathDistance = abs(dotProduct);
 
+    // Early exit if beyond trail range
+    if (pathDistance > maxTrailDistance) return 0.0;
+
     // Calculate Froude number for dynamic wake angle
     float froudeNumber = vesselSpeed / sqrt(GRAVITY * hullLength);
 
-    // Dynamic Kelvin angle based on Froude number
-    float dynamicAngle = KELVIN_ANGLE * (1.0 + froudeNumber * 0.3);
+    // Enhanced wake angle calculation including weight
+    // Base angle increases with weight (heavy vessels push water laterally)
+    float baseAngle = KELVIN_ANGLE * (1.0 + weight * 0.8); // 19.47° to 35°
+
+    // Froude adjustment for speed effects
+    float froudeModifier = 1.0 + froudeNumber * 0.2;
+
+    // Combined dynamic angle
+    float dynamicAngle = baseAngle * froudeModifier;
 
     // Calculate wake arms with dynamic angle
     vec2 leftArm = rotate2D(vesselDir, dynamicAngle);
@@ -132,17 +173,33 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float weight
     float leftDist = abs(dot(delta, vec2(-leftArm.y, leftArm.x)));
     float rightDist = abs(dot(delta, vec2(-rightArm.y, rightArm.x)));
 
+    // Vessel state-based intensity modulation
+    float stateIntensity = 1.0;
+    if (vesselState > 0.5 && vesselState < 1.5) { // Ghost
+        stateIntensity = 0.7;
+    } else if (vesselState > 1.5) { // Fading
+        float fadeFactor = (vesselState - 2.0); // Extract fade progress
+        stateIntensity = 0.7 * (1.0 - fadeFactor);
+    }
+
     // Dynamic wake amplitude based on weight and speed
-    float baseAmplitude = vesselSpeed * (0.08 + weight * 0.12);
+    float baseAmplitude = vesselSpeed * (0.08 + weight * 0.12) * stateIntensity;
 
     // Decay slower for heavier vessels
     float decayRate = 0.08 - weight * 0.04; // Range: 0.04-0.08
     float decay = exp(-distance * decayRate);
 
-    // Persistence longer for heavier vessels
-    float ageDecayRate = 0.15 - weight * 0.08; // Range: 0.07-0.15
+    // Smooth fade as vessel approaches edge of wake range
+    float edgeFade = 1.0;
+    if (distance > wakeRange * 0.7) {
+        // Smooth sigmoid fade from 70% to 100% of range
+        float t = (distance - wakeRange * 0.7) / (wakeRange * 0.3);
+        edgeFade = 1.0 - smoothstep(0.0, 1.0, t);
+    }
+
+    // Use multi-stage trail decay for extended persistence
     float wakeAge = pathDistance / vesselSpeed;
-    float ageFactor = exp(-wakeAge * ageDecayRate);
+    float ageFactor = getTrailDecay(wakeAge, weight);
 
     // Wake width increases with weight and spreads logarithmically
     float baseWakeWidth = 1.5 + weight * 2.0; // Range: 1.7-3.5 units
@@ -190,7 +247,8 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float weight
         }
     }
 
-    return wakeHeight;
+    // Apply edge fade for smooth transition
+    return wakeHeight * edgeFade;
 }
 
 // Calculate all vessel wake contributions
@@ -201,7 +259,7 @@ float getAllVesselWakes(vec2 pos, float time) {
 
     for (int i = 0; i < u_vesselCount && i < 5; i++) {
         totalWake += calculateVesselWake(pos, u_vesselPositions[i], u_vesselVelocities[i],
-                                       u_vesselWeights[i], u_vesselHullLengths[i], time);
+                                       u_vesselWeights[i], u_vesselHullLengths[i], u_vesselStates[i], time);
     }
 
     return totalWake;
