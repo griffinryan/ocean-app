@@ -3,13 +3,19 @@
  */
 
 import { OceanRenderer } from './renderer/OceanRenderer';
+import { PanelManager } from './components/Panel';
+import { Router } from './components/Router';
 
 // Import shaders as strings
-import vertexShader from './shaders/ocean.vert';
-import fragmentShader from './shaders/ocean.frag';
+import oceanVertexShader from './shaders/ocean.vert';
+import oceanFragmentShader from './shaders/ocean.frag';
+import glassVertexShader from './shaders/glass.vert';
+import glassFragmentShader from './shaders/glass.frag';
 
 class OceanApp {
   public renderer: OceanRenderer | null = null;
+  public panelManager: PanelManager | null = null;
+  public router: Router | null = null;
 
   async init(): Promise<void> {
     try {
@@ -19,7 +25,10 @@ class OceanApp {
         throw new Error('Canvas element not found');
       }
 
-      console.log('Initializing Ocean Renderer...');
+      console.log('Initializing Ocean Portfolio...');
+
+      // Initialize UI components first
+      this.initializeUI();
 
       // Create renderer
       this.renderer = new OceanRenderer({
@@ -28,20 +37,68 @@ class OceanApp {
         alpha: false
       });
 
-      // Initialize shaders
-      await this.renderer.initializeShaders(vertexShader, fragmentShader);
+      // Initialize shaders (ocean and glass)
+      await this.renderer.initializeShaders(
+        oceanVertexShader,
+        oceanFragmentShader,
+        glassVertexShader,
+        glassFragmentShader
+      );
 
       // Start rendering
       this.renderer.start();
 
-      console.log('Ocean Renderer initialized successfully!');
+      // Connect UI to glass renderer
+      this.connectUIToRenderer();
+
+      console.log('Ocean Portfolio initialized successfully!');
 
       // Set up keyboard controls for debugging
       this.setupControls();
 
     } catch (error) {
-      console.error('Failed to initialize Ocean Renderer:', error);
+      console.error('Failed to initialize Ocean Portfolio:', error);
       this.showError(error instanceof Error ? error.message : 'Unknown error');
+    }
+  }
+
+  /**
+   * Initialize UI components (panels and router)
+   */
+  private initializeUI(): void {
+    try {
+      // Initialize panel manager
+      this.panelManager = new PanelManager();
+
+      // Initialize router with panel manager
+      this.router = new Router(this.panelManager);
+
+      console.log('UI components initialized successfully!');
+    } catch (error) {
+      console.error('Failed to initialize UI components:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Connect UI components to the WebGL renderer
+   */
+  private connectUIToRenderer(): void {
+    if (!this.renderer || !this.panelManager) {
+      return;
+    }
+
+    // Enable glass rendering if available
+    const glassRenderer = this.renderer.getGlassRenderer();
+    if (glassRenderer) {
+      this.renderer.setGlassEnabled(true);
+
+      // Enable WebGL enhancement on panels
+      this.panelManager.enableWebGLDistortion();
+
+      console.log('UI connected to glass renderer successfully!');
+    } else {
+      console.warn('Glass renderer not available, falling back to CSS-only effects');
     }
   }
 
@@ -91,6 +148,15 @@ class OceanApp {
             this.updateVesselInfo();
           }
           break;
+        case 'g':
+        case 'G':
+          // Toggle glass panel rendering
+          if (this.renderer) {
+            const isEnabled = this.renderer.getGlassEnabled();
+            this.renderer.setGlassEnabled(!isEnabled);
+            this.updateGlassInfo(!isEnabled);
+          }
+          break;
         case '1':
         case '2':
         case '3':
@@ -113,6 +179,7 @@ class OceanApp {
     console.log('  D - Cycle debug modes');
     console.log('  0-4 - Select debug mode directly');
     console.log('  V - Toggle vessel wake system');
+    console.log('  G - Toggle glass panel rendering');
     console.log('  Space - Reserved for future controls');
   }
 
@@ -158,6 +225,24 @@ class OceanApp {
   }
 
   /**
+   * Update glass system info display
+   */
+  private updateGlassInfo(enabled: boolean): void {
+    const infoElement = document.getElementById('info');
+    if (infoElement && this.renderer) {
+      // Update the existing info or add glass info
+      let glassElement = document.getElementById('glass-info');
+      if (!glassElement) {
+        glassElement = document.createElement('div');
+        glassElement.id = 'glass-info';
+        infoElement.appendChild(glassElement);
+      }
+
+      glassElement.innerHTML = `<br>Glass Panels: ${enabled ? 'ON' : 'OFF'}`;
+    }
+  }
+
+  /**
    * Show error message to user
    */
   private showError(message: string): void {
@@ -196,6 +281,16 @@ class OceanApp {
     if (this.renderer) {
       this.renderer.dispose();
       this.renderer = null;
+    }
+
+    if (this.panelManager) {
+      this.panelManager.dispose();
+      this.panelManager = null;
+    }
+
+    if (this.router) {
+      this.router.dispose();
+      this.router = null;
     }
   }
 }
