@@ -170,3 +170,135 @@ export function clamp(value: number, min: number, max: number): number {
 export function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }
+
+export class Vec2 {
+  constructor(public x: number = 0, public y: number = 0) {}
+
+  static create(x: number, y: number): Vec2 {
+    return new Vec2(x, y);
+  }
+
+  normalize(): Vec2 {
+    const len = Math.sqrt(this.x * this.x + this.y * this.y);
+    if (len > 0) {
+      this.x /= len;
+      this.y /= len;
+    }
+    return this;
+  }
+
+  length(): number {
+    return Math.sqrt(this.x * this.x + this.y * this.y);
+  }
+
+  clone(): Vec2 {
+    return new Vec2(this.x, this.y);
+  }
+
+  add(other: Vec2): Vec2 {
+    this.x += other.x;
+    this.y += other.y;
+    return this;
+  }
+
+  scale(scalar: number): Vec2 {
+    this.x *= scalar;
+    this.y *= scalar;
+    return this;
+  }
+}
+
+/**
+ * Cubic B-spline basis function for smooth interpolation
+ * Used for natural wake amplitude decay curves
+ */
+export function cubicBSpline(t: number): number {
+  t = clamp(t, 0, 1);
+
+  if (t < 0.5) {
+    // Rising portion of decay curve
+    return 2 * t * t * (1.5 - t);
+  } else {
+    // Falling portion with smooth transition to zero
+    const u = 1 - t;
+    return 2 * u * u * (1.5 - u);
+  }
+}
+
+/**
+ * Modified Morlet wavelet for natural oscillation decay
+ * Creates realistic wake dissipation envelope
+ */
+export function morletWavelet(t: number, sigma: number = 2.0, omega: number = 5.0): number {
+  if (t < 0) return 1.0;
+
+  const gaussian = Math.exp(-(t * t) / (2 * sigma * sigma));
+  const oscillation = Math.cos(omega * t);
+
+  return gaussian * oscillation;
+}
+
+/**
+ * Progressive shear transform for wake spreading
+ * Applies lateral spreading that increases with distance/time
+ */
+export function shearTransform2D(point: Vec2, shearFactor: number, distance: number): Vec2 {
+  const lambda = shearFactor * Math.log(distance + 1.0);
+
+  return Vec2.create(
+    point.x + lambda * point.y,
+    point.y
+  );
+}
+
+/**
+ * Gaussian falloff function for smooth edge transitions
+ */
+export function gaussianFalloff(distance: number, sigma: number): number {
+  return Math.exp(-(distance * distance) / (2 * sigma * sigma));
+}
+
+/**
+ * Composite wake decay envelope combining spline and wavelet
+ * Used specifically for orphaned wake amplitude reduction
+ */
+export function wakeDecayEnvelope(
+  timeSinceOrphan: number,
+  maxOrphanAge: number = 15.0,
+  waveletSigma: number = 4.0,
+  waveletOmega: number = 3.0
+): number {
+  if (timeSinceOrphan <= 0) return 1.0;
+  if (timeSinceOrphan >= maxOrphanAge) return 0.0;
+
+  const normalizedTime = timeSinceOrphan / maxOrphanAge;
+
+  // Cubic B-spline for smooth amplitude curve
+  const splineDecay = cubicBSpline(normalizedTime);
+
+  // Morlet wavelet for oscillation decay
+  const waveletDecay = Math.max(0, morletWavelet(timeSinceOrphan, waveletSigma, waveletOmega));
+
+  // Smooth fadeout near end of lifetime
+  const fadeout = smoothstep(maxOrphanAge, maxOrphanAge * 0.8, timeSinceOrphan);
+
+  return splineDecay * (0.3 + 0.7 * waveletDecay) * fadeout;
+}
+
+/**
+ * Smooth step function for gradual transitions
+ */
+export function smoothstep(edge0: number, edge1: number, x: number): number {
+  const t = clamp((x - edge0) / (edge1 - edge0), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
+/**
+ * Calculate progressive wake width multiplier for orphaned wakes
+ * Wake spreads laterally over time due to dispersion
+ */
+export function wakeSpreadFactor(timeSinceOrphan: number, baseShearFactor: number = 0.3): number {
+  if (timeSinceOrphan <= 0) return 1.0;
+
+  return 1.0 + baseShearFactor * Math.log(timeSinceOrphan + 1.0);
+}

@@ -2,7 +2,7 @@
  * Vessel system for managing boat movements and wake generation
  */
 
-import { Vec3 } from '../utils/math';
+import { Vec3, wakeDecayEnvelope } from '../utils/math';
 
 export interface Vessel {
   id: string;
@@ -25,6 +25,45 @@ export interface WakePoint {
   velocity: Vec3;
   intensity: number;
   timestamp: number;
+}
+
+export enum WakeState {
+  ACTIVE = 'active',        // Vessel on-screen, generating fresh wake
+  ORPHANED = 'orphaned',    // Vessel off-screen, wake decaying
+  EXPIRED = 'expired'       // Wake fully dissipated
+}
+
+export interface GlobalWakePoint {
+  position: Vec3;
+  velocity: Vec3;
+  intensity: number;
+  timestamp: number;
+  state: WakeState;
+  vesselId: string | null;
+  orphanedTime: number;
+  baseAmplitude: number;
+  vesselWeight: number;
+  vesselClass: VesselClass;
+}
+
+export interface OrphanedWakeData {
+  vesselId: string;
+  lastPosition: Vec3;
+  lastVelocity: Vec3;
+  orphanTime: number;
+  vesselWeight: number;
+  vesselClass: VesselClass;
+  wakePoints: GlobalWakePoint[];
+}
+
+export interface WakeShaderData {
+  positions: Float32Array;
+  velocities: Float32Array;
+  intensities: Float32Array;
+  states: Float32Array;        // 0=active, 1=orphaned
+  orphanTimes: Float32Array;
+  vesselWeights: Float32Array;
+  count: number;
 }
 
 export enum MovementPattern {
@@ -55,6 +94,219 @@ export interface VesselConfig {
   oceanBounds: [number, number, number, number]; // [minX, maxX, minZ, maxZ]
   wakeTrailLength: number;
   wakeDecayTime: number;
+  maxGlobalWakePoints: number;
+  orphanedWakeLifetime: number;
+}
+
+/**
+ * Circular buffer for efficient wake point storage
+ */
+class CircularBuffer<T> {
+  private buffer: (T | null)[];
+  private head: number = 0;
+  private size: number = 0;
+  private capacity: number;
+
+  constructor(capacity: number) {
+    this.capacity = capacity;
+    this.buffer = new Array(capacity).fill(null);
+  }
+
+  push(item: T): void {
+    this.buffer[this.head] = item;
+    this.head = (this.head + 1) % this.capacity;
+    if (this.size < this.capacity) {
+      this.size++;
+    }
+  }
+
+  getAll(): T[] {
+    const result: T[] = [];
+    for (let i = 0; i < this.size; i++) {
+      const index = (this.head - this.size + i + this.capacity) % this.capacity;
+      const item = this.buffer[index];
+      if (item !== null) {
+        result.push(item);
+      }
+    }
+    return result;
+  }
+
+  removeExpired(isExpired: (item: T) => boolean): void {
+    const all = this.getAll();
+    this.clear();
+    for (const item of all) {
+      if (!isExpired(item)) {
+        this.push(item);
+      }
+    }
+  }
+
+  clear(): void {
+    this.buffer.fill(null);
+    this.head = 0;
+    this.size = 0;
+  }
+
+  getSize(): number {
+    return this.size;
+  }
+}
+
+/**
+ * Manages wake trails independent of vessel lifecycle
+ */
+class WakeTrailManager {
+  private globalWakePool: CircularBuffer<GlobalWakePoint>;
+  private orphanedWakes: Map<string, OrphanedWakeData> = new Map();
+  private maxOrphanAge: number;
+
+  constructor(maxWakePoints: number, orphanedWakeLifetime: number, _oceanBounds: [number, number, number, number]) {
+    this.globalWakePool = new CircularBuffer(maxWakePoints);
+    this.maxOrphanAge = orphanedWakeLifetime;
+  }
+
+  /**
+   * Add active wake point from vessel
+   */
+  addActiveWakePoint(vessel: Vessel, currentTime: number): void {
+    const wakePoint: GlobalWakePoint = {
+      position: vessel.position.clone(),
+      velocity: vessel.velocity.clone(),
+      intensity: 1.0,
+      timestamp: currentTime,
+      state: WakeState.ACTIVE,
+      vesselId: vessel.id,
+      orphanedTime: 0,
+      baseAmplitude: vessel.speed * (0.08 + vessel.weight * 0.12),
+      vesselWeight: vessel.weight,
+      vesselClass: vessel.vesselClass
+    };
+
+    this.globalWakePool.push(wakePoint);
+  }
+
+  /**
+   * Called when vessel leaves screen bounds - orphan its wake
+   */
+  orphanVesselWake(vessel: Vessel, currentTime: number): void {
+    console.log(`[WakeTrailManager] Orphaning wake for vessel ${vessel.id}`);
+
+    const orphanedData: OrphanedWakeData = {
+      vesselId: vessel.id,
+      lastPosition: vessel.position.clone(),
+      lastVelocity: vessel.velocity.clone(),
+      orphanTime: currentTime,
+      vesselWeight: vessel.weight,
+      vesselClass: vessel.vesselClass,
+      wakePoints: []
+    };
+
+    // Mark all active wake points from this vessel as orphaned
+    const allWakes = this.globalWakePool.getAll();
+    for (const wake of allWakes) {
+      if (wake.vesselId === vessel.id && wake.state === WakeState.ACTIVE) {
+        wake.state = WakeState.ORPHANED;
+        wake.orphanedTime = currentTime;
+        orphanedData.wakePoints.push(wake);
+      }
+    }
+
+    this.orphanedWakes.set(vessel.id, orphanedData);
+  }
+
+  /**
+   * Update all orphaned wakes with decay physics
+   */
+  updateOrphanedWakes(currentTime: number): void {
+    for (const [vesselId, orphanData] of this.orphanedWakes) {
+      const timeSinceOrphan = currentTime - orphanData.orphanTime;
+
+      // Remove fully expired orphaned wakes
+      if (timeSinceOrphan > this.maxOrphanAge) {
+        this.orphanedWakes.delete(vesselId);
+        continue;
+      }
+
+      // Update intensity for all orphaned wake points
+      for (const wakePoint of orphanData.wakePoints) {
+        if (wakePoint.state === WakeState.ORPHANED) {
+          const pointTimeSinceOrphan = currentTime - wakePoint.orphanedTime;
+
+          // Apply composite decay envelope
+          const decayFactor = wakeDecayEnvelope(pointTimeSinceOrphan, this.maxOrphanAge);
+          wakePoint.intensity = decayFactor;
+
+          // Mark as expired if intensity is too low
+          if (wakePoint.intensity < 0.01) {
+            wakePoint.state = WakeState.EXPIRED;
+          }
+        }
+      }
+    }
+
+    // Clean expired wake points from global pool
+    this.globalWakePool.removeExpired((wake) => wake.state === WakeState.EXPIRED);
+  }
+
+
+  /**
+   * Get all wake data for shader uniforms
+   */
+  getWakeDataForShader(maxCount: number = 200): WakeShaderData {
+    const allWakes = this.globalWakePool.getAll()
+      .filter(wake => wake.state !== WakeState.EXPIRED)
+      .slice(0, maxCount);
+
+    const positions = new Float32Array(maxCount * 3);
+    const velocities = new Float32Array(maxCount * 3);
+    const intensities = new Float32Array(maxCount);
+    const states = new Float32Array(maxCount);
+    const orphanTimes = new Float32Array(maxCount);
+    const vesselWeights = new Float32Array(maxCount);
+
+    allWakes.forEach((wake, index) => {
+      const i = index * 3;
+      positions[i] = wake.position.x;
+      positions[i + 1] = wake.position.y;
+      positions[i + 2] = wake.position.z;
+
+      velocities[i] = wake.velocity.x;
+      velocities[i + 1] = wake.velocity.y;
+      velocities[i + 2] = wake.velocity.z;
+
+      intensities[index] = wake.intensity;
+      states[index] = wake.state === WakeState.ACTIVE ? 0.0 : 1.0;
+      orphanTimes[index] = wake.orphanedTime;
+      vesselWeights[index] = wake.vesselWeight;
+    });
+
+    return {
+      positions,
+      velocities,
+      intensities,
+      states,
+      orphanTimes,
+      vesselWeights,
+      count: allWakes.length
+    };
+  }
+
+  /**
+   * Get statistics for debugging
+   */
+  getStats(): { totalWakes: number; activeWakes: number; orphanedWakes: number; orphanedTrails: number } {
+    const allWakes = this.globalWakePool.getAll();
+    const activeWakes = allWakes.filter(w => w.state === WakeState.ACTIVE).length;
+    const orphanedWakes = allWakes.filter(w => w.state === WakeState.ORPHANED).length;
+
+    return {
+      totalWakes: allWakes.length,
+      activeWakes,
+      orphanedWakes,
+      orphanedTrails: this.orphanedWakes.size
+    };
+  }
 }
 
 export class VesselSystem {
@@ -63,6 +315,7 @@ export class VesselSystem {
   private lastSpawnTime: number = 0;
   private idCounter: number = 0;
   private initialized: boolean = false;
+  private wakeTrailManager: WakeTrailManager;
 
   // Vessel class configurations
   private static readonly VESSEL_CLASS_CONFIGS: Record<VesselClass, VesselClassConfig> = {
@@ -94,7 +347,17 @@ export class VesselSystem {
 
 
   constructor(config: VesselConfig) {
-    this.config = config;
+    this.config = {
+      ...config,
+      maxGlobalWakePoints: config.maxGlobalWakePoints || 500,
+      orphanedWakeLifetime: config.orphanedWakeLifetime || 15.0
+    };
+
+    this.wakeTrailManager = new WakeTrailManager(
+      this.config.maxGlobalWakePoints,
+      this.config.orphanedWakeLifetime,
+      this.config.oceanBounds
+    );
   }
 
   /**
@@ -121,24 +384,25 @@ export class VesselSystem {
 
       // Check if vessel should be despawned
       if (currentTime - vessel.spawnTime > vessel.lifetime) {
-        this.despawnVessel(id);
+        this.despawnVessel(id, currentTime);
         continue;
       }
 
       // Update vessel position based on movement pattern
       this.updateVesselMovement(vessel, deltaTime);
 
-      // Add wake trail point
-      this.addWakeTrailPoint(vessel, currentTime);
+      // Add wake trail point to global system
+      this.wakeTrailManager.addActiveWakePoint(vessel, currentTime);
 
-      // Clean old wake trail points
-      this.cleanWakeTrail(vessel, currentTime);
-
-      // Check if vessel is out of bounds
+      // Check if vessel is out of bounds - orphan its wake if so
       if (this.isVesselOutOfBounds(vessel)) {
-        this.despawnVessel(id);
+        this.wakeTrailManager.orphanVesselWake(vessel, currentTime);
+        this.despawnVessel(id, currentTime);
       }
     }
+
+    // Update orphaned wake trails
+    this.wakeTrailManager.updateOrphanedWakes(currentTime);
   }
 
   /**
@@ -280,39 +544,6 @@ export class VesselSystem {
   }
 
 
-  /**
-   * Add wake trail point - simplified
-   */
-  private addWakeTrailPoint(vessel: Vessel, currentTime: number): void {
-    const wakePoint: WakePoint = {
-      position: vessel.position.clone(),
-      velocity: vessel.velocity.clone(),
-      intensity: 1.0,
-      timestamp: currentTime
-    };
-
-    vessel.wakeTrail.push(wakePoint);
-
-    // Limit trail length to 20 points for debugging only
-    if (vessel.wakeTrail.length > 20) {
-      vessel.wakeTrail.shift();
-    }
-  }
-
-  /**
-   * Clean old wake trail points
-   */
-  private cleanWakeTrail(vessel: Vessel, currentTime: number): void {
-    vessel.wakeTrail = vessel.wakeTrail.filter(point =>
-      currentTime - point.timestamp < this.config.wakeDecayTime
-    );
-
-    // Update intensities based on age
-    vessel.wakeTrail.forEach(point => {
-      const age = currentTime - point.timestamp;
-      point.intensity = Math.max(0, 1 - (age / this.config.wakeDecayTime));
-    });
-  }
 
   /**
    * Check if vessel is out of bounds
@@ -330,11 +561,12 @@ export class VesselSystem {
   /**
    * Despawn vessel
    */
-  private despawnVessel(id: string): void {
+  private despawnVessel(id: string, currentTime: number): void {
     const vessel = this.vessels.get(id);
     if (vessel) {
       vessel.active = false;
       this.vessels.delete(id);
+      console.log(`[VesselSystem] Despawned vessel ${id} at time ${currentTime}`);
     }
   }
 
@@ -388,6 +620,13 @@ export class VesselSystem {
     };
   }
 
+  /**
+   * Get wake trail data for shader uniforms
+   */
+  getWakeDataForShader(maxCount: number = 200): WakeShaderData {
+    return this.wakeTrailManager.getWakeDataForShader(maxCount);
+  }
+
 
   /**
    * Toggle vessel system on/off
@@ -402,11 +641,22 @@ export class VesselSystem {
   /**
    * Get system statistics
    */
-  getStats(): { activeVessels: number; totalWakePoints: number } {
+  getStats(): {
+    activeVessels: number;
+    totalWakePoints: number;
+    activeWakes: number;
+    orphanedWakes: number;
+    orphanedTrails: number;
+  } {
     const activeVessels = this.getActiveVessels().length;
-    const totalWakePoints = Array.from(this.vessels.values())
-      .reduce((sum, vessel) => sum + vessel.wakeTrail.length, 0);
+    const wakeStats = this.wakeTrailManager.getStats();
 
-    return { activeVessels, totalWakePoints };
+    return {
+      activeVessels,
+      totalWakePoints: wakeStats.totalWakes,
+      activeWakes: wakeStats.activeWakes,
+      orphanedWakes: wakeStats.orphanedWakes,
+      orphanedTrails: wakeStats.orphanedTrails
+    };
   }
 }

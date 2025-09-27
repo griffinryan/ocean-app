@@ -181,7 +181,9 @@ export class OceanRenderer {
       speedRange: [2.0, 5.0], // Speed range in units/second
       oceanBounds: [-20, 20, -20, 20], // Ocean bounds [minX, maxX, minZ, maxZ]
       wakeTrailLength: 200, // Maximum wake trail points
-      wakeDecayTime: 15000 // 15 seconds for wake to decay
+      wakeDecayTime: 15000, // 15 seconds for wake to decay
+      maxGlobalWakePoints: 500, // Global wake pool size
+      orphanedWakeLifetime: 15.0 // Orphaned wake lifetime in seconds
     };
 
     this.vesselSystem = new VesselSystem(vesselConfig);
@@ -203,7 +205,14 @@ export class OceanRenderer {
       'u_vesselWeights',
       'u_vesselClasses',
       'u_vesselHullLengths',
-      'u_wakesEnabled'
+      'u_wakesEnabled',
+      'u_wakeCount',
+      'u_wakePositions',
+      'u_wakeVelocities',
+      'u_wakeIntensities',
+      'u_wakeStates',
+      'u_wakeOrphanTimes',
+      'u_wakeVesselWeights'
     ];
 
     const attributes = [
@@ -273,9 +282,23 @@ export class OceanRenderer {
       this.shaderManager.setUniform1fv(program, 'u_vesselHullLengths', vesselData.hullLengths);
     }
 
+    // Set global wake trail uniforms
+    const wakeData = this.vesselSystem.getWakeDataForShader(200);
+    this.shaderManager.setUniform1i(program, 'u_wakeCount', wakeData.count);
+
+    if (wakeData.count > 0) {
+      this.shaderManager.setUniform3fv(program, 'u_wakePositions', wakeData.positions);
+      this.shaderManager.setUniform3fv(program, 'u_wakeVelocities', wakeData.velocities);
+      this.shaderManager.setUniform1fv(program, 'u_wakeIntensities', wakeData.intensities);
+      this.shaderManager.setUniform1fv(program, 'u_wakeStates', wakeData.states);
+      this.shaderManager.setUniform1fv(program, 'u_wakeOrphanTimes', wakeData.orphanTimes);
+      this.shaderManager.setUniform1fv(program, 'u_wakeVesselWeights', wakeData.vesselWeights);
+    }
+
     // Debug logging (throttled to avoid spam)
-    if (Math.floor(elapsedTime) % 2 === 0 && Math.floor(elapsedTime * 10) % 10 === 0) {
-      console.log(`[OceanRenderer] Frame ${Math.floor(elapsedTime)}s: ${vesselData.count} vessels, wakes ${this.wakesEnabled ? 'ON' : 'OFF'}`);
+    if (Math.floor(elapsedTime) % 5 === 0 && Math.floor(elapsedTime * 10) % 10 === 0) {
+      const stats = this.vesselSystem.getStats();
+      console.log(`[OceanRenderer] Frame ${Math.floor(elapsedTime)}s: ${vesselData.count} vessels, ${wakeData.count} wake points (${stats.activeWakes} active, ${stats.orphanedWakes} orphaned), ${stats.orphanedTrails} orphaned trails, wakes ${this.wakesEnabled ? 'ON' : 'OFF'}`);
     }
 
     // Bind geometry and render
@@ -375,7 +398,13 @@ export class OceanRenderer {
   /**
    * Get vessel system statistics
    */
-  getVesselStats(): { activeVessels: number; totalWakePoints: number } {
+  getVesselStats(): {
+    activeVessels: number;
+    totalWakePoints: number;
+    activeWakes: number;
+    orphanedWakes: number;
+    orphanedTrails: number;
+  } {
     return this.vesselSystem.getStats();
   }
 

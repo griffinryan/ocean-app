@@ -19,6 +19,15 @@ uniform float u_vesselClasses[5];
 uniform float u_vesselHullLengths[5];
 uniform bool u_wakesEnabled;
 
+// Global wake trail uniforms
+uniform int u_wakeCount;
+uniform vec3 u_wakePositions[200];
+uniform vec3 u_wakeVelocities[200];
+uniform float u_wakeIntensities[200];
+uniform float u_wakeStates[200];        // 0=active, 1=orphaned
+uniform float u_wakeOrphanTimes[200];
+uniform float u_wakeVesselWeights[200];
+
 out vec4 fragColor;
 
 // Ocean color palette
@@ -90,6 +99,64 @@ float waveNumber(float wavelength) {
 // Deep water dispersion relation: omega = sqrt(g * k)
 float waveFrequency(float k) {
     return sqrt(GRAVITY * k);
+}
+
+// Math functions for orphaned wake decay
+float clampValue(float value, float minVal, float maxVal) {
+    return max(minVal, min(maxVal, value));
+}
+
+float smoothStep(float edge0, float edge1, float x) {
+    float t = clampValue((x - edge0) / (edge1 - edge0), 0.0, 1.0);
+    return t * t * (3.0 - 2.0 * t);
+}
+
+// Cubic B-spline basis function for smooth amplitude decay
+float cubicBSpline(float t) {
+    t = clampValue(t, 0.0, 1.0);
+
+    if (t < 0.5) {
+        return 2.0 * t * t * (1.5 - t);
+    } else {
+        float u = 1.0 - t;
+        return 2.0 * u * u * (1.5 - u);
+    }
+}
+
+// Modified Morlet wavelet for oscillation decay
+float morletWavelet(float t, float sigma, float omega) {
+    if (t < 0.0) return 1.0;
+
+    float gaussian = exp(-(t * t) / (2.0 * sigma * sigma));
+    float oscillation = cos(omega * t);
+
+    return gaussian * oscillation;
+}
+
+// Composite wake decay envelope
+float wakeDecayEnvelope(float timeSinceOrphan, float maxOrphanAge) {
+    if (timeSinceOrphan <= 0.0) return 1.0;
+    if (timeSinceOrphan >= maxOrphanAge) return 0.0;
+
+    float normalizedTime = timeSinceOrphan / maxOrphanAge;
+
+    // Cubic B-spline for smooth amplitude curve
+    float splineDecay = cubicBSpline(normalizedTime);
+
+    // Morlet wavelet for oscillation decay
+    float waveletDecay = max(0.0, morletWavelet(timeSinceOrphan, 4.0, 3.0));
+
+    // Smooth fadeout near end of lifetime
+    float fadeout = smoothStep(maxOrphanAge, maxOrphanAge * 0.8, timeSinceOrphan);
+
+    return splineDecay * (0.3 + 0.7 * waveletDecay) * fadeout;
+}
+
+// Wake spread factor for orphaned wakes
+float wakeSpreadFactor(float timeSinceOrphan, float baseShearFactor) {
+    if (timeSinceOrphan <= 0.0) return 1.0;
+
+    return 1.0 + baseShearFactor * log(timeSinceOrphan + 1.0);
 }
 
 
@@ -193,6 +260,92 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float weight
     return wakeHeight;
 }
 
+// Calculate orphaned wake contribution with decay and spreading
+float calculateOrphanedWakePoint(vec2 pos, vec3 wakePos, vec3 wakeVel, float intensity,
+                                float orphanTime, float vesselWeight, float time) {
+    vec2 delta = pos - wakePos.xz;
+    float distance = length(delta);
+
+    vec2 wakeDir = normalize(wakeVel.xz);
+    float wakeSpeed = length(wakeVel.xz);
+
+    if (wakeSpeed < 0.1) return 0.0;
+
+    // Calculate time since orphaned
+    float timeSinceOrphan = orphanTime > 0.0 ? (time - orphanTime) : 0.0;
+    float maxOrphanAge = 15.0;
+
+    // Apply decay envelope
+    float decayFactor = wakeDecayEnvelope(timeSinceOrphan, maxOrphanAge);
+    float adjustedIntensity = intensity * decayFactor;
+
+    if (adjustedIntensity < 0.01) return 0.0;
+
+    // Calculate wake spreading
+    float baseShearFactor = 0.3;
+    float spreadMultiplier = wakeSpreadFactor(timeSinceOrphan, baseShearFactor);
+
+    // Dynamic wake range with spreading
+    float baseWakeRange = 15.0 + vesselWeight * 10.0;
+    float adjustedRange = baseWakeRange * spreadMultiplier;
+
+    if (distance > adjustedRange) return 0.0;
+
+    // Calculate dot product for wake positioning
+    float dotProduct = dot(delta, wakeDir);
+
+    // Only generate wake behind original position
+    if (dotProduct > 0.0) return 0.0;
+
+    float pathDistance = abs(dotProduct);
+
+    // Enhanced Kelvin angle for heavier vessels
+    float baseAngle = KELVIN_ANGLE;
+    float weightFactor = 1.0 + vesselWeight * 0.5; // Increase angle for heavier vessels
+    float dynamicAngle = baseAngle * weightFactor;
+
+    // Calculate wake arms
+    vec2 leftArm = rotate2D(wakeDir, dynamicAngle);
+    vec2 rightArm = rotate2D(wakeDir, -dynamicAngle);
+
+    // Distance from wake arm lines
+    float leftDist = abs(dot(delta, vec2(-leftArm.y, leftArm.x)));
+    float rightDist = abs(dot(delta, vec2(-rightArm.y, rightArm.x)));
+
+    // Wake width with progressive spreading
+    float baseWidth = 2.0 + vesselWeight * 3.0;
+    float adjustedWidth = baseWidth * spreadMultiplier;
+
+    float wakeHeight = 0.0;
+
+    // Process wake arms with enhanced spreading
+    if (leftDist < adjustedWidth || rightDist < adjustedWidth) {
+        float armIntensity = 0.0;
+
+        if (leftDist < adjustedWidth) {
+            armIntensity += smoothstep(adjustedWidth, adjustedWidth * 0.2, leftDist);
+        }
+        if (rightDist < adjustedWidth) {
+            armIntensity += smoothstep(adjustedWidth, adjustedWidth * 0.2, rightDist);
+        }
+
+        // Enhanced wavelength calculation
+        float wavelength = 3.0 + wakeSpeed * 0.5;
+        float k = waveNumber(wavelength);
+        float omega = waveFrequency(k);
+
+        // Phase calculation with time progression
+        float phase = k * pathDistance - omega * time;
+
+        // Base amplitude adjusted for spreading and decay
+        float baseAmplitude = wakeSpeed * (0.1 + vesselWeight * 0.15) * adjustedIntensity;
+
+        wakeHeight = baseAmplitude * armIntensity * sin(phase);
+    }
+
+    return wakeHeight;
+}
+
 // Calculate all vessel wake contributions
 float getAllVesselWakes(vec2 pos, float time) {
     if (!u_wakesEnabled || u_vesselCount == 0) return 0.0;
@@ -202,6 +355,45 @@ float getAllVesselWakes(vec2 pos, float time) {
     for (int i = 0; i < u_vesselCount && i < 5; i++) {
         totalWake += calculateVesselWake(pos, u_vesselPositions[i], u_vesselVelocities[i],
                                        u_vesselWeights[i], u_vesselHullLengths[i], time);
+    }
+
+    return totalWake;
+}
+
+// Calculate all global wake trail contributions
+float getAllGlobalWakes(vec2 pos, float time) {
+    if (!u_wakesEnabled || u_wakeCount == 0) return 0.0;
+
+    float totalWake = 0.0;
+
+    for (int i = 0; i < u_wakeCount && i < 200; i++) {
+        float wakeState = u_wakeStates[i];
+
+        if (wakeState > 0.5) {
+            // Orphaned wake - apply decay and spreading
+            totalWake += calculateOrphanedWakePoint(
+                pos,
+                u_wakePositions[i],
+                u_wakeVelocities[i],
+                u_wakeIntensities[i],
+                u_wakeOrphanTimes[i],
+                u_wakeVesselWeights[i],
+                time
+            );
+        } else {
+            // Active wake - use standard calculation
+            // Note: Active wakes are primarily handled by vessel-based calculation
+            // This provides backup for any active wake points in the global system
+            totalWake += calculateOrphanedWakePoint(
+                pos,
+                u_wakePositions[i],
+                u_wakeVelocities[i],
+                u_wakeIntensities[i] * 0.8, // Slightly reduced for non-vessel wakes
+                0.0, // No orphan time for active wakes
+                u_wakeVesselWeights[i],
+                time
+            );
+        }
     }
 
     return totalWake;
@@ -230,9 +422,13 @@ float getOceanHeight(vec2 pos, float time) {
     vec2 noisePos = pos * 3.0 + time * 0.2;
     height += fbm(noisePos) * 0.08;
 
-    // Add vessel wake contributions
-    float wakeHeight = getAllVesselWakes(pos, time);
-    height += wakeHeight;
+    // Add vessel wake contributions (active vessels)
+    float vesselWakeHeight = getAllVesselWakes(pos, time);
+    height += vesselWakeHeight;
+
+    // Add global wake trail contributions (including orphaned wakes)
+    float globalWakeHeight = getAllGlobalWakes(pos, time);
+    height += globalWakeHeight;
 
     return height;
 }
@@ -294,10 +490,18 @@ void main() {
         fragColor = vec4(normal * 0.5 + 0.5, 1.0);
         return;
     } else if (u_debugMode == 4) {
-        // Show wake contribution map
-        float wakeContribution = getAllVesselWakes(oceanPos, v_time);
-        float intensity = clamp(abs(wakeContribution) * 5.0, 0.0, 1.0);
-        vec3 wakeColor = mix(vec3(0.0, 0.0, 0.5), vec3(1.0, 1.0, 0.0), intensity);
+        // Show wake contribution map (vessel + global)
+        float vesselWakes = getAllVesselWakes(oceanPos, v_time);
+        float globalWakes = getAllGlobalWakes(oceanPos, v_time);
+
+        float vesselIntensity = clamp(abs(vesselWakes) * 5.0, 0.0, 1.0);
+        float globalIntensity = clamp(abs(globalWakes) * 5.0, 0.0, 1.0);
+
+        // Blue for vessel wakes, yellow for orphaned wakes
+        vec3 vesselColor = vec3(0.0, 0.5, 1.0) * vesselIntensity;
+        vec3 orphanedColor = vec3(1.0, 0.8, 0.0) * globalIntensity;
+
+        vec3 wakeColor = vesselColor + orphanedColor;
         fragColor = vec4(wakeColor, 1.0);
         return;
     }
