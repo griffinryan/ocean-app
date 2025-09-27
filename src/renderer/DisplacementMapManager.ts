@@ -256,10 +256,14 @@ export class DisplacementMapManager {
    * Initialize cellular automata shader programs
    */
   initializeShaders(): void {
-    // The CA update program should already be created by the ShaderManager
-    // in CellularAutomaton's initializeShaders method.
-    // This method can be used for additional shader setup if needed.
-    console.log('[DisplacementMapManager] Shader initialization complete');
+    // Get the CA update program that was created by CellularAutomaton
+    this.caUpdateProgram = this.shaderManager.getProgram('caUpdate') || null;
+
+    if (!this.caUpdateProgram) {
+      console.warn('[DisplacementMapManager] CA update program not found');
+    } else {
+      console.log('[DisplacementMapManager] Shader initialization complete');
+    }
   }
 
   /**

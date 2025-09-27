@@ -49,11 +49,10 @@ export class OceanRenderer {
 
   // Vessel system for wake generation
   private vesselSystem!: VesselSystem;
-  private wakesEnabled: boolean = true;
 
   // Cellular automata wave simulation system
   private cellularAutomaton: CellularAutomaton | null = null;
-  private useCellularAutomaton: boolean = false; // Disabled by default for safety
+  private useCellularAutomaton: boolean = true; // Enabled for unified pipeline
 
   constructor(config: RenderConfig) {
     this.canvas = config.canvas;
@@ -192,9 +191,7 @@ export class OceanRenderer {
       spawnInterval: 8000, // 8 seconds between spawns
       vesselLifetime: 30000, // 30 seconds vessel lifetime
       speedRange: [2.0, 5.0], // Speed range in units/second
-      oceanBounds: [-20, 20, -20, 20], // Ocean bounds [minX, maxX, minZ, maxZ]
-      wakeTrailLength: 200, // Maximum wake trail points
-      wakeDecayTime: 15000 // 15 seconds for wake to decay
+      oceanBounds: [-20, 20, -20, 20] // Ocean bounds [minX, maxX, minZ, maxZ]
     };
 
     this.vesselSystem = new VesselSystem(vesselConfig);
@@ -204,8 +201,6 @@ export class OceanRenderer {
    * Initialize cellular automata wave simulation system
    */
   private initializeCellularAutomaton(): void {
-    if (!this.useCellularAutomaton) return;
-
     try {
       // Create cellular automata configuration
       const caConfig = createDefaultDisplacementConfig();
@@ -237,10 +232,6 @@ export class OceanRenderer {
       'u_aspectRatio',
       'u_resolution',
       'u_debugMode',
-      'u_vesselCount',
-      'u_vesselPositions',
-      'u_vesselVelocities',
-      'u_wakesEnabled',
       'u_useCellularAutomaton',
       'u_displacementTexture',
       'u_velocityTexture',
@@ -316,58 +307,45 @@ export class OceanRenderer {
     // Set debug mode
     this.shaderManager.setUniform1i(program, 'u_debugMode', this.debugMode);
 
-    // Set vessel wake uniforms
-    const vesselData = this.vesselSystem.getVesselDataForShader(5);
-    this.shaderManager.setUniform1i(program, 'u_vesselCount', vesselData.count);
-    this.shaderManager.setUniform1i(program, 'u_wakesEnabled', this.wakesEnabled ? 1 : 0);
+    // Vessel data now flows through cellular automata pipeline
+    const activeVessels = this.vesselSystem.getActiveVessels();
 
     // Debug logging (throttled to avoid spam)
     if (Math.floor(elapsedTime) % 2 === 0 && Math.floor(elapsedTime * 10) % 10 === 0) {
-      console.log(`[OceanRenderer] Frame ${Math.floor(elapsedTime)}s: ${vesselData.count} vessels, wakes ${this.wakesEnabled ? 'ON' : 'OFF'}`);
-    }
-
-    if (vesselData.count > 0) {
-      this.shaderManager.setUniform3fv(program, 'u_vesselPositions', vesselData.positions);
-      this.shaderManager.setUniform3fv(program, 'u_vesselVelocities', vesselData.velocities);
+      console.log(`[OceanRenderer] Frame ${Math.floor(elapsedTime)}s: ${activeVessels.length} vessels via CA pipeline`);
     }
 
     // Set cellular automata uniforms
     this.shaderManager.setUniform1i(program, 'u_useCellularAutomaton', this.useCellularAutomaton ? 1 : 0);
 
-    if (this.useCellularAutomaton && this.cellularAutomaton) {
+    if (this.cellularAutomaton) {
       try {
         const displacementTextures = this.cellularAutomaton.getDisplacementTextures();
 
-        // Verify textures are valid before binding
-        if (displacementTextures.heightCurrent &&
-            displacementTextures.velocity &&
-            displacementTextures.energy &&
-            displacementTextures.foam) {
+        // Always bind textures (they should be initialized with default data)
+        // This prevents shader compilation errors from unbound samplers
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, displacementTextures.heightCurrent);
+        this.shaderManager.setUniform1i(program, 'u_displacementTexture', 0);
 
-          // Bind displacement textures
-          gl.activeTexture(gl.TEXTURE0);
-          gl.bindTexture(gl.TEXTURE_2D, displacementTextures.heightCurrent);
-          this.shaderManager.setUniform1i(program, 'u_displacementTexture', 0);
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, displacementTextures.velocity);
+        this.shaderManager.setUniform1i(program, 'u_velocityTexture', 1);
 
-          gl.activeTexture(gl.TEXTURE1);
-          gl.bindTexture(gl.TEXTURE_2D, displacementTextures.velocity);
-          this.shaderManager.setUniform1i(program, 'u_velocityTexture', 1);
+        gl.activeTexture(gl.TEXTURE2);
+        gl.bindTexture(gl.TEXTURE_2D, displacementTextures.energy);
+        this.shaderManager.setUniform1i(program, 'u_energyTexture', 2);
 
-          gl.activeTexture(gl.TEXTURE2);
-          gl.bindTexture(gl.TEXTURE_2D, displacementTextures.energy);
-          this.shaderManager.setUniform1i(program, 'u_energyTexture', 2);
+        gl.activeTexture(gl.TEXTURE3);
+        gl.bindTexture(gl.TEXTURE_2D, displacementTextures.foam);
+        this.shaderManager.setUniform1i(program, 'u_foamTexture', 3);
 
-          gl.activeTexture(gl.TEXTURE3);
-          gl.bindTexture(gl.TEXTURE_2D, displacementTextures.foam);
-          this.shaderManager.setUniform1i(program, 'u_foamTexture', 3);
-        } else {
-          console.warn('[OceanRenderer] Cellular automata textures not ready, disabling CA');
-          this.useCellularAutomaton = false;
-        }
       } catch (error) {
         console.error('[OceanRenderer] Error binding cellular automata textures:', error);
-        this.useCellularAutomaton = false;
+        // Don't disable CA, but log the error for debugging
       }
+    } else {
+      console.warn('[OceanRenderer] Cellular automaton not initialized');
     }
 
     // Bind geometry and render
@@ -450,24 +428,24 @@ export class OceanRenderer {
   }
 
   /**
-   * Toggle vessel wake system
+   * Toggle vessel system (now purely CA-based)
    */
   toggleWakes(): void {
-    this.wakesEnabled = !this.wakesEnabled;
-    this.vesselSystem.setEnabled(this.wakesEnabled);
+    // Toggle CA system instead since wakes are now handled by CA
+    this.toggleCellularAutomaton();
   }
 
   /**
-   * Get wake system enabled state
+   * Get vessel system enabled state (via CA)
    */
   getWakesEnabled(): boolean {
-    return this.wakesEnabled;
+    return this.useCellularAutomaton;
   }
 
   /**
    * Get vessel system statistics
    */
-  getVesselStats(): { activeVessels: number; totalWakePoints: number } {
+  getVesselStats(): { activeVessels: number } {
     return this.vesselSystem.getStats();
   }
 

@@ -140,7 +140,7 @@ class OceanApp {
         'UV Coords',
         'Wave Height',
         'Normals',
-        'Wake Map',
+        'Vessel Energy',
         'CA Displacement',
         'CA Energy',
         'CA Velocity',
@@ -176,7 +176,7 @@ class OceanApp {
         infoElement.appendChild(vesselElement);
       }
 
-      vesselElement.innerHTML = `<br>Vessel Wakes: ${wakesEnabled ? 'ON' : 'OFF'}<br>Active Vessels: ${stats.activeVessels}<br>Wake Points: ${stats.totalWakePoints}`;
+      vesselElement.innerHTML = `<br>Vessel Wakes: ${wakesEnabled ? 'ON' : 'OFF'}<br>Active Vessels: ${stats.activeVessels}`;
     }
   }
 

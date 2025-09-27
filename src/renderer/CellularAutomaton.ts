@@ -1,8 +1,25 @@
 /**
  * CellularAutomaton - High-level interface for cellular automata wave simulation
  *
- * Manages the cellular automata update cycle and provides tools for
- * injecting energy, analyzing wave patterns, and optimizing performance.
+ * UNIFIED PIPELINE ARCHITECTURE:
+ * This class serves as the single source of truth for all wave dynamics including:
+ * - Ocean base waves and interference patterns
+ * - Vessel wake generation and propagation (via injection points)
+ * - Real-time wave equation solving on GPU
+ * - Energy conservation and dissipation
+ * - Foam generation from energy thresholds
+ *
+ * The pipeline is optimized for future mathematical enhancements:
+ * - Displacement textures use double-buffering for temporal accuracy
+ * - Wave injection system supports complex wake patterns
+ * - Adaptive time stepping maintains performance under varying loads
+ * - All vessel interactions flow through unified CA physics
+ *
+ * Mathematical enhancement readiness:
+ * - 512x512 cellular grid provides high spatial resolution
+ * - RGBA32F textures support high-precision calculations
+ * - Configurable physics constants enable parameter tuning
+ * - Performance metrics enable automatic quality adaptation
  */
 
 import { DisplacementMapManager, DisplacementConfig } from './DisplacementMapManager';
@@ -85,6 +102,7 @@ export class CellularAutomaton {
         ['a_position', 'a_texcoord']
       );
 
+      // Initialize displacement manager shaders after creating the CA program
       this.displacementManager.initializeShaders();
 
       console.log('[CellularAutomaton] Shaders initialized successfully');

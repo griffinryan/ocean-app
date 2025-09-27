@@ -12,16 +12,8 @@ export interface Vessel {
   spawnTime: number;
   lifetime: number;
   active: boolean;
-  wakeTrail: WakePoint[];
   movementPattern: MovementPattern;
   patternData: any;
-}
-
-export interface WakePoint {
-  position: Vec3;
-  velocity: Vec3;
-  intensity: number;
-  timestamp: number;
 }
 
 export enum MovementPattern {
@@ -36,8 +28,6 @@ export interface VesselConfig {
   vesselLifetime: number;
   speedRange: [number, number];
   oceanBounds: [number, number, number, number]; // [minX, maxX, minZ, maxZ]
-  wakeTrailLength: number;
-  wakeDecayTime: number;
 }
 
 export class VesselSystem {
@@ -81,12 +71,6 @@ export class VesselSystem {
 
       // Update vessel position based on movement pattern
       this.updateVesselMovement(vessel, deltaTime);
-
-      // Add wake trail point
-      this.addWakeTrailPoint(vessel, currentTime);
-
-      // Clean old wake trail points
-      this.cleanWakeTrail(vessel, currentTime);
 
       // Check if vessel is out of bounds
       if (this.isVesselOutOfBounds(vessel)) {
@@ -154,7 +138,6 @@ export class VesselSystem {
       spawnTime: currentTime,
       lifetime: this.config.vesselLifetime,
       active: true,
-      wakeTrail: [],
       movementPattern: pattern,
       patternData: this.initializePatternData(pattern, position, velocity)
     };
@@ -270,40 +253,6 @@ export class VesselSystem {
   }
 
   /**
-   * Add wake trail point
-   */
-  private addWakeTrailPoint(vessel: Vessel, currentTime: number): void {
-    const wakePoint: WakePoint = {
-      position: vessel.position.clone(),
-      velocity: vessel.velocity.clone(),
-      intensity: 1.0,
-      timestamp: currentTime
-    };
-
-    vessel.wakeTrail.push(wakePoint);
-
-    // Limit trail length
-    if (vessel.wakeTrail.length > this.config.wakeTrailLength) {
-      vessel.wakeTrail.shift();
-    }
-  }
-
-  /**
-   * Clean old wake trail points
-   */
-  private cleanWakeTrail(vessel: Vessel, currentTime: number): void {
-    vessel.wakeTrail = vessel.wakeTrail.filter(point =>
-      currentTime - point.timestamp < this.config.wakeDecayTime
-    );
-
-    // Update intensities based on age
-    vessel.wakeTrail.forEach(point => {
-      const age = currentTime - point.timestamp;
-      point.intensity = Math.max(0, 1 - (age / this.config.wakeDecayTime));
-    });
-  }
-
-  /**
    * Check if vessel is out of bounds
    */
   private isVesselOutOfBounds(vessel: Vessel): boolean {
@@ -334,79 +283,7 @@ export class VesselSystem {
     return Array.from(this.vessels.values()).filter(vessel => vessel.active);
   }
 
-  /**
-   * Get vessel data for shader uniforms (up to maxCount vessels)
-   */
-  getVesselDataForShader(maxCount: number = 5): {
-    positions: Float32Array;
-    velocities: Float32Array;
-    count: number;
-  } {
-    const activeVessels = this.getActiveVessels().slice(0, maxCount);
-    const positions = new Float32Array(maxCount * 3);
-    const velocities = new Float32Array(maxCount * 3);
-
-    activeVessels.forEach((vessel, index) => {
-      const i = index * 3;
-      positions[i] = vessel.position.x;
-      positions[i + 1] = vessel.position.y;
-      positions[i + 2] = vessel.position.z;
-
-      velocities[i] = vessel.velocity.x;
-      velocities[i + 1] = vessel.velocity.y;
-      velocities[i + 2] = vessel.velocity.z;
-    });
-
-    return {
-      positions,
-      velocities,
-      count: activeVessels.length
-    };
-  }
-
-  /**
-   * Get all wake trail data for shader
-   */
-  getWakeTrailDataForShader(maxPoints: number = 100): {
-    positions: Float32Array;
-    velocities: Float32Array;
-    intensities: Float32Array;
-    count: number;
-  } {
-    const allPoints: WakePoint[] = [];
-
-    for (const vessel of this.vessels.values()) {
-      allPoints.push(...vessel.wakeTrail);
-    }
-
-    // Sort by timestamp (newest first) and limit
-    allPoints.sort((a, b) => b.timestamp - a.timestamp);
-    const limitedPoints = allPoints.slice(0, maxPoints);
-
-    const positions = new Float32Array(maxPoints * 3);
-    const velocities = new Float32Array(maxPoints * 3);
-    const intensities = new Float32Array(maxPoints);
-
-    limitedPoints.forEach((point, index) => {
-      const i = index * 3;
-      positions[i] = point.position.x;
-      positions[i + 1] = point.position.y;
-      positions[i + 2] = point.position.z;
-
-      velocities[i] = point.velocity.x;
-      velocities[i + 1] = point.velocity.y;
-      velocities[i + 2] = point.velocity.z;
-
-      intensities[index] = point.intensity;
-    });
-
-    return {
-      positions,
-      velocities,
-      intensities,
-      count: limitedPoints.length
-    };
-  }
+  // Note: getVesselDataForShader removed - vessels now feed into CA pipeline via getActiveVessels()
 
   /**
    * Toggle vessel system on/off
@@ -421,11 +298,9 @@ export class VesselSystem {
   /**
    * Get system statistics
    */
-  getStats(): { activeVessels: number; totalWakePoints: number } {
+  getStats(): { activeVessels: number } {
     const activeVessels = this.getActiveVessels().length;
-    const totalWakePoints = Array.from(this.vessels.values())
-      .reduce((sum, vessel) => sum + vessel.wakeTrail.length, 0);
 
-    return { activeVessels, totalWakePoints };
+    return { activeVessels };
   }
 }
