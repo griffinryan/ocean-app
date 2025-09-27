@@ -14,6 +14,9 @@ uniform int u_debugMode;
 uniform int u_vesselCount;
 uniform vec3 u_vesselPositions[5];
 uniform vec3 u_vesselVelocities[5];
+uniform float u_vesselWeights[5];
+uniform float u_vesselClasses[5];
+uniform float u_vesselHullLengths[5];
 uniform bool u_wakesEnabled;
 
 out vec4 fragColor;
@@ -90,20 +93,21 @@ float waveFrequency(float k) {
 }
 
 
-// Calculate vessel wake contribution using clean Kelvin pattern
-float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float time) {
+// Calculate vessel wake contribution using dynamic vessel properties
+float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float weight, float hullLength, float time) {
     // Get 2D position relative to vessel
     vec2 delta = pos - vesselPos.xz;
     float distance = length(delta);
-
-    // Skip if too far from vessel
-    if (distance > 15.0) return 0.0;
 
     vec2 vesselDir = normalize(vesselVel.xz);
     float vesselSpeed = length(vesselVel.xz);
 
     // Skip if vessel is stationary
     if (vesselSpeed < 0.1) return 0.0;
+
+    // Dynamic wake range based on vessel weight and speed
+    float wakeRange = 12.0 + weight * 8.0 + vesselSpeed * 2.0;
+    if (distance > wakeRange) return 0.0;
 
     // Calculate dot product for wake positioning
     float dotProduct = dot(delta, vesselDir);
@@ -114,46 +118,76 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float time) 
     // Distance along vessel's path (behind vessel)
     float pathDistance = abs(dotProduct);
 
-    // Calculate wake arms (Kelvin pattern at 19.47 degrees)
-    vec2 leftArm = rotate2D(vesselDir, KELVIN_ANGLE);
-    vec2 rightArm = rotate2D(vesselDir, -KELVIN_ANGLE);
+    // Calculate Froude number for dynamic wake angle
+    float froudeNumber = vesselSpeed / sqrt(GRAVITY * hullLength);
+
+    // Dynamic Kelvin angle based on Froude number
+    float dynamicAngle = KELVIN_ANGLE * (1.0 + froudeNumber * 0.3);
+
+    // Calculate wake arms with dynamic angle
+    vec2 leftArm = rotate2D(vesselDir, dynamicAngle);
+    vec2 rightArm = rotate2D(vesselDir, -dynamicAngle);
 
     // Distance from wake arm lines
     float leftDist = abs(dot(delta, vec2(-leftArm.y, leftArm.x)));
     float rightDist = abs(dot(delta, vec2(-rightArm.y, rightArm.x)));
 
-    // Gentle wake amplitude
-    float baseAmplitude = vesselSpeed * 0.12;
+    // Dynamic wake amplitude based on weight and speed
+    float baseAmplitude = vesselSpeed * (0.08 + weight * 0.12);
 
-    // Smooth distance decay
-    float decay = exp(-distance * 0.08);
+    // Decay slower for heavier vessels
+    float decayRate = 0.08 - weight * 0.04; // Range: 0.04-0.08
+    float decay = exp(-distance * decayRate);
 
-    // Natural age-based persistence for angular trails
+    // Persistence longer for heavier vessels
+    float ageDecayRate = 0.15 - weight * 0.08; // Range: 0.07-0.15
     float wakeAge = pathDistance / vesselSpeed;
-    float ageFactor = exp(-wakeAge * 0.15);
+    float ageFactor = exp(-wakeAge * ageDecayRate);
+
+    // Wake width increases with weight and spreads logarithmically
+    float baseWakeWidth = 1.5 + weight * 2.0; // Range: 1.7-3.5 units
+    float spreadFactor = 1.0 + log(pathDistance + 1.0) * 0.2;
+    float effectiveWidth = baseWakeWidth * spreadFactor;
 
     float wakeHeight = 0.0;
 
-    // Left wake arm (clean V-pattern)
-    if (leftDist < 2.0) {
-        float armIntensity = smoothstep(2.0, 0.5, leftDist);
-        float wavelength = 2.5 + vesselSpeed * 0.4;
-        float k = waveNumber(wavelength);
-        float omega = waveFrequency(k);
+    // Golden ratio for fibonacci wave patterns
+    float phi = 1.618;
 
-        float phase = k * pathDistance - omega * time;
-        wakeHeight += baseAmplitude * armIntensity * decay * ageFactor * sin(phase);
+    // Left wake arm with dynamic properties
+    if (leftDist < effectiveWidth) {
+        float armIntensity = smoothstep(effectiveWidth, effectiveWidth * 0.3, leftDist);
+
+        // Multiple wave components with golden ratio relationships
+        for (int j = 0; j < 2; j++) {
+            float wavelength = (2.0 + vesselSpeed * 0.4) * pow(phi, float(j) * 0.5);
+            float k = waveNumber(wavelength);
+            float omega = waveFrequency(k);
+
+            // Golden angle phase offset for natural interference
+            float phase = k * pathDistance - omega * time + float(j) * 2.39;
+            float amplitude = baseAmplitude * pow(0.618, float(j));
+
+            wakeHeight += amplitude * armIntensity * decay * ageFactor * sin(phase);
+        }
     }
 
-    // Right wake arm (clean V-pattern)
-    if (rightDist < 2.0) {
-        float armIntensity = smoothstep(2.0, 0.5, rightDist);
-        float wavelength = 2.5 + vesselSpeed * 0.4;
-        float k = waveNumber(wavelength);
-        float omega = waveFrequency(k);
+    // Right wake arm with dynamic properties
+    if (rightDist < effectiveWidth) {
+        float armIntensity = smoothstep(effectiveWidth, effectiveWidth * 0.3, rightDist);
 
-        float phase = k * pathDistance - omega * time;
-        wakeHeight += baseAmplitude * armIntensity * decay * ageFactor * sin(phase);
+        // Multiple wave components with golden ratio relationships
+        for (int j = 0; j < 2; j++) {
+            float wavelength = (2.0 + vesselSpeed * 0.4) * pow(phi, float(j) * 0.5);
+            float k = waveNumber(wavelength);
+            float omega = waveFrequency(k);
+
+            // Golden angle phase offset for natural interference
+            float phase = k * pathDistance - omega * time + float(j) * 2.39;
+            float amplitude = baseAmplitude * pow(0.618, float(j));
+
+            wakeHeight += amplitude * armIntensity * decay * ageFactor * sin(phase);
+        }
     }
 
     return wakeHeight;
@@ -166,7 +200,8 @@ float getAllVesselWakes(vec2 pos, float time) {
     float totalWake = 0.0;
 
     for (int i = 0; i < u_vesselCount && i < 5; i++) {
-        totalWake += calculateVesselWake(pos, u_vesselPositions[i], u_vesselVelocities[i], time);
+        totalWake += calculateVesselWake(pos, u_vesselPositions[i], u_vesselVelocities[i],
+                                       u_vesselWeights[i], u_vesselHullLengths[i], time);
     }
 
     return totalWake;

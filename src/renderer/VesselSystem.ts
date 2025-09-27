@@ -9,6 +9,9 @@ export interface Vessel {
   position: Vec3;
   velocity: Vec3;
   speed: number;
+  vesselClass: VesselClass;
+  weight: number;
+  hullLength: number;
   spawnTime: number;
   lifetime: number;
   active: boolean;
@@ -30,6 +33,20 @@ export enum MovementPattern {
   RANDOM = 'random'
 }
 
+export enum VesselClass {
+  FAST_LIGHT = 0,  // Speedboat: weight 0.3, speed 4-5
+  FAST_HEAVY = 1,  // Cargo ship: weight 1.0, speed 3-4
+  SLOW_LIGHT = 2,  // Sailboat: weight 0.2, speed 1-2
+  SLOW_HEAVY = 3   // Barge: weight 0.8, speed 1-2
+}
+
+export interface VesselClassConfig {
+  weight: number;
+  speedRange: [number, number];
+  hullLength: number;
+  name: string;
+}
+
 export interface VesselConfig {
   maxVessels: number;
   spawnInterval: number;
@@ -46,6 +63,34 @@ export class VesselSystem {
   private lastSpawnTime: number = 0;
   private idCounter: number = 0;
   private initialized: boolean = false;
+
+  // Vessel class configurations
+  private static readonly VESSEL_CLASS_CONFIGS: Record<VesselClass, VesselClassConfig> = {
+    [VesselClass.FAST_LIGHT]: {
+      weight: 0.3,
+      speedRange: [4.0, 5.0],
+      hullLength: 8.0,
+      name: 'Speedboat'
+    },
+    [VesselClass.FAST_HEAVY]: {
+      weight: 1.0,
+      speedRange: [3.0, 4.0],
+      hullLength: 20.0,
+      name: 'Cargo Ship'
+    },
+    [VesselClass.SLOW_LIGHT]: {
+      weight: 0.2,
+      speedRange: [1.0, 2.0],
+      hullLength: 12.0,
+      name: 'Sailboat'
+    },
+    [VesselClass.SLOW_HEAVY]: {
+      weight: 0.8,
+      speedRange: [1.0, 2.0],
+      hullLength: 15.0,
+      name: 'Barge'
+    }
+  };
 
 
   constructor(config: VesselConfig) {
@@ -109,11 +154,13 @@ export class VesselSystem {
   }
 
   /**
-   * Create a random vessel with random properties
+   * Create a random vessel with random properties based on vessel class
    */
   private createRandomVessel(currentTime: number): Vessel {
     const id = `vessel_${this.idCounter++}`;
     const pattern = this.getRandomMovementPattern();
+    const vesselClass = this.getRandomVesselClass();
+    const classConfig = VesselSystem.VESSEL_CLASS_CONFIGS[vesselClass];
 
     // Random spawn position at ocean edge
     const [minX, maxX, minZ, maxZ] = this.config.oceanBounds;
@@ -141,17 +188,21 @@ export class VesselSystem {
         break;
     }
 
-    const speed = this.config.speedRange[0] +
-                  Math.random() * (this.config.speedRange[1] - this.config.speedRange[0]);
+    // Speed based on vessel class
+    const speed = classConfig.speedRange[0] +
+                  Math.random() * (classConfig.speedRange[1] - classConfig.speedRange[0]);
 
     velocity.normalize();
     velocity.scale(speed);
 
-    return {
+    const vessel: Vessel = {
       id,
       position,
       velocity,
       speed,
+      vesselClass,
+      weight: classConfig.weight,
+      hullLength: classConfig.hullLength,
       spawnTime: currentTime,
       lifetime: this.config.vesselLifetime,
       active: true,
@@ -159,6 +210,10 @@ export class VesselSystem {
       movementPattern: pattern,
       patternData: this.initializePatternData(pattern, position, velocity)
     };
+
+    console.log(`[VesselSystem] Spawned ${classConfig.name}: weight=${classConfig.weight}, speed=${speed.toFixed(1)}, hull=${classConfig.hullLength}`);
+
+    return vessel;
   }
 
   /**
@@ -166,6 +221,26 @@ export class VesselSystem {
    */
   private getRandomMovementPattern(): MovementPattern {
     return MovementPattern.STRAIGHT;
+  }
+
+  /**
+   * Get random vessel class with weighted probabilities
+   */
+  private getRandomVesselClass(): VesselClass {
+    const weights = [0.3, 0.2, 0.3, 0.2]; // Fast light, fast heavy, slow light, slow heavy
+    const classes = [VesselClass.FAST_LIGHT, VesselClass.FAST_HEAVY, VesselClass.SLOW_LIGHT, VesselClass.SLOW_HEAVY];
+
+    const random = Math.random();
+    let accumulated = 0;
+
+    for (let i = 0; i < classes.length; i++) {
+      accumulated += weights[i];
+      if (random <= accumulated) {
+        return classes[i];
+      }
+    }
+
+    return VesselClass.FAST_LIGHT;
   }
 
   /**
@@ -276,11 +351,17 @@ export class VesselSystem {
   getVesselDataForShader(maxCount: number = 5): {
     positions: Float32Array;
     velocities: Float32Array;
+    weights: Float32Array;
+    classes: Float32Array;
+    hullLengths: Float32Array;
     count: number;
   } {
     const activeVessels = this.getActiveVessels().slice(0, maxCount);
     const positions = new Float32Array(maxCount * 3);
     const velocities = new Float32Array(maxCount * 3);
+    const weights = new Float32Array(maxCount);
+    const classes = new Float32Array(maxCount);
+    const hullLengths = new Float32Array(maxCount);
 
     activeVessels.forEach((vessel, index) => {
       const i = index * 3;
@@ -291,11 +372,18 @@ export class VesselSystem {
       velocities[i] = vessel.velocity.x;
       velocities[i + 1] = vessel.velocity.y;
       velocities[i + 2] = vessel.velocity.z;
+
+      weights[index] = vessel.weight;
+      classes[index] = vessel.vesselClass;
+      hullLengths[index] = vessel.hullLength;
     });
 
     return {
       positions,
       velocities,
+      weights,
+      classes,
+      hullLengths,
       count: activeVessels.length
     };
   }

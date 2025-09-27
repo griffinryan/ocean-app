@@ -200,6 +200,9 @@ export class OceanRenderer {
       'u_vesselCount',
       'u_vesselPositions',
       'u_vesselVelocities',
+      'u_vesselWeights',
+      'u_vesselClasses',
+      'u_vesselHullLengths',
       'u_wakesEnabled'
     ];
 
@@ -265,6 +268,9 @@ export class OceanRenderer {
     if (vesselData.count > 0) {
       this.shaderManager.setUniform3fv(program, 'u_vesselPositions', vesselData.positions);
       this.shaderManager.setUniform3fv(program, 'u_vesselVelocities', vesselData.velocities);
+      this.shaderManager.setUniform1fv(program, 'u_vesselWeights', vesselData.weights);
+      this.shaderManager.setUniform1fv(program, 'u_vesselClasses', vesselData.classes);
+      this.shaderManager.setUniform1fv(program, 'u_vesselHullLengths', vesselData.hullLengths);
     }
 
     // Debug logging (throttled to avoid spam)
