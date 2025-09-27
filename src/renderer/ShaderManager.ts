@@ -161,6 +161,27 @@ export class ShaderManager {
     }
   }
 
+  setUniform1i(program: ShaderProgram, name: string, value: number): void {
+    const location = program.uniformLocations.get(name);
+    if (location) {
+      this.gl.uniform1i(location, value);
+    }
+  }
+
+  setUniform2fv(program: ShaderProgram, name: string, values: Float32Array): void {
+    const location = program.uniformLocations.get(name);
+    if (location) {
+      this.gl.uniform2fv(location, values);
+    }
+  }
+
+  setUniform1fv(program: ShaderProgram, name: string, values: Float32Array): void {
+    const location = program.uniformLocations.get(name);
+    if (location) {
+      this.gl.uniform1fv(location, values);
+    }
+  }
+
   /**
    * Set up vertex attributes
    */
@@ -188,7 +209,7 @@ export class ShaderManager {
    * Clean up all shader programs
    */
   dispose(): void {
-    for (const [name, shaderProgram] of this.programs) {
+    for (const [_name, shaderProgram] of this.programs) {
       this.gl.deleteProgram(shaderProgram.program);
     }
     this.programs.clear();

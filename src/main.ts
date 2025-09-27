@@ -3,13 +3,14 @@
  */
 
 import { OceanRenderer } from './renderer/OceanRenderer';
+import { WavePatternType } from './renderer/WavePatternManager';
 
 // Import shaders as strings
 import vertexShader from './shaders/ocean.vert';
 import fragmentShader from './shaders/ocean.frag';
 
 class OceanApp {
-  private renderer: OceanRenderer | null = null;
+  public renderer: OceanRenderer | null = null;
 
   async init(): Promise<void> {
     try {
@@ -38,6 +39,9 @@ class OceanApp {
 
       // Set up keyboard controls for debugging
       this.setupControls();
+
+      // Show initial wave pattern info
+      this.updateWavePatternInfo();
 
     } catch (error) {
       console.error('Failed to initialize Ocean Renderer:', error);
@@ -94,6 +98,64 @@ class OceanApp {
             this.updateDebugInfo(mode);
           }
           break;
+        case '4':
+          // Calm waters
+          if (this.renderer) {
+            this.renderer.setWavePattern(WavePatternType.CALM, 2.0);
+            this.updateWavePatternInfo();
+          }
+          break;
+        case '5':
+          // Gentle seas
+          if (this.renderer) {
+            this.renderer.setWavePattern(WavePatternType.GENTLE, 2.0);
+            this.updateWavePatternInfo();
+          }
+          break;
+        case '6':
+          // Moderate seas
+          if (this.renderer) {
+            this.renderer.setWavePattern(WavePatternType.MODERATE, 2.5);
+            this.updateWavePatternInfo();
+          }
+          break;
+        case '7':
+          // Rough seas
+          if (this.renderer) {
+            this.renderer.setWavePattern(WavePatternType.ROUGH, 3.0);
+            this.updateWavePatternInfo();
+          }
+          break;
+        case '8':
+          // Storm seas
+          if (this.renderer) {
+            this.renderer.setWavePattern(WavePatternType.STORM, 3.5);
+            this.updateWavePatternInfo();
+          }
+          break;
+        case '9':
+          // Crossing seas
+          if (this.renderer) {
+            this.renderer.setWavePattern(WavePatternType.CROSSING_SEAS, 3.0);
+            this.updateWavePatternInfo();
+          }
+          break;
+        case 'q':
+        case 'Q':
+          // Northern swell
+          if (this.renderer) {
+            this.renderer.setWavePattern(WavePatternType.SWELL_NORTH, 2.5);
+            this.updateWavePatternInfo();
+          }
+          break;
+        case 'w':
+        case 'W':
+          // Southern swell
+          if (this.renderer) {
+            this.renderer.setWavePattern(WavePatternType.SWELL_SOUTH, 2.5);
+            this.updateWavePatternInfo();
+          }
+          break;
       }
     });
 
@@ -103,6 +165,14 @@ class OceanApp {
     console.log('  Escape - Exit fullscreen');
     console.log('  D - Cycle debug modes');
     console.log('  0-3 - Select debug mode directly');
+    console.log('  4 - Calm waters');
+    console.log('  5 - Gentle seas');
+    console.log('  6 - Moderate seas');
+    console.log('  7 - Rough seas');
+    console.log('  8 - Storm seas');
+    console.log('  9 - Crossing seas');
+    console.log('  Q - Northern swell');
+    console.log('  W - Southern swell');
     console.log('  Space - Reserved for future controls');
   }
 
@@ -123,6 +193,25 @@ class OceanApp {
         infoElement.appendChild(debugElement);
       }
       debugElement.innerHTML = `<br>Debug Mode: ${modeName} (${mode})`;
+    }
+  }
+
+  /**
+   * Update wave pattern info display
+   */
+  private updateWavePatternInfo(): void {
+    const infoElement = document.getElementById('info');
+    if (infoElement && this.renderer) {
+      const patternName = this.renderer.getCurrentWavePatternName();
+
+      // Update the existing info or add wave pattern info
+      let waveElement = document.getElementById('wave-pattern');
+      if (!waveElement) {
+        waveElement = document.createElement('div');
+        waveElement.id = 'wave-pattern';
+        infoElement.appendChild(waveElement);
+      }
+      waveElement.innerHTML = `<br>Wave Pattern: ${patternName}`;
     }
   }
 

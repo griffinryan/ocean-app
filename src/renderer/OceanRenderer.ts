@@ -5,6 +5,7 @@
 import { ShaderManager, ShaderProgram } from './ShaderManager';
 import { GeometryBuilder, BufferManager, GeometryData } from './Geometry';
 import { Mat4, Vec3 } from '../utils/math';
+import { WavePatternManager, WavePatternType } from './WavePatternManager';
 
 export interface RenderConfig {
   canvas: HTMLCanvasElement;
@@ -19,6 +20,7 @@ export class OceanRenderer {
   private oceanProgram: ShaderProgram | null = null;
   private geometry: GeometryData;
   private bufferManager: BufferManager;
+  private wavePatternManager: WavePatternManager;
 
   // Matrices for transformation
   private projectionMatrix: Mat4;
@@ -30,7 +32,7 @@ export class OceanRenderer {
   private animationFrameId: number | null = null;
 
   // Resize observer for responsive canvas
-  private resizeObserver: ResizeObserver;
+  private resizeObserver: ResizeObserver | null = null;
 
   // Performance tracking
   private frameCount: number = 0;
@@ -61,6 +63,9 @@ export class OceanRenderer {
 
     this.gl = gl;
     this.shaderManager = new ShaderManager(gl);
+
+    // Initialize wave pattern manager
+    this.wavePatternManager = new WavePatternManager();
 
     // Create full-screen quad geometry for screen-space rendering
     this.geometry = GeometryBuilder.createFullScreenQuad();
@@ -171,7 +176,42 @@ export class OceanRenderer {
       'u_time',
       'u_aspectRatio',
       'u_resolution',
-      'u_debugMode'
+      'u_debugMode',
+
+      // Wave pattern control
+      'u_wavePatternType',
+      'u_waveScale',
+      'u_foamThreshold',
+      'u_transitionFactor',
+
+      // Primary Gerstner waves
+      'u_primaryAmplitudes[0]',
+      'u_primaryWavelengths[0]',
+      'u_primarySpeeds[0]',
+      'u_primaryDirections[0]',
+      'u_primarySteepness[0]',
+      'u_primaryPhases[0]',
+      'u_numPrimaryWaves',
+
+      // Swell systems
+      'u_swellAmplitudes[0]',
+      'u_swellWavelengths[0]',
+      'u_swellSpeeds[0]',
+      'u_swellDirections[0]',
+      'u_swellSteepness[0]',
+      'u_swellPhases[0]',
+      'u_numSwellWaves',
+
+      // Choppy wave layer
+      'u_choppyWindDirection',
+      'u_choppyWindSpeed',
+      'u_choppyFrequency',
+      'u_choppyAmplitude',
+      'u_choppyModulation',
+
+      // Performance optimization
+      'u_lodBias',
+      'u_cameraPosition'
     ];
 
     const attributes = [
@@ -205,24 +245,26 @@ export class OceanRenderer {
     const currentTime = performance.now();
     const elapsedTime = (currentTime - this.startTime) / 1000; // Convert to seconds
 
+    // Update wave pattern manager
+    this.wavePatternManager.update(elapsedTime);
+
     // Clear the frame
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     // Use ocean shader
     const program = this.shaderManager.useProgram('ocean');
 
-    // Set time for animation
+    // Set basic uniforms
     this.shaderManager.setUniform1f(program, 'u_time', elapsedTime);
 
-    // Set aspect ratio
     const aspect = this.canvas.width / this.canvas.height;
     this.shaderManager.setUniform1f(program, 'u_aspectRatio', aspect);
 
-    // Set resolution
     this.shaderManager.setUniform2f(program, 'u_resolution', this.canvas.width, this.canvas.height);
-
-    // Set debug mode
     this.shaderManager.setUniform1f(program, 'u_debugMode', this.debugMode);
+
+    // Set wave pattern uniforms
+    this.setWaveUniforms(program, elapsedTime);
 
     // Bind geometry and render
     this.bufferManager.bind();
@@ -230,6 +272,76 @@ export class OceanRenderer {
 
     // Update FPS counter
     this.updateFPS(currentTime);
+  }
+
+  /**
+   * Set all wave-related uniforms
+   */
+  private setWaveUniforms(program: ShaderProgram, _time: number): void {
+    const waveData = this.wavePatternManager.getCurrentWaveData();
+    const currentPattern = this.wavePatternManager.getCurrentPatternType();
+
+    // Basic wave control
+    this.shaderManager.setUniform1i(program, 'u_wavePatternType', currentPattern);
+    this.shaderManager.setUniform1f(program, 'u_waveScale', waveData.waveScale);
+    this.shaderManager.setUniform1f(program, 'u_foamThreshold', waveData.foamThreshold);
+    this.shaderManager.setUniform1f(program, 'u_transitionFactor', waveData.transitionFactor);
+
+    // Primary waves
+    this.setGerstnerWaveUniforms(program, waveData.primaryWaves, 'u_primary');
+    this.shaderManager.setUniform1i(program, 'u_numPrimaryWaves', waveData.primaryWaves.length);
+
+    // Swell waves
+    const allSwellWaves = waveData.swellSystems.flatMap(system => system.waves);
+    this.setGerstnerWaveUniforms(program, allSwellWaves, 'u_swell');
+    this.shaderManager.setUniform1i(program, 'u_numSwellWaves', allSwellWaves.length);
+
+    // Choppy layer
+    this.shaderManager.setUniform2f(program, 'u_choppyWindDirection',
+      waveData.choppyLayer.windDirection.x, waveData.choppyLayer.windDirection.z);
+    this.shaderManager.setUniform1f(program, 'u_choppyWindSpeed', waveData.choppyLayer.windSpeed);
+    this.shaderManager.setUniform1f(program, 'u_choppyFrequency', waveData.choppyLayer.frequency);
+    this.shaderManager.setUniform1f(program, 'u_choppyAmplitude', waveData.choppyLayer.amplitude);
+    this.shaderManager.setUniform1f(program, 'u_choppyModulation', waveData.choppyLayer.modulation);
+
+    // Performance optimization
+    this.shaderManager.setUniform1f(program, 'u_lodBias', 0.8); // Adjust as needed
+    this.shaderManager.setUniform2f(program, 'u_cameraPosition', 0.0, 0.0); // Top-down view center
+  }
+
+  /**
+   * Set Gerstner wave uniforms for an array of waves
+   */
+  private setGerstnerWaveUniforms(program: ShaderProgram, waves: any[], prefix: string): void {
+    const maxWaves = prefix === 'u_primary' ? 8 : 12;
+
+    // Prepare arrays
+    const amplitudes = new Float32Array(maxWaves);
+    const wavelengths = new Float32Array(maxWaves);
+    const speeds = new Float32Array(maxWaves);
+    const directions = new Float32Array(maxWaves * 2); // vec2 array
+    const steepness = new Float32Array(maxWaves);
+    const phases = new Float32Array(maxWaves);
+
+    // Fill arrays with wave data
+    for (let i = 0; i < Math.min(waves.length, maxWaves); i++) {
+      const wave = waves[i];
+      amplitudes[i] = wave.amplitude;
+      wavelengths[i] = wave.wavelength;
+      speeds[i] = wave.speed;
+      directions[i * 2] = wave.direction.x;
+      directions[i * 2 + 1] = wave.direction.z;
+      steepness[i] = wave.steepness;
+      phases[i] = wave.phaseOffset;
+    }
+
+    // Set uniform arrays
+    this.shaderManager.setUniform1fv(program, `${prefix}Amplitudes[0]`, amplitudes);
+    this.shaderManager.setUniform1fv(program, `${prefix}Wavelengths[0]`, wavelengths);
+    this.shaderManager.setUniform1fv(program, `${prefix}Speeds[0]`, speeds);
+    this.shaderManager.setUniform2fv(program, `${prefix}Directions[0]`, directions);
+    this.shaderManager.setUniform1fv(program, `${prefix}Steepness[0]`, steepness);
+    this.shaderManager.setUniform1fv(program, `${prefix}Phases[0]`, phases);
   }
 
   /**
@@ -304,11 +416,48 @@ export class OceanRenderer {
   }
 
   /**
+   * Switch wave pattern
+   */
+  setWavePattern(patternType: WavePatternType, transitionDuration: number = 3.0): void {
+    this.wavePatternManager.switchPattern(patternType, transitionDuration);
+  }
+
+  /**
+   * Get current wave pattern type
+   */
+  getCurrentWavePattern(): WavePatternType {
+    return this.wavePatternManager.getCurrentPatternType();
+  }
+
+  /**
+   * Get current wave pattern name for display
+   */
+  getCurrentWavePatternName(): string {
+    return this.wavePatternManager.getCurrentPatternName();
+  }
+
+  /**
+   * Set wind properties manually
+   */
+  setWindProperties(direction: Vec3, speed: number): void {
+    this.wavePatternManager.setWindProperties(direction, speed);
+  }
+
+  /**
+   * Get current wind properties
+   */
+  getWindProperties(): { direction: Vec3; speed: number } {
+    return this.wavePatternManager.getWindProperties();
+  }
+
+  /**
    * Clean up resources
    */
   dispose(): void {
     this.stop();
-    this.resizeObserver.disconnect();
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+    }
     this.bufferManager.dispose();
     this.shaderManager.dispose();
   }
