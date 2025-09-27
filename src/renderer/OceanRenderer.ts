@@ -9,6 +9,10 @@ import { VesselSystem, VesselConfig } from './VesselSystem';
 import { CellularAutomaton } from './CellularAutomaton';
 import { createDefaultDisplacementConfig } from '../utils/WavePhysics';
 
+// Import cellular automata shaders
+import cellularUpdateVert from '../shaders/cellular-update.vert';
+import cellularUpdateFrag from '../shaders/cellular-update.frag';
+
 export interface RenderConfig {
   canvas: HTMLCanvasElement;
   antialias?: boolean;
@@ -49,7 +53,7 @@ export class OceanRenderer {
 
   // Cellular automata wave simulation system
   private cellularAutomaton: CellularAutomaton | null = null;
-  private useCellularAutomaton: boolean = true;
+  private useCellularAutomaton: boolean = false; // Disabled by default for safety
 
   constructor(config: RenderConfig) {
     this.canvas = config.canvas;
@@ -206,11 +210,13 @@ export class OceanRenderer {
       // Create cellular automata configuration
       const caConfig = createDefaultDisplacementConfig();
 
-      // Initialize cellular automata system
+      // Initialize cellular automata system with shader sources
       this.cellularAutomaton = new CellularAutomaton(
         this.gl,
         this.shaderManager,
-        caConfig
+        caConfig,
+        cellularUpdateVert,
+        cellularUpdateFrag
       );
 
       console.log('[OceanRenderer] Cellular automata system initialized');
@@ -329,24 +335,39 @@ export class OceanRenderer {
     this.shaderManager.setUniform1i(program, 'u_useCellularAutomaton', this.useCellularAutomaton ? 1 : 0);
 
     if (this.useCellularAutomaton && this.cellularAutomaton) {
-      const displacementTextures = this.cellularAutomaton.getDisplacementTextures();
+      try {
+        const displacementTextures = this.cellularAutomaton.getDisplacementTextures();
 
-      // Bind displacement textures
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, displacementTextures.heightCurrent);
-      this.shaderManager.setUniform1i(program, 'u_displacementTexture', 0);
+        // Verify textures are valid before binding
+        if (displacementTextures.heightCurrent &&
+            displacementTextures.velocity &&
+            displacementTextures.energy &&
+            displacementTextures.foam) {
 
-      gl.activeTexture(gl.TEXTURE1);
-      gl.bindTexture(gl.TEXTURE_2D, displacementTextures.velocity);
-      this.shaderManager.setUniform1i(program, 'u_velocityTexture', 1);
+          // Bind displacement textures
+          gl.activeTexture(gl.TEXTURE0);
+          gl.bindTexture(gl.TEXTURE_2D, displacementTextures.heightCurrent);
+          this.shaderManager.setUniform1i(program, 'u_displacementTexture', 0);
 
-      gl.activeTexture(gl.TEXTURE2);
-      gl.bindTexture(gl.TEXTURE_2D, displacementTextures.energy);
-      this.shaderManager.setUniform1i(program, 'u_energyTexture', 2);
+          gl.activeTexture(gl.TEXTURE1);
+          gl.bindTexture(gl.TEXTURE_2D, displacementTextures.velocity);
+          this.shaderManager.setUniform1i(program, 'u_velocityTexture', 1);
 
-      gl.activeTexture(gl.TEXTURE3);
-      gl.bindTexture(gl.TEXTURE_2D, displacementTextures.foam);
-      this.shaderManager.setUniform1i(program, 'u_foamTexture', 3);
+          gl.activeTexture(gl.TEXTURE2);
+          gl.bindTexture(gl.TEXTURE_2D, displacementTextures.energy);
+          this.shaderManager.setUniform1i(program, 'u_energyTexture', 2);
+
+          gl.activeTexture(gl.TEXTURE3);
+          gl.bindTexture(gl.TEXTURE_2D, displacementTextures.foam);
+          this.shaderManager.setUniform1i(program, 'u_foamTexture', 3);
+        } else {
+          console.warn('[OceanRenderer] Cellular automata textures not ready, disabling CA');
+          this.useCellularAutomaton = false;
+        }
+      } catch (error) {
+        console.error('[OceanRenderer] Error binding cellular automata textures:', error);
+        this.useCellularAutomaton = false;
+      }
     }
 
     // Bind geometry and render

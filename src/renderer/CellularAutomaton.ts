@@ -45,7 +45,9 @@ export class CellularAutomaton {
   constructor(
     gl: WebGL2RenderingContext,
     shaderManager: ShaderManager,
-    config: DisplacementConfig
+    config: DisplacementConfig,
+    cellularUpdateVertShader: string,
+    cellularUpdateFragShader: string
   ) {
     this.shaderManager = shaderManager;
     this.displacementManager = new DisplacementMapManager(gl, shaderManager, config);
@@ -57,23 +59,19 @@ export class CellularAutomaton {
       foamCoverage: 0
     };
 
-    this.initializeShaders();
+    this.initializeShaders(cellularUpdateVertShader, cellularUpdateFragShader);
   }
 
   /**
    * Initialize cellular automata shaders
    */
-  private async initializeShaders(): Promise<void> {
+  private initializeShaders(vertexShader: string, fragmentShader: string): void {
     try {
-      // Load cellular update shaders
-      const caUpdateVert = await this.loadShaderSource('/src/shaders/cellular-update.vert');
-      const caUpdateFrag = await this.loadShaderSource('/src/shaders/cellular-update.frag');
-
       // Create CA update program
       this.shaderManager.createProgram(
         'caUpdate',
-        caUpdateVert,
-        caUpdateFrag,
+        vertexShader,
+        fragmentShader,
         [
           'u_heightTexture',
           'u_velocityTexture',
@@ -87,7 +85,7 @@ export class CellularAutomaton {
         ['a_position', 'a_texcoord']
       );
 
-      await this.displacementManager.initializeShaders();
+      this.displacementManager.initializeShaders();
 
       console.log('[CellularAutomaton] Shaders initialized successfully');
     } catch (error) {
@@ -96,68 +94,6 @@ export class CellularAutomaton {
     }
   }
 
-  /**
-   * Load shader source (placeholder - would use fetch in real implementation)
-   */
-  private async loadShaderSource(path: string): Promise<string> {
-    // In a real implementation, this would fetch the shader file
-    // For now, return placeholder content that matches our shader files
-    if (path.includes('cellular-update.vert')) {
-      return `#version 300 es
-in vec2 a_position;
-in vec2 a_texcoord;
-out vec2 v_uv;
-void main() {
-    v_uv = a_texcoord;
-    gl_Position = vec4(a_position, 0.0, 1.0);
-}`;
-    } else if (path.includes('cellular-update.frag')) {
-      // Return a simplified version for now
-      return `#version 300 es
-precision highp float;
-in vec2 v_uv;
-uniform sampler2D u_heightTexture;
-uniform sampler2D u_velocityTexture;
-uniform sampler2D u_vesselInfluence;
-uniform float u_deltaTime;
-uniform float u_dampingFactor;
-uniform float u_waveSpeed;
-uniform float u_gridSize;
-uniform float u_worldSize;
-layout(location = 0) out vec4 outHeight;
-layout(location = 1) out vec4 outVelocity;
-layout(location = 2) out vec4 outEnergy;
-void main() {
-    // Simplified wave equation for initial testing
-    vec4 height = texture(u_heightTexture, v_uv);
-    vec4 velocity = texture(u_velocityTexture, v_uv);
-
-    float cellSize = u_worldSize / u_gridSize;
-    float c2 = u_waveSpeed * u_waveSpeed;
-
-    // Simple laplacian
-    float h = height.x;
-    float left = texture(u_heightTexture, v_uv + vec2(-1.0/u_gridSize, 0.0)).x;
-    float right = texture(u_heightTexture, v_uv + vec2(1.0/u_gridSize, 0.0)).x;
-    float up = texture(u_heightTexture, v_uv + vec2(0.0, 1.0/u_gridSize)).x;
-    float down = texture(u_heightTexture, v_uv + vec2(0.0, -1.0/u_gridSize)).x;
-
-    float laplacian = (left + right + up + down - 4.0 * h);
-    float accel = c2 * laplacian / (cellSize * cellSize);
-
-    float newVel = height.z + accel * u_deltaTime;
-    newVel *= u_dampingFactor;
-
-    float newHeight = h + newVel * u_deltaTime;
-    float energy = 0.5 * (newVel * newVel + 9.81 * newHeight * newHeight);
-
-    outHeight = vec4(newHeight, h, newVel, energy);
-    outVelocity = vec4(velocity.xy * 0.98, 0.0, 0.0);
-    outEnergy = vec4(energy, 0.0, 0.0, 0.0);
-}`;
-    }
-    return '';
-  }
 
   /**
    * Update the cellular automata simulation

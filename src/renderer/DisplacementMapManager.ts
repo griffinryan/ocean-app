@@ -255,9 +255,11 @@ export class DisplacementMapManager {
   /**
    * Initialize cellular automata shader programs
    */
-  async initializeShaders(): Promise<void> {
-    // We'll create the shaders in the next step
-    console.log('[DisplacementMapManager] Shader initialization placeholder');
+  initializeShaders(): void {
+    // The CA update program should already be created by the ShaderManager
+    // in CellularAutomaton's initializeShaders method.
+    // This method can be used for additional shader setup if needed.
+    console.log('[DisplacementMapManager] Shader initialization complete');
   }
 
   /**
