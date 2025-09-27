@@ -6,6 +6,7 @@ import { ShaderManager, ShaderProgram } from './ShaderManager';
 import { GeometryBuilder, BufferManager, GeometryData } from './Geometry';
 import { Mat4 } from '../utils/math';
 import { VesselSystem, VesselConfig } from './VesselSystem';
+import { GlassRenderer } from './GlassRenderer';
 
 export interface RenderConfig {
   canvas: HTMLCanvasElement;
@@ -45,6 +46,10 @@ export class OceanRenderer {
   private vesselSystem!: VesselSystem;
   private wakesEnabled: boolean = true;
 
+  // Glass panel renderer
+  private glassRenderer: GlassRenderer | null = null;
+  private glassEnabled: boolean = false;
+
   constructor(config: RenderConfig) {
     this.canvas = config.canvas;
     this.startTime = performance.now();
@@ -82,6 +87,9 @@ export class OceanRenderer {
 
     // Initialize vessel system
     this.initializeVesselSystem();
+
+    // Initialize glass renderer
+    this.initializeGlassRenderer();
   }
 
   /**
@@ -148,6 +156,11 @@ export class OceanRenderer {
 
       // Update projection matrix
       this.updateProjectionMatrix();
+
+      // Resize glass renderer framebuffer if enabled
+      if (this.glassRenderer) {
+        this.glassRenderer.resizeFramebuffer(canvasWidth, canvasHeight);
+      }
     }
   }
 
@@ -198,9 +211,28 @@ export class OceanRenderer {
   }
 
   /**
-   * Initialize ocean shader program
+   * Initialize glass renderer system
    */
-  async initializeShaders(vertexSource: string, fragmentSource: string): Promise<void> {
+  private initializeGlassRenderer(): void {
+    try {
+      this.glassRenderer = new GlassRenderer(this.gl, this.shaderManager);
+      this.glassRenderer.setupDefaultPanels();
+      console.log('Glass renderer initialized successfully!');
+    } catch (error) {
+      console.error('Failed to initialize glass renderer:', error);
+      this.glassRenderer = null;
+    }
+  }
+
+  /**
+   * Initialize ocean shader program and glass shaders
+   */
+  async initializeShaders(
+    oceanVertexSource: string,
+    oceanFragmentSource: string,
+    glassVertexSource?: string,
+    glassFragmentSource?: string
+  ): Promise<void> {
     // Define uniforms and attributes for ocean shader
     const uniforms = [
       'u_time',
@@ -222,11 +254,11 @@ export class OceanRenderer {
       'a_texcoord'
     ];
 
-    // Create shader program
+    // Create ocean shader program
     this.oceanProgram = this.shaderManager.createProgram(
       'ocean',
-      vertexSource,
-      fragmentSource,
+      oceanVertexSource,
+      oceanFragmentSource,
       uniforms,
       attributes
     );
@@ -236,24 +268,45 @@ export class OceanRenderer {
     const texcoordLocation = this.oceanProgram.attributeLocations.get('a_texcoord')!;
 
     this.bufferManager.setupAttributes(positionLocation, texcoordLocation);
+
+    // Initialize glass shaders if provided
+    if (glassVertexSource && glassFragmentSource && this.glassRenderer) {
+      try {
+        await this.glassRenderer.initializeShaders(glassVertexSource, glassFragmentSource);
+        this.glassEnabled = true;
+        console.log('Glass shaders initialized successfully!');
+      } catch (error) {
+        console.error('Failed to initialize glass shaders:', error);
+        this.glassEnabled = false;
+      }
+    }
   }
 
   /**
-   * Render one frame
+   * Render ocean scene (for both framebuffer and screen)
    */
-  private render(): void {
-    if (!this.oceanProgram) return;
-
+  private renderOceanScene(elapsedTime: number): void {
     const gl = this.gl;
-    const currentTime = performance.now();
-    const elapsedTime = (currentTime - this.startTime) / 1000; // Convert to seconds
-    const deltaTime = 1 / 60; // Approximate 60 FPS for vessel updates
 
-    // Update vessel system
-    this.vesselSystem.update(currentTime, deltaTime);
+    // If glass is enabled, first render to framebuffer for distortion
+    if (this.glassEnabled && this.glassRenderer) {
+      this.glassRenderer.captureOceanScene(() => {
+        this.drawOcean(elapsedTime);
+      });
+    }
 
-    // Clear the frame
+    // Clear the screen framebuffer
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    // Render ocean to screen
+    this.drawOcean(elapsedTime);
+  }
+
+  /**
+   * Draw the ocean scene with current uniforms
+   */
+  private drawOcean(elapsedTime: number): void {
+    const gl = this.gl;
 
     // Use ocean shader
     const program = this.shaderManager.useProgram('ocean');
@@ -272,7 +325,7 @@ export class OceanRenderer {
     this.shaderManager.setUniform1i(program, 'u_debugMode', this.debugMode);
 
     // Set vessel wake uniforms
-    const vesselData = this.vesselSystem.getVesselDataForShader(5, currentTime);
+    const vesselData = this.vesselSystem.getVesselDataForShader(5, performance.now());
     this.shaderManager.setUniform1i(program, 'u_vesselCount', vesselData.count);
     this.shaderManager.setUniform1i(program, 'u_wakesEnabled', this.wakesEnabled ? 1 : 0);
 
@@ -285,14 +338,31 @@ export class OceanRenderer {
       this.shaderManager.setUniform1fv(program, 'u_vesselStates', vesselData.states);
     }
 
-    // Debug logging (throttled to avoid spam)
-    if (Math.floor(elapsedTime) % 2 === 0 && Math.floor(elapsedTime * 10) % 10 === 0) {
-      console.log(`[OceanRenderer] Frame ${Math.floor(elapsedTime)}s: ${vesselData.count} vessels, wakes ${this.wakesEnabled ? 'ON' : 'OFF'}`);
-    }
-
     // Bind geometry and render
     this.bufferManager.bind();
     gl.drawElements(gl.TRIANGLES, this.geometry.indexCount, gl.UNSIGNED_SHORT, 0);
+  }
+
+  /**
+   * Render one frame
+   */
+  private render(): void {
+    if (!this.oceanProgram) return;
+
+    const currentTime = performance.now();
+    const elapsedTime = (currentTime - this.startTime) / 1000; // Convert to seconds
+    const deltaTime = 1 / 60; // Approximate 60 FPS for vessel updates
+
+    // Update vessel system
+    this.vesselSystem.update(currentTime, deltaTime);
+
+    // Render ocean scene
+    this.renderOceanScene(elapsedTime);
+
+    // Render glass panels if enabled
+    if (this.glassEnabled && this.glassRenderer) {
+      this.glassRenderer.render();
+    }
 
     // Update FPS counter
     this.updateFPS(currentTime);
@@ -392,6 +462,27 @@ export class OceanRenderer {
   }
 
   /**
+   * Enable/disable glass panel rendering
+   */
+  setGlassEnabled(enabled: boolean): void {
+    this.glassEnabled = enabled && this.glassRenderer !== null;
+  }
+
+  /**
+   * Get glass rendering state
+   */
+  getGlassEnabled(): boolean {
+    return this.glassEnabled;
+  }
+
+  /**
+   * Get glass renderer instance for external control
+   */
+  getGlassRenderer(): GlassRenderer | null {
+    return this.glassRenderer;
+  }
+
+  /**
    * Clean up resources
    */
   dispose(): void {
@@ -399,5 +490,11 @@ export class OceanRenderer {
     this.resizeObserver.disconnect();
     this.bufferManager.dispose();
     this.shaderManager.dispose();
+
+    // Clean up glass renderer
+    if (this.glassRenderer) {
+      this.glassRenderer.dispose();
+      this.glassRenderer = null;
+    }
   }
 }
