@@ -75,7 +75,7 @@ float fresnel(float cosTheta, float refractionIndex) {
 }
 
 // Calculate refraction vector using Snell's law
-vec3 refract(vec3 incident, vec3 normal, float eta) {
+vec3 calculateRefraction(vec3 incident, vec3 normal, float eta) {
     float cosI = -dot(normal, incident);
     float sinT2 = eta * eta * (1.0 - cosI * cosI);
 
@@ -113,7 +113,7 @@ void main() {
     float fresnelReflection = fresnel(cosTheta, u_refractionIndex);
 
     // Calculate refraction direction
-    vec3 refractionDir = refract(viewDir, glassNormal, 1.0 / u_refractionIndex);
+    vec3 refractionDir = calculateRefraction(viewDir, glassNormal, 1.0 / u_refractionIndex);
 
     // Calculate distorted UV coordinates for sampling ocean texture
     vec2 distortedUV = screenUV;
