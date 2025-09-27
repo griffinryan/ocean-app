@@ -51,6 +51,9 @@ export class GlassRenderer {
   private readonly UPDATE_INTERVAL = 16; // ~60fps
   private startTime: number;
 
+  // Debug configuration
+  private debugMode: boolean = false;
+
   constructor(gl: WebGL2RenderingContext, shaderManager: ShaderManager, canvas: HTMLCanvasElement) {
     this.gl = gl;
     this.shaderManager = shaderManager;
@@ -83,7 +86,7 @@ export class GlassRenderer {
   /**
    * Initialize liquid glass shaders
    */
-  async initializeShaders(vertexShader: string, fragmentShader: string): Promise<void> {
+  initializeShaders(vertexShader: string, fragmentShader: string): void {
     try {
       // Define all uniforms used in liquid glass shaders
       const uniforms = [
@@ -101,9 +104,7 @@ export class GlassRenderer {
         'u_surfaceTension',
         'u_refractionIndex',
         'u_chromaticStrength',
-        'u_flowSpeed',
-        'u_projectionMatrix',
-        'u_viewMatrix'
+        'u_flowSpeed'
       ];
 
       // Define attributes
@@ -112,7 +113,7 @@ export class GlassRenderer {
         'a_texcoord'
       ];
 
-      this.liquidGlassProgram = await this.shaderManager.createProgram(
+      this.liquidGlassProgram = this.shaderManager.createProgram(
         'liquidGlass',
         vertexShader,
         fragmentShader,
@@ -127,6 +128,11 @@ export class GlassRenderer {
       this.bufferManager.setupAttributes(positionLocation, texcoordLocation);
 
       console.log('Liquid glass shaders initialized successfully!');
+      console.log('Liquid glass shader program:', {
+        name: 'liquidGlass',
+        uniforms: uniforms.length,
+        attributes: attributes.length
+      });
     } catch (error) {
       console.error('Failed to initialize liquid glass shaders:', error);
       throw error;
@@ -158,7 +164,35 @@ export class GlassRenderer {
     }
 
     // Setup will be completed in resize method
+    const startTime = performance.now();
     this.resizeFramebuffer(gl.canvas.width, gl.canvas.height);
+    const setupTime = performance.now() - startTime;
+
+    console.log('Framebuffer initialization completed:', {
+      size: `${gl.canvas.width}x${gl.canvas.height}`,
+      setupTime: `${setupTime.toFixed(2)}ms`
+    });
+  }
+
+  /**
+   * Get detailed error message for framebuffer status
+   */
+  private getFramebufferErrorMessage(status: number): string {
+    const gl = this.gl;
+    switch (status) {
+      case gl.FRAMEBUFFER_INCOMPLETE_ATTACHMENT:
+        return 'FRAMEBUFFER_INCOMPLETE_ATTACHMENT - Attachment points are not framebuffer attachment complete';
+      case gl.FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT:
+        return 'FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT - No images are attached to the framebuffer';
+      case gl.FRAMEBUFFER_INCOMPLETE_DIMENSIONS:
+        return 'FRAMEBUFFER_INCOMPLETE_DIMENSIONS - Attached images have different dimensions';
+      case gl.FRAMEBUFFER_UNSUPPORTED:
+        return 'FRAMEBUFFER_UNSUPPORTED - Combination of internal formats not supported';
+      case gl.FRAMEBUFFER_INCOMPLETE_MULTISAMPLE:
+        return 'FRAMEBUFFER_INCOMPLETE_MULTISAMPLE - Multisample configuration mismatch';
+      default:
+        return `Unknown framebuffer error: ${status}`;
+    }
   }
 
   /**
@@ -167,6 +201,14 @@ export class GlassRenderer {
   public setConfig(config: Partial<LiquidGlassConfig>): void {
     this.config = { ...this.config, ...config };
     console.log('Liquid glass config updated:', this.config);
+  }
+
+  /**
+   * Enable/disable debug mode for detailed logging
+   */
+  public setDebugMode(enabled: boolean): void {
+    this.debugMode = enabled;
+    console.log(`Liquid glass debug mode ${enabled ? 'enabled' : 'disabled'}`);
   }
 
   /**
@@ -201,7 +243,15 @@ export class GlassRenderer {
     // Check framebuffer completeness
     const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
     if (status !== gl.FRAMEBUFFER_COMPLETE) {
-      console.error('Framebuffer incomplete:', status);
+      const errorMessage = this.getFramebufferErrorMessage(status);
+      console.error('Framebuffer incomplete:', errorMessage);
+      throw new Error(`Framebuffer setup failed: ${errorMessage}`);
+    }
+
+    // Check for WebGL errors after framebuffer setup
+    const glError = gl.getError();
+    if (glError !== gl.NO_ERROR) {
+      throw new Error(`WebGL error during framebuffer setup: ${glError}`);
     }
 
     // Unbind
@@ -220,6 +270,12 @@ export class GlassRenderer {
     const gl = this.gl;
 
     if (!this.oceanFramebuffer) {
+      console.error('Ocean framebuffer not available for capture');
+      return;
+    }
+
+    if (!this.oceanTexture) {
+      console.error('Ocean texture not available for capture');
       return;
     }
 
@@ -231,6 +287,12 @@ export class GlassRenderer {
 
     // Render ocean scene to texture
     renderOceanCallback();
+
+    // Check for WebGL errors after ocean rendering
+    const glError = gl.getError();
+    if (glError !== gl.NO_ERROR) {
+      console.error(`WebGL error during ocean scene capture: ${glError}`);
+    }
 
     // Unbind framebuffer (render to screen)
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -272,9 +334,7 @@ export class GlassRenderer {
     // Use liquid glass shader program
     const program = this.shaderManager.useProgram('liquidGlass');
 
-    // Set matrices
-    this.shaderManager.setUniformMatrix4fv(program, 'u_projectionMatrix', this.projectionMatrix.data);
-    this.shaderManager.setUniformMatrix4fv(program, 'u_viewMatrix', this.viewMatrix.data);
+    // Note: No matrices needed for full-screen quad rendering
 
     // Set time for animation
     const currentTime = (performance.now() - this.startTime) / 1000.0;
@@ -304,6 +364,12 @@ export class GlassRenderer {
     this.bufferManager.bind();
     gl.drawElements(gl.TRIANGLES, this.quadGeometry.indexCount, gl.UNSIGNED_SHORT, 0);
 
+    // Check for WebGL errors after liquid glass rendering
+    const glError = gl.getError();
+    if (glError !== gl.NO_ERROR) {
+      console.error(`WebGL error during liquid glass rendering: ${glError}`);
+    }
+
     // Restore state
     gl.enable(gl.DEPTH_TEST);
   }
@@ -313,6 +379,17 @@ export class GlassRenderer {
    */
   private applyPanelUniforms(program: ShaderProgram): void {
     const panelData = this.panelTracker.getPanelData();
+
+    // Debug logging for panel data
+    if (this.debugMode && panelData.count > 0) {
+      console.log('Panel tracking data:', {
+        count: panelData.count,
+        enabled: this.config.enabled,
+        bounds: panelData.bounds.slice(0, panelData.count * 4),
+        centers: panelData.centers.slice(0, panelData.count * 2),
+        states: panelData.states.slice(0, panelData.count)
+      });
+    }
 
     // Set panel count
     this.shaderManager.setUniform1i(program, 'u_panelCount', panelData.count);
@@ -353,6 +430,17 @@ export class GlassRenderer {
    * Apply liquid glass configuration uniforms
    */
   private applyLiquidGlassUniforms(program: ShaderProgram): void {
+    // Debug logging for liquid glass parameters
+    if (this.debugMode) {
+      console.log('Liquid glass parameters:', {
+        viscosity: this.config.viscosity,
+        surfaceTension: this.config.surfaceTension,
+        refractionIndex: this.config.refractionIndex,
+        chromaticStrength: this.config.chromaticStrength,
+        flowSpeed: this.config.flowSpeed
+      });
+    }
+
     this.shaderManager.setUniform1f(program, 'u_liquidViscosity', this.config.viscosity);
     this.shaderManager.setUniform1f(program, 'u_surfaceTension', this.config.surfaceTension);
     this.shaderManager.setUniform1f(program, 'u_refractionIndex', this.config.refractionIndex);

@@ -271,7 +271,7 @@ export class OceanRenderer {
     // Initialize glass shaders if provided
     if (glassVertexSource && glassFragmentSource && this.glassRenderer) {
       try {
-        await this.glassRenderer.initializeShaders(glassVertexSource, glassFragmentSource);
+        this.glassRenderer.initializeShaders(glassVertexSource, glassFragmentSource);
         this.glassEnabled = true;
         console.log('Glass shaders initialized successfully!');
       } catch (error) {

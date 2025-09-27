@@ -192,11 +192,11 @@ export class PanelTracker {
     const rect = element.getBoundingClientRect();
     const canvasRect = this.canvas.getBoundingClientRect();
 
-    // Convert to normalized device coordinates [-1, 1]
-    const normalizedMinX = ((rect.left - canvasRect.left) / canvasRect.width) * 2.0 - 1.0;
-    const normalizedMaxX = ((rect.right - canvasRect.left) / canvasRect.width) * 2.0 - 1.0;
-    const normalizedMinY = 1.0 - ((rect.bottom - canvasRect.top) / canvasRect.height) * 2.0;
-    const normalizedMaxY = 1.0 - ((rect.top - canvasRect.top) / canvasRect.height) * 2.0;
+    // Convert to UV coordinates [0, 1] - (0,0) is top-left, (1,1) is bottom-right
+    const normalizedMinX = (rect.left - canvasRect.left) / canvasRect.width;
+    const normalizedMaxX = (rect.right - canvasRect.left) / canvasRect.width;
+    const normalizedMinY = (rect.top - canvasRect.top) / canvasRect.height;
+    const normalizedMaxY = (rect.bottom - canvasRect.top) / canvasRect.height;
 
     panel.bounds = [normalizedMinX, normalizedMinY, normalizedMaxX, normalizedMaxY];
     panel.center = [

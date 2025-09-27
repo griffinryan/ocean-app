@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Liquid Glass Panel Test</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            background: #000;
+            overflow: hidden;
+        }
+
+        #canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        .glass-panel {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 10px;
+            transition: all 0.3s ease;
+        }
+
+        .glass-panel:hover {
+            background: rgba(255, 255, 255, 0.2);
+            border-color: rgba(255, 255, 255, 0.5);
+        }
+
+        #panel1 {
+            top: 20%;
+            left: 10%;
+            width: 200px;
+            height: 150px;
+        }
+
+        #panel2 {
+            top: 50%;
+            left: 40%;
+            width: 250px;
+            height: 200px;
+        }
+
+        #panel3 {
+            top: 30%;
+            right: 10%;
+            width: 180px;
+            height: 180px;
+        }
+
+        .controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 1000;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+            color: white;
+        }
+
+        .controls button {
+            display: block;
+            margin: 5px 0;
+            padding: 5px 10px;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            cursor: pointer;
+            border-radius: 3px;
+        }
+
+        .controls button:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .info {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            color: white;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+
+    <!-- Test glass panels -->
+    <div id="panel1" class="glass-panel" data-distortion="1.0"></div>
+    <div id="panel2" class="glass-panel" data-distortion="0.8"></div>
+    <div id="panel3" class="glass-panel" data-distortion="1.2"></div>
+
+    <!-- Controls -->
+    <div class="controls">
+        <h3>Liquid Glass Controls</h3>
+        <button onclick="togglePanels()">Toggle Panels</button>
+        <button onclick="toggleLiquidGlass()">Toggle Liquid Glass</button>
+        <button onclick="toggleDebug()">Toggle Debug</button>
+        <button onclick="addPanel()">Add Panel</button>
+        <button onclick="removePanel()">Remove Panel</button>
+    </div>
+
+    <div class="info" id="info">
+        <div>Panels: <span id="panelCount">3</span></div>
+        <div>Liquid Glass: <span id="glassStatus">Enabled</span></div>
+        <div>FPS: <span id="fps">0</span></div>
+    </div>
+
+    <script type="module">
+        // Import the main app
+        import { OceanApp } from '/src/main.ts';
+
+        // Initialize app
+        window.app = new OceanApp();
+        await window.app.initialize();
+
+        // Track panels
+        let panelsVisible = true;
+        let liquidGlassEnabled = true;
+        let debugEnabled = false;
+
+        // Toggle functions
+        window.togglePanels = function() {
+            panelsVisible = !panelsVisible;
+            const panels = document.querySelectorAll('.glass-panel');
+            panels.forEach(panel => {
+                panel.style.display = panelsVisible ? 'block' : 'none';
+            });
+            updateInfo();
+        };
+
+        window.toggleLiquidGlass = function() {
+            liquidGlassEnabled = !liquidGlassEnabled;
+            if (window.app && window.app.renderer && window.app.renderer.glassRenderer) {
+                window.app.renderer.glassRenderer.setConfig({ enabled: liquidGlassEnabled });
+            }
+            document.getElementById('glassStatus').textContent = liquidGlassEnabled ? 'Enabled' : 'Disabled';
+        };
+
+        window.toggleDebug = function() {
+            debugEnabled = !debugEnabled;
+            if (window.app && window.app.renderer && window.app.renderer.glassRenderer) {
+                window.app.renderer.glassRenderer.setDebugMode(debugEnabled);
+            }
+        };
+
+        let panelId = 4;
+        window.addPanel = function() {
+            const panel = document.createElement('div');
+            panel.id = `panel${panelId++}`;
+            panel.className = 'glass-panel';
+            panel.setAttribute('data-distortion', '1.0');
+            panel.style.width = '150px';
+            panel.style.height = '150px';
+            panel.style.top = Math.random() * 60 + 20 + '%';
+            panel.style.left = Math.random() * 60 + 20 + '%';
+            document.body.appendChild(panel);
+            updateInfo();
+        };
+
+        window.removePanel = function() {
+            const panels = document.querySelectorAll('.glass-panel');
+            if (panels.length > 0) {
+                panels[panels.length - 1].remove();
+                updateInfo();
+            }
+        };
+
+        function updateInfo() {
+            const panels = document.querySelectorAll('.glass-panel:not([style*="display: none"])');
+            document.getElementById('panelCount').textContent = panels.length;
+        }
+
+        // FPS counter
+        let lastTime = performance.now();
+        let frames = 0;
+
+        function updateFPS() {
+            frames++;
+            const currentTime = performance.now();
+            if (currentTime >= lastTime + 1000) {
+                const fps = Math.round(frames * 1000 / (currentTime - lastTime));
+                document.getElementById('fps').textContent = fps;
+                frames = 0;
+                lastTime = currentTime;
+            }
+            requestAnimationFrame(updateFPS);
+        }
+        updateFPS();
+
+        // Make panels draggable
+        document.querySelectorAll('.glass-panel').forEach(panel => {
+            let isDragging = false;
+            let startX, startY, initialX, initialY;
+
+            panel.addEventListener('mousedown', (e) => {
+                isDragging = true;
+                startX = e.clientX;
+                startY = e.clientY;
+                const rect = panel.getBoundingClientRect();
+                initialX = rect.left;
+                initialY = rect.top;
+                panel.style.cursor = 'grabbing';
+                e.preventDefault();
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (!isDragging) return;
+                const deltaX = e.clientX - startX;
+                const deltaY = e.clientY - startY;
+                panel.style.left = (initialX + deltaX) + 'px';
+                panel.style.top = (initialY + deltaY) + 'px';
+            });
+
+            document.addEventListener('mouseup', () => {
+                if (isDragging) {
+                    isDragging = false;
+                    panel.style.cursor = 'grab';
+                }
+            });
+
+            panel.style.cursor = 'grab';
+        });
+    </script>
+</body>
+</html>

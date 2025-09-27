@@ -18,8 +18,8 @@ void main() {
     // Pass through UV coordinates
     v_uv = a_texcoord;
 
-    // Convert position to screen coordinates
-    v_screenPos = a_position.xy;
+    // Convert position from NDC [-1,1] to UV coordinates [0,1] to match panel coordinates
+    v_screenPos = (a_position.xy + 1.0) * 0.5;
 
     // Pass time for animation
     v_time = u_time;

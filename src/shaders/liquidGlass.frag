@@ -18,7 +18,7 @@ uniform vec4 u_panelBounds[8]; // xy: min, zw: max in normalized coordinates
 uniform vec2 u_panelCenters[8];
 uniform float u_panelDistortionStrength[8];
 uniform float u_panelStates[8]; // 0=hidden, 1=visible, 0-1=transition
-uniform bool u_liquidGlassEnabled;
+uniform int u_liquidGlassEnabled;
 
 // Liquid glass parameters
 uniform float u_liquidViscosity;
@@ -180,33 +180,8 @@ vec3 calculateLiquidSurfaceNormal(vec2 pos, float time) {
     return normal;
 }
 
-// Performance optimization: Early fragment discard
-bool shouldProcessFragment(vec2 screenPos) {
-    if (!u_liquidGlassEnabled || u_panelCount == 0) {
-        return false;
-    }
-
-    // Quick distance check to nearest panel
-    float minDistance = 999.0;
-    for (int i = 0; i < u_panelCount && i < 8; i++) {
-        if (u_panelStates[i] < 0.01) continue;
-
-        vec2 center = u_panelCenters[i];
-        float distance = length(screenPos - center);
-        minDistance = min(minDistance, distance);
-    }
-
-    // Early discard if too far from any panel
-    return minDistance < 0.6;
-}
-
-// Main liquid glass distortion calculation
-vec2 calculateLiquidGlassDistortion(vec2 screenPos, float time) {
-    // Early performance check done elsewhere
-
-    // Calculate distance to nearest panel boundary
-    float panelSDF = computeSignedDistanceToNearestPanel(screenPos);
-
+// Optimized liquid glass distortion calculation with cached distance
+vec2 calculateLiquidGlassDistortionCached(vec2 screenPos, float panelSDF, float time) {
     // Early exit for distant pixels
     if (panelSDF > 0.4) {
         return vec2(0.0);
@@ -267,16 +242,25 @@ void main() {
     vec2 screenPos = v_screenPos;
     vec2 uv = v_uv;
 
-    // Early discard for performance - skip fragments far from panels
-    if (!shouldProcessFragment(screenPos)) {
-        // Sample ocean texture directly without distortion
+    // Early exit if liquid glass disabled or no panels
+    if (u_liquidGlassEnabled == 0 || u_panelCount == 0) {
         vec3 oceanColor = texture(u_oceanTexture, uv).rgb;
         fragColor = vec4(oceanColor, 1.0);
         return;
     }
 
-    // Calculate liquid glass distortion
-    vec2 distortion = calculateLiquidGlassDistortion(screenPos, v_time);
+    // Calculate distance to nearest panel once for efficiency
+    float panelSDF = computeSignedDistanceToNearestPanel(screenPos);
+
+    // Early discard for fragments far from any panel
+    if (panelSDF > 0.6) {
+        vec3 oceanColor = texture(u_oceanTexture, uv).rgb;
+        fragColor = vec4(oceanColor, 1.0);
+        return;
+    }
+
+    // Calculate liquid glass distortion using cached distance
+    vec2 distortion = calculateLiquidGlassDistortionCached(screenPos, panelSDF, v_time);
 
     // Apply distortion to UV coordinates for sampling ocean texture
     vec2 distortedUV = uv + distortion;
@@ -287,8 +271,7 @@ void main() {
     // Sample the ocean texture with distortion
     vec3 oceanColor = texture(u_oceanTexture, distortedUV).rgb;
 
-    // Add chromatic aberration near panel edges
-    float panelSDF = computeSignedDistanceToNearestPanel(screenPos);
+    // Add chromatic aberration near panel edges using cached distance
     if (abs(panelSDF) < 0.1 && u_chromaticStrength > 0.0) {
         float chromaticEffect = (1.0 - abs(panelSDF) / 0.1) * u_chromaticStrength;
         vec2 chromaticOffset = distortion * chromaticEffect * 0.002;
@@ -306,7 +289,7 @@ void main() {
     oceanColor *= glassTint;
 
     // Add surface reflections using Fresnel
-    if (u_liquidGlassEnabled && u_panelCount > 0 && abs(panelSDF) < 0.3) {
+    if (u_liquidGlassEnabled != 0 && u_panelCount > 0 && abs(panelSDF) < 0.3) {
         vec3 surfaceNormal = calculateLiquidSurfaceNormal(screenPos, v_time);
         float cosTheta = dot(vec3(0.0, 0.0, -1.0), surfaceNormal);
         float fresnelReflection = fresnel(cosTheta, u_refractionIndex);
