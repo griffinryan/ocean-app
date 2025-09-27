@@ -122,32 +122,32 @@ float morletWavelet(float t, float sigma, float omega) {
     return gaussian * oscillation;
 }
 
-// Enhanced wake decay with spline smoothing
-float enhancedWakeDecay(float wakeAge, float vesselWeight) {
+// Two-zone wake decay: strong angular wake + graceful end fade
+float hybridWakeDecay(float wakeAge, float vesselWeight, float pathDistance, float vesselSpeed) {
     float maxAge = 45.0;
     if (wakeAge >= maxAge) return 0.0;
     if (wakeAge <= 0.0) return 1.0;
 
-    // Normalized age [0, 1]
-    float normalizedAge = wakeAge / maxAge;
+    // Calculate normalized distance along trail (0 = vessel, 1 = max trail distance)
+    float maxTrailDistance = 50.0 + vesselWeight * 20.0; // Up to 70 units for heavy vessels
+    float normalizedDistance = clamp(pathDistance / maxTrailDistance, 0.0, 1.0);
 
-    // Three-stage spline decay based on control points
-    float stage1 = 0.25; // 25% of lifetime - full intensity
-    float stage2 = 0.60; // 60% of lifetime - gradual decay
+    // Two-zone system: 87.5% strong wake, 12.5% graceful fade
+    const float TRANSITION_POINT = 0.875;
 
-    if (normalizedAge < stage1) {
-        // Stage 1: Minimal decay (100% to 95%)
-        return mix(1.0, 0.95, normalizedAge / stage1);
-    } else if (normalizedAge < stage2) {
-        // Stage 2: Gradual decay (95% to weight-dependent value)
-        float t = (normalizedAge - stage1) / (stage2 - stage1);
-        float midPoint = 0.6 + vesselWeight * 0.2;
-        return mix(0.95, midPoint, smoothstep(0.0, 1.0, t));
+    if (normalizedDistance < TRANSITION_POINT) {
+        // Zone 1: Strong angular wake with minimal decay
+        return 1.0; // Full strength for majority of trail
     } else {
-        // Stage 3: Rapid fade (mid-point to 0)
-        float t = (normalizedAge - stage2) / (1.0 - stage2);
-        float midPoint = 0.6 + vesselWeight * 0.2;
-        return mix(midPoint, 0.0, smoothstep(0.0, 1.0, t));
+        // Zone 2: Graceful fade to zero using cubic spline
+        float fadeProgress = (normalizedDistance - TRANSITION_POINT) / (1.0 - TRANSITION_POINT);
+
+        // Smooth cubic fade: 1.0 -> 0.0
+        float cubicFade = 1.0 - fadeProgress * fadeProgress * (3.0 - 2.0 * fadeProgress);
+
+        // Apply additional weight-based persistence for heavier vessels
+        float weightPersistence = 1.0 + vesselWeight * 0.3;
+        return cubicFade * weightPersistence;
     }
 }
 
@@ -242,6 +242,10 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float weight
     // Early exit if beyond trail range
     if (pathDistance > maxTrailDistance) return 0.0;
 
+    // Define shared variables for two-zone system (used throughout function)
+    float normalizedDistance = clamp(pathDistance / maxTrailDistance, 0.0, 1.0);
+    const float TRANSITION_POINT = 0.875;
+
     // Calculate Froude number for dynamic wake angle
     float froudeNumber = vesselSpeed / sqrt(GRAVITY * hullLength);
 
@@ -259,19 +263,27 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float weight
     vec2 leftArm = rotate2D(vesselDir, dynamicAngle);
     vec2 rightArm = rotate2D(vesselDir, -dynamicAngle);
 
-    // Calculate shear transformation early for consistent usage
+    // Calculate base wake width
     float baseWakeWidth = 1.5 + weight * 2.0;
-    vec2 shearData = calculateShearMapping(pathDistance, weight, baseWakeWidth);
-    float shearAngle = shearData.y;
 
-    // Apply shear transformation to wake arms
-    vec2 shearTransform = vec2(cos(shearAngle), sin(shearAngle));
-    vec2 leftArmSheared = leftArm + shearTransform * (pathDistance / 20.0);
-    vec2 rightArmSheared = rightArm - shearTransform * (pathDistance / 20.0);
+    // Conditional shear transformation - only for end zone
+    vec2 leftArmFinal = leftArm;
+    vec2 rightArmFinal = rightArm;
 
-    // Distance from sheared wake arm lines
-    float leftDist = abs(dot(delta, vec2(-leftArmSheared.y, leftArmSheared.x)));
-    float rightDist = abs(dot(delta, vec2(-rightArmSheared.y, rightArmSheared.x)));
+    if (normalizedDistance >= TRANSITION_POINT) {
+        float endZoneProgress = (normalizedDistance - TRANSITION_POINT) / (1.0 - TRANSITION_POINT);
+        vec2 shearData = calculateShearMapping(endZoneProgress * 10.0, weight, baseWakeWidth);
+        float shearAngle = shearData.y * endZoneProgress;
+
+        // Apply progressive shear transformation only in end zone
+        vec2 shearTransform = vec2(cos(shearAngle), sin(shearAngle));
+        leftArmFinal = leftArm + shearTransform * endZoneProgress;
+        rightArmFinal = rightArm - shearTransform * endZoneProgress;
+    }
+
+    // Distance from wake arm lines (sheared only in end zone)
+    float leftDist = abs(dot(delta, vec2(-leftArmFinal.y, leftArmFinal.x)));
+    float rightDist = abs(dot(delta, vec2(-rightArmFinal.y, rightArmFinal.x)));
 
     // Vessel state-based intensity modulation
     float stateIntensity = 1.0;
@@ -282,8 +294,8 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float weight
         stateIntensity = 0.7 * (1.0 - fadeFactor);
     }
 
-    // Dynamic wake amplitude based on weight and speed
-    float baseAmplitude = vesselSpeed * (0.08 + weight * 0.12) * stateIntensity;
+    // Significantly increased wake amplitude for stronger visibility
+    float baseAmplitude = vesselSpeed * (0.3 + weight * 0.5) * stateIntensity; // 3-5x increase
 
     // Decay slower for heavier vessels
     float decayRate = 0.08 - weight * 0.04; // Range: 0.04-0.08
@@ -297,23 +309,30 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float weight
         edgeFade = 1.0 - smoothstep(0.0, 1.0, t);
     }
 
-    // Enhanced wake decay using spline-wavelet transform
+    // Calculate wake age for decay system
     float wakeAge = pathDistance / vesselSpeed;
-    float ageFactor = enhancedWakeDecay(wakeAge, weight);
 
-    // Get effective width from pre-calculated shear data
-    float effectiveWidth = shearData.x;
+    // Use hybrid decay system
+    float ageFactor = hybridWakeDecay(wakeAge, weight, pathDistance, vesselSpeed);
+
+    // Conditional shear application - only in final zone
+    float effectiveWidth = baseWakeWidth;
+    if (normalizedDistance >= TRANSITION_POINT) {
+        float endZoneProgress = (normalizedDistance - TRANSITION_POINT) / (1.0 - TRANSITION_POINT);
+        vec2 endZoneShear = calculateShearMapping(endZoneProgress * 10.0, weight, baseWakeWidth);
+        effectiveWidth = mix(baseWakeWidth, endZoneShear.x, endZoneProgress);
+    }
 
     float wakeHeight = 0.0;
 
     // Golden ratio for fibonacci wave patterns
     float phi = 1.618;
 
-    // Left wake arm with enhanced spline-wavelet properties
+    // Left wake arm with conditional wavelet enhancement
     if (leftDist < effectiveWidth) {
         float armIntensity = smoothstep(effectiveWidth, effectiveWidth * 0.3, leftDist);
 
-        // Enhanced wave components with wavelet amplitude modulation
+        // Wave components with conditional wavelet modulation
         for (int j = 0; j < 3; j++) {
             float wavelength = (2.0 + vesselSpeed * 0.4) * pow(phi, float(j) * 0.5);
             float k = waveNumber(wavelength);
@@ -322,19 +341,26 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float weight
             // Golden angle phase offset for natural interference
             float phase = k * pathDistance - omega * time + float(j) * 2.39;
 
-            // Enhanced amplitude with wavelet transform
-            float baseWaveAmplitude = baseAmplitude * pow(0.618, float(j));
-            float waveletAmplitude = calculateWaveletAmplitude(wakeAge, weight, baseWaveAmplitude);
+            // Base wave amplitude
+            float waveAmplitude = baseAmplitude * pow(0.618, float(j));
 
-            wakeHeight += waveletAmplitude * armIntensity * decay * ageFactor * sin(phase);
+            // Apply wavelet modulation only in end zone
+            if (normalizedDistance >= TRANSITION_POINT) {
+                float endZoneProgress = (normalizedDistance - TRANSITION_POINT) / (1.0 - TRANSITION_POINT);
+                float waveletMod = calculateWaveletAmplitude(wakeAge, weight, 1.0);
+                waveAmplitude *= mix(1.0, waveletMod, endZoneProgress);
+            }
+
+            // Simplified decay: remove redundant multiplications
+            wakeHeight += waveAmplitude * armIntensity * ageFactor * sin(phase);
         }
     }
 
-    // Right wake arm with enhanced spline-wavelet properties
+    // Right wake arm with conditional wavelet enhancement
     if (rightDist < effectiveWidth) {
         float armIntensity = smoothstep(effectiveWidth, effectiveWidth * 0.3, rightDist);
 
-        // Enhanced wave components with wavelet amplitude modulation
+        // Wave components with conditional wavelet modulation
         for (int j = 0; j < 3; j++) {
             float wavelength = (2.0 + vesselSpeed * 0.4) * pow(phi, float(j) * 0.5);
             float k = waveNumber(wavelength);
@@ -343,11 +369,18 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float weight
             // Golden angle phase offset for natural interference
             float phase = k * pathDistance - omega * time + float(j) * 2.39;
 
-            // Enhanced amplitude with wavelet transform
-            float baseWaveAmplitude = baseAmplitude * pow(0.618, float(j));
-            float waveletAmplitude = calculateWaveletAmplitude(wakeAge, weight, baseWaveAmplitude);
+            // Base wave amplitude
+            float waveAmplitude = baseAmplitude * pow(0.618, float(j));
 
-            wakeHeight += waveletAmplitude * armIntensity * decay * ageFactor * sin(phase);
+            // Apply wavelet modulation only in end zone
+            if (normalizedDistance >= TRANSITION_POINT) {
+                float endZoneProgress = (normalizedDistance - TRANSITION_POINT) / (1.0 - TRANSITION_POINT);
+                float waveletMod = calculateWaveletAmplitude(wakeAge, weight, 1.0);
+                waveAmplitude *= mix(1.0, waveletMod, endZoneProgress);
+            }
+
+            // Simplified decay: remove redundant multiplications
+            wakeHeight += waveAmplitude * armIntensity * ageFactor * sin(phase);
         }
     }
 
