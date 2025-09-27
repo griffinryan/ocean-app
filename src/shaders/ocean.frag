@@ -16,6 +16,14 @@ uniform vec3 u_vesselPositions[5];
 uniform vec3 u_vesselVelocities[5];
 uniform bool u_wakesEnabled;
 
+// Enhanced wake trail uniforms
+uniform int u_wakeTrailCount;
+uniform vec3 u_wakeTrailPositions[100];
+uniform float u_wakeTrailIntensities[100];
+uniform float u_wakeTrailDisplacements[100];
+uniform float u_wakeTrailWidths[100];
+uniform float u_wakeTrailTurbulences[100];
+
 out vec4 fragColor;
 
 // Ocean color palette
@@ -89,6 +97,50 @@ float waveFrequency(float k) {
     return sqrt(GRAVITY * k);
 }
 
+// Calculate vessel displacement effect for sculptural deformation
+float calculateVesselDisplacement(vec2 pos, vec3 vesselPos, vec3 vesselVel, float time) {
+    vec2 delta = pos - vesselPos.xz;
+    float distance = length(delta);
+
+    // Skip if too far from vessel
+    if (distance > 8.0) return 0.0;
+
+    vec2 vesselDir = normalize(vesselVel.xz);
+    float vesselSpeed = length(vesselVel.xz);
+
+    if (vesselSpeed < 0.1) return 0.0;
+
+    float displacement = 0.0;
+    float dotProduct = dot(delta, vesselDir);
+
+    // Bow wave - pushes water forward and to sides
+    if (dotProduct > 0.0 && distance < 2.5) {
+        float bowIntensity = (2.5 - distance) / 2.5;
+        float lateralDist = abs(dot(delta, vec2(-vesselDir.y, vesselDir.x)));
+
+        // Create V-shaped bow wave displacement
+        if (lateralDist > 0.5) {
+            displacement += bowIntensity * vesselSpeed * 0.2 * smoothstep(3.0, 1.0, lateralDist);
+        } else {
+            // Deep trough directly in front
+            displacement -= bowIntensity * vesselSpeed * 0.15;
+        }
+    }
+
+    // Hull displacement - carves trough along vessel sides
+    if (abs(dotProduct) < 1.0) {
+        vec2 perpDir = vec2(-vesselDir.y, vesselDir.x);
+        float lateralDist = abs(dot(delta, perpDir));
+
+        if (lateralDist < 1.5) {
+            float hullEffect = (1.5 - lateralDist) / 1.5;
+            displacement -= hullEffect * vesselSpeed * 0.1;
+        }
+    }
+
+    return displacement;
+}
+
 // Calculate vessel wake contribution using Kelvin pattern
 float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float time) {
     // Get 2D position relative to vessel
@@ -110,7 +162,7 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float time) 
     float dotProduct = dot(delta, vesselDir);
 
     // Only generate wake behind vessel
-    if (dotProduct < 0.0) return 0.0;
+    if (dotProduct > 0.0) return 0.0;
 
     // Distance along vessel's path (negative behind vessel)
     float pathDistance = abs(dotProduct);
@@ -123,19 +175,19 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float time) 
     float leftDist = abs(dot(delta, vec2(-leftArm.y, leftArm.x)));
     float rightDist = abs(dot(delta, vec2(-rightArm.y, rightArm.x)));
 
-    // Wake amplitude based on vessel speed
-    float baseAmplitude = vesselSpeed * 0.08;
+    // Wake amplitude based on vessel speed - dramatically increased for sculptural effect
+    float baseAmplitude = vesselSpeed * 0.35;
 
-    // Exponential decay with distance
-    float decay = exp(-distance * 0.15);
+    // Exponential decay with distance - slower decay for larger wake
+    float decay = exp(-distance * 0.1);
 
-    // Age-based decay for wake persistence
+    // Age-based decay for wake persistence - longer lasting wakes
     float wakeAge = pathDistance / vesselSpeed;
-    float ageFactor = exp(-wakeAge * 0.3);
+    float ageFactor = exp(-wakeAge * 0.2);
 
-    // Left wake arm
-    if (leftDist < 1.5) {
-        float armIntensity = (1.5 - leftDist) / 1.5;
+    // Left wake arm - increased width for dramatic effect
+    if (leftDist < 3.0) {
+        float armIntensity = (3.0 - leftDist) / 3.0;
         float wavelength = 2.0 + vesselSpeed * 0.5;
         float k = waveNumber(wavelength);
         float omega = waveFrequency(k);
@@ -144,9 +196,9 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float time) 
         wakeHeight += baseAmplitude * armIntensity * decay * ageFactor * sin(phase);
     }
 
-    // Right wake arm
-    if (rightDist < 1.5) {
-        float armIntensity = (1.5 - rightDist) / 1.5;
+    // Right wake arm - increased width for dramatic effect
+    if (rightDist < 3.0) {
+        float armIntensity = (3.0 - rightDist) / 3.0;
         float wavelength = 2.0 + vesselSpeed * 0.5;
         float k = waveNumber(wavelength);
         float omega = waveFrequency(k);
@@ -164,8 +216,8 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float time) 
     float rightArmDot = dot(delta, rightArm);
 
     if (leftArmDot < 0.0 && rightArmDot < 0.0 && pathDistance < 15.0) {
-        // Generate curved transverse waves
-        float vIntensity = smoothstep(3.0, 0.5, lateralDist);
+        // Generate curved transverse waves - wider disturbance zone
+        float vIntensity = smoothstep(5.0, 0.5, lateralDist);
 
         if (vIntensity > 0.0) {
             // Multiple wavelengths for complexity
@@ -186,13 +238,13 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float time) 
         }
     }
 
-    // Add turbulent water near vessel
-    if (distance < 3.0) {
-        float turbulence = (3.0 - distance) / 3.0;
+    // Add turbulent water near vessel - expanded turbulence zone
+    if (distance < 6.0) {
+        float turbulence = (6.0 - distance) / 6.0;
         float noiseScale = 8.0;
         vec2 noisePos = pos * noiseScale + time * vesselSpeed * 2.0;
         float turbNoise = fbm(noisePos) * 0.5 - 0.25;
-        wakeHeight += turbNoise * turbulence * baseAmplitude * 1.5;
+        wakeHeight += turbNoise * turbulence * baseAmplitude * 2.5;
     }
 
     return wakeHeight;
@@ -209,6 +261,61 @@ float getAllVesselWakes(vec2 pos, float time) {
     }
 
     return totalWake;
+}
+
+// Calculate all vessel displacement contributions
+float getAllVesselDisplacements(vec2 pos, float time) {
+    if (!u_wakesEnabled || u_vesselCount == 0) return 0.0;
+
+    float totalDisplacement = 0.0;
+
+    for (int i = 0; i < u_vesselCount && i < 5; i++) {
+        totalDisplacement += calculateVesselDisplacement(pos, u_vesselPositions[i], u_vesselVelocities[i], time);
+    }
+
+    return totalDisplacement;
+}
+
+// Calculate wake trail-based deformation using spline-interpolated points
+float calculateWakeTrailDeformation(vec2 pos, float time) {
+    if (!u_wakesEnabled || u_wakeTrailCount == 0) return 0.0;
+
+    float totalDeformation = 0.0;
+
+    for (int i = 0; i < u_wakeTrailCount && i < 100; i++) {
+        vec2 trailPos = u_wakeTrailPositions[i].xz;
+        float distance = length(pos - trailPos);
+        float width = u_wakeTrailWidths[i];
+
+        // Skip if too far from trail point
+        if (distance > width) continue;
+
+        float intensity = u_wakeTrailIntensities[i];
+        float displacement = u_wakeTrailDisplacements[i];
+        float turbulence = u_wakeTrailTurbulences[i];
+
+        // Distance-based falloff
+        float falloff = smoothstep(width, width * 0.3, distance);
+
+        // Create sculptural deformation along the trail
+        float baseDeformation = displacement * intensity * falloff;
+
+        // Add turbulent variations
+        vec2 noisePos = pos * 8.0 + time * 2.0;
+        float turbNoise = (fbm(noisePos) - 0.5) * turbulence;
+
+        // Create channel-like deformation with raised edges
+        float channelEffect = 1.0 - smoothstep(0.0, width * 0.6, distance);
+        float edgeEffect = smoothstep(width * 0.6, width, distance) * falloff;
+
+        // Carve channel and raise edges
+        float trailDeformation = -baseDeformation * channelEffect + baseDeformation * 0.3 * edgeEffect;
+        trailDeformation += turbNoise * falloff;
+
+        totalDeformation += trailDeformation;
+    }
+
+    return totalDeformation;
 }
 
 // Calculate ocean height with visible waves
@@ -236,6 +343,35 @@ float getOceanHeight(vec2 pos, float time) {
     // Add vessel wake contributions (constructive/destructive interference)
     float wakeHeight = getAllVesselWakes(pos, time);
     height += wakeHeight;
+
+    // Add vessel displacement for sculptural deformation
+    float displacement = getAllVesselDisplacements(pos, time);
+    height += displacement;
+
+    // Add wake trail deformation for persistent sculptural effects
+    float trailDeformation = calculateWakeTrailDeformation(pos, time);
+    height += trailDeformation;
+
+    // Apply wave cancellation effect - vessels disrupt perpendicular waves
+    if (u_wakesEnabled && u_vesselCount > 0) {
+        float cancellationFactor = 1.0;
+        for (int i = 0; i < u_vesselCount && i < 5; i++) {
+            vec2 delta = pos - u_vesselPositions[i].xz;
+            float distance = length(delta);
+
+            if (distance < 8.0) {
+                vec2 vesselDir = normalize(u_vesselVelocities[i].xz);
+                float vesselSpeed = length(u_vesselVelocities[i].xz);
+
+                if (vesselSpeed > 0.1) {
+                    float influence = exp(-distance * 0.2);
+                    // Reduce wave amplitude in vessel's path
+                    cancellationFactor *= (1.0 - influence * 0.4);
+                }
+            }
+        }
+        height *= cancellationFactor;
+    }
 
     return height;
 }
@@ -297,10 +433,19 @@ void main() {
         fragColor = vec4(normal * 0.5 + 0.5, 1.0);
         return;
     } else if (u_debugMode == 4) {
-        // Show wake contribution map
+        // Show wake contribution map including trails
         float wakeContribution = getAllVesselWakes(oceanPos, v_time);
-        float intensity = clamp(abs(wakeContribution) * 5.0, 0.0, 1.0);
+        float trailContribution = calculateWakeTrailDeformation(oceanPos, v_time);
+        float totalContribution = wakeContribution + trailContribution;
+
+        float intensity = clamp(abs(totalContribution) * 3.0, 0.0, 1.0);
         vec3 wakeColor = mix(vec3(0.0, 0.0, 0.5), vec3(1.0, 1.0, 0.0), intensity);
+
+        // Add trail visualization
+        if (abs(trailContribution) > 0.01) {
+            wakeColor = mix(wakeColor, vec3(0.0, 1.0, 0.0), 0.5);
+        }
+
         fragColor = vec4(wakeColor, 1.0);
         return;
     }

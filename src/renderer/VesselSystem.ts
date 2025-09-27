@@ -21,6 +21,9 @@ export interface WakePoint {
   position: Vec3;
   velocity: Vec3;
   intensity: number;
+  displacement: number;    // Depth of sculpting effect
+  width: number;          // Wake width at this point
+  turbulence: number;     // Chaos factor for turbulent effects
   timestamp: number;
 }
 
@@ -46,6 +49,65 @@ export class VesselSystem {
   private lastSpawnTime: number = 0;
   private idCounter: number = 0;
   private initialized: boolean = false;
+
+  /**
+   * Catmull-Rom spline interpolation for smooth wake trails
+   */
+  private catmullRomInterpolate(p0: Vec3, p1: Vec3, p2: Vec3, p3: Vec3, t: number): Vec3 {
+    const t2 = t * t;
+    const t3 = t2 * t;
+
+    const x = 0.5 * ((2 * p1.x) +
+      (-p0.x + p2.x) * t +
+      (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 +
+      (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3);
+
+    const y = 0.5 * ((2 * p1.y) +
+      (-p0.y + p2.y) * t +
+      (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 +
+      (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3);
+
+    const z = 0.5 * ((2 * p1.z) +
+      (-p0.z + p2.z) * t +
+      (2 * p0.z - 5 * p1.z + 4 * p2.z - p3.z) * t2 +
+      (-p0.z + 3 * p1.z - 3 * p2.z + p3.z) * t3);
+
+    return new Vec3(x, y, z);
+  }
+
+  /**
+   * Generate interpolated wake trail points using splines
+   */
+  private generateInterpolatedWakeTrail(vessel: Vessel, samplesPerSegment: number = 3): Vec3[] {
+    const trail = vessel.wakeTrail;
+    if (trail.length < 4) return trail.map(p => p.position);
+
+    const interpolatedPoints: Vec3[] = [];
+
+    for (let i = 1; i < trail.length - 2; i++) {
+      const p0 = trail[i - 1].position;
+      const p1 = trail[i].position;
+      const p2 = trail[i + 1].position;
+      const p3 = trail[i + 2].position;
+
+      // Add the actual point
+      interpolatedPoints.push(p1.clone());
+
+      // Add interpolated points between this and next
+      for (let j = 1; j < samplesPerSegment; j++) {
+        const t = j / samplesPerSegment;
+        const interpolated = this.catmullRomInterpolate(p0, p1, p2, p3, t);
+        interpolatedPoints.push(interpolated);
+      }
+    }
+
+    // Add the last point
+    if (trail.length > 0) {
+      interpolatedPoints.push(trail[trail.length - 1].position.clone());
+    }
+
+    return interpolatedPoints;
+  }
 
   constructor(config: VesselConfig) {
     this.config = config;
@@ -270,13 +332,37 @@ export class VesselSystem {
   }
 
   /**
-   * Add wake trail point
+   * Add wake trail point with enhanced properties
    */
   private addWakeTrailPoint(vessel: Vessel, currentTime: number): void {
+    // Calculate angular velocity for turn detection
+    let angularVelocity = 0;
+    if (vessel.wakeTrail.length > 0) {
+      const lastPoint = vessel.wakeTrail[vessel.wakeTrail.length - 1];
+      const deltaTime = (currentTime - lastPoint.timestamp) / 1000; // Convert to seconds
+
+      if (deltaTime > 0) {
+        const lastDir = lastPoint.velocity.clone().normalize();
+        const currentDir = vessel.velocity.clone().normalize();
+
+        // Calculate angle between directions
+        const dotProduct = Math.max(-1, Math.min(1, lastDir.x * currentDir.x + lastDir.z * currentDir.z));
+        const angle = Math.acos(dotProduct);
+        angularVelocity = angle / deltaTime;
+      }
+    }
+
+    // Enhanced wake properties based on vessel state
+    const speed = vessel.velocity.length();
+    const baseIntensity = Math.min(speed / 5.0, 1.0); // Normalize to max speed of 5
+
     const wakePoint: WakePoint = {
       position: vessel.position.clone(),
       velocity: vessel.velocity.clone(),
-      intensity: 1.0,
+      intensity: baseIntensity,
+      displacement: speed * 0.2,                    // Deeper displacement for faster vessels
+      width: 2.0 + speed * 0.3 + angularVelocity * 2.0, // Wider wake during turns
+      turbulence: angularVelocity * 0.5 + speed * 0.1,  // More turbulence during turns and at speed
       timestamp: currentTime
     };
 
@@ -365,27 +451,51 @@ export class VesselSystem {
   }
 
   /**
-   * Get all wake trail data for shader
+   * Get all wake trail data for shader with spline interpolation
    */
   getWakeTrailDataForShader(maxPoints: number = 100): {
     positions: Float32Array;
     velocities: Float32Array;
     intensities: Float32Array;
+    displacements: Float32Array;
+    widths: Float32Array;
+    turbulences: Float32Array;
     count: number;
   } {
-    const allPoints: WakePoint[] = [];
+    const allInterpolatedPoints: { position: Vec3; data: WakePoint }[] = [];
 
+    // Generate spline-interpolated points for each vessel
     for (const vessel of this.vessels.values()) {
-      allPoints.push(...vessel.wakeTrail);
+      if (vessel.wakeTrail.length < 2) continue;
+
+      const interpolatedPositions = this.generateInterpolatedWakeTrail(vessel, 2);
+
+      // Create data points with interpolated positions but original wake data
+      interpolatedPositions.forEach((position, index) => {
+        // Find closest original wake point for data
+        const originalIndex = Math.min(
+          Math.floor(index / 2),
+          vessel.wakeTrail.length - 1
+        );
+        const originalPoint = vessel.wakeTrail[originalIndex];
+
+        allInterpolatedPoints.push({
+          position,
+          data: originalPoint
+        });
+      });
     }
 
     // Sort by timestamp (newest first) and limit
-    allPoints.sort((a, b) => b.timestamp - a.timestamp);
-    const limitedPoints = allPoints.slice(0, maxPoints);
+    allInterpolatedPoints.sort((a, b) => b.data.timestamp - a.data.timestamp);
+    const limitedPoints = allInterpolatedPoints.slice(0, maxPoints);
 
     const positions = new Float32Array(maxPoints * 3);
     const velocities = new Float32Array(maxPoints * 3);
     const intensities = new Float32Array(maxPoints);
+    const displacements = new Float32Array(maxPoints);
+    const widths = new Float32Array(maxPoints);
+    const turbulences = new Float32Array(maxPoints);
 
     limitedPoints.forEach((point, index) => {
       const i = index * 3;
@@ -393,17 +503,23 @@ export class VesselSystem {
       positions[i + 1] = point.position.y;
       positions[i + 2] = point.position.z;
 
-      velocities[i] = point.velocity.x;
-      velocities[i + 1] = point.velocity.y;
-      velocities[i + 2] = point.velocity.z;
+      velocities[i] = point.data.velocity.x;
+      velocities[i + 1] = point.data.velocity.y;
+      velocities[i + 2] = point.data.velocity.z;
 
-      intensities[index] = point.intensity;
+      intensities[index] = point.data.intensity;
+      displacements[index] = point.data.displacement;
+      widths[index] = point.data.width;
+      turbulences[index] = point.data.turbulence;
     });
 
     return {
       positions,
       velocities,
       intensities,
+      displacements,
+      widths,
+      turbulences,
       count: limitedPoints.length
     };
   }
