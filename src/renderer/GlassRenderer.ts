@@ -1,0 +1,318 @@
+/**
+ * Glass Panel Renderer with WebGL Distortion Effects
+ * Renders liquid glass panels that distort the ocean underneath
+ */
+
+import { ShaderManager, ShaderProgram } from './ShaderManager';
+import { GeometryBuilder, BufferManager, GeometryData } from './Geometry';
+import { Mat4 } from '../utils/math';
+
+export interface GlassPanelConfig {
+  position: [number, number]; // Screen position in normalized coordinates
+  size: [number, number];     // Size in normalized coordinates
+  distortionStrength: number; // Strength of the distortion effect
+  refractionIndex: number;    // Index of refraction for the glass
+}
+
+export class GlassRenderer {
+  private gl: WebGL2RenderingContext;
+  private shaderManager: ShaderManager;
+  private glassProgram: ShaderProgram | null = null;
+
+  // Geometry for rendering glass panels
+  private panelGeometry: GeometryData;
+  private bufferManager: BufferManager;
+
+  // Framebuffer for ocean texture
+  private oceanFramebuffer: WebGLFramebuffer | null = null;
+  private oceanTexture: WebGLTexture | null = null;
+  private depthBuffer: WebGLRenderbuffer | null = null;
+
+  // Matrix uniforms
+  private projectionMatrix: Mat4;
+  private viewMatrix: Mat4;
+
+  // Panel configurations
+  private panels: Map<string, GlassPanelConfig> = new Map();
+
+  // Animation
+  private startTime: number;
+
+  constructor(gl: WebGL2RenderingContext, shaderManager: ShaderManager) {
+    this.gl = gl;
+    this.shaderManager = shaderManager;
+    this.startTime = performance.now();
+
+    // Initialize matrices
+    this.projectionMatrix = new Mat4();
+    this.viewMatrix = new Mat4();
+
+    // Create geometry for rendering panels
+    this.panelGeometry = GeometryBuilder.createFullScreenQuad();
+    this.bufferManager = new BufferManager(gl, this.panelGeometry);
+
+    // Set up projection matrix for screen-space rendering
+    this.projectionMatrix.identity();
+    this.viewMatrix.identity();
+
+    // Initialize framebuffer
+    this.initializeFramebuffer();
+  }
+
+  /**
+   * Initialize shaders for glass rendering
+   */
+  async initializeShaders(vertexShader: string, fragmentShader: string): Promise<void> {
+    try {
+      this.glassProgram = await this.shaderManager.createProgram('glass', vertexShader, fragmentShader);
+      console.log('Glass shaders initialized successfully!');
+    } catch (error) {
+      console.error('Failed to initialize glass shaders:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Initialize framebuffer for ocean texture capture
+   */
+  private initializeFramebuffer(): void {
+    const gl = this.gl;
+
+    // Create framebuffer
+    this.oceanFramebuffer = gl.createFramebuffer();
+    if (!this.oceanFramebuffer) {
+      throw new Error('Failed to create framebuffer');
+    }
+
+    // Create texture for color attachment
+    this.oceanTexture = gl.createTexture();
+    if (!this.oceanTexture) {
+      throw new Error('Failed to create ocean texture');
+    }
+
+    // Create depth renderbuffer
+    this.depthBuffer = gl.createRenderbuffer();
+    if (!this.depthBuffer) {
+      throw new Error('Failed to create depth buffer');
+    }
+
+    // Setup will be completed in resize method
+    this.resizeFramebuffer(gl.canvas.width, gl.canvas.height);
+  }
+
+  /**
+   * Resize framebuffer to match canvas size
+   */
+  public resizeFramebuffer(width: number, height: number): void {
+    const gl = this.gl;
+
+    if (!this.oceanFramebuffer || !this.oceanTexture || !this.depthBuffer) {
+      return;
+    }
+
+    // Bind framebuffer
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.oceanFramebuffer);
+
+    // Setup color texture
+    gl.bindTexture(gl.TEXTURE_2D, this.oceanTexture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    // Attach color texture
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.oceanTexture, 0);
+
+    // Setup depth buffer
+    gl.bindRenderbuffer(gl.RENDERBUFFER, this.depthBuffer);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, width, height);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, this.depthBuffer);
+
+    // Check framebuffer completeness
+    const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+    if (status !== gl.FRAMEBUFFER_COMPLETE) {
+      console.error('Framebuffer incomplete:', status);
+    }
+
+    // Unbind
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    gl.bindRenderbuffer(gl.RENDERBUFFER, null);
+  }
+
+  /**
+   * Capture ocean scene to texture
+   */
+  public captureOceanScene(renderOceanCallback: () => void): void {
+    const gl = this.gl;
+
+    if (!this.oceanFramebuffer) {
+      return;
+    }
+
+    // Bind framebuffer
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.oceanFramebuffer);
+
+    // Clear framebuffer
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    // Render ocean scene
+    renderOceanCallback();
+
+    // Unbind framebuffer (render to screen)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }
+
+  /**
+   * Add a glass panel configuration
+   */
+  public addPanel(id: string, config: GlassPanelConfig): void {
+    this.panels.set(id, config);
+  }
+
+  /**
+   * Remove a glass panel
+   */
+  public removePanel(id: string): void {
+    this.panels.delete(id);
+  }
+
+  /**
+   * Update panel configuration
+   */
+  public updatePanel(id: string, config: Partial<GlassPanelConfig>): void {
+    const existingConfig = this.panels.get(id);
+    if (existingConfig) {
+      this.panels.set(id, { ...existingConfig, ...config });
+    }
+  }
+
+  /**
+   * Render all glass panels
+   */
+  public render(): void {
+    const gl = this.gl;
+
+    if (!this.glassProgram || !this.oceanTexture || this.panels.size === 0) {
+      return;
+    }
+
+    // Use glass shader program
+    const program = this.shaderManager.useProgram('glass');
+
+    // Set up matrices
+    this.shaderManager.setUniformMatrix4fv(program, 'u_projectionMatrix', this.projectionMatrix.data);
+    this.shaderManager.setUniformMatrix4fv(program, 'u_viewMatrix', this.viewMatrix.data);
+
+    // Set time uniform for animation
+    const currentTime = (performance.now() - this.startTime) / 1000.0;
+    this.shaderManager.setUniform1f(program, 'u_time', currentTime);
+
+    // Set resolution
+    this.shaderManager.setUniform2f(program, 'u_resolution', gl.canvas.width, gl.canvas.height);
+    this.shaderManager.setUniform1f(program, 'u_aspectRatio', gl.canvas.width / gl.canvas.height);
+
+    // Bind ocean texture
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.oceanTexture);
+    this.shaderManager.setUniform1i(program, 'u_oceanTexture', 0);
+
+    // Enable blending for transparency
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+    // Disable depth testing for glass panels
+    gl.disable(gl.DEPTH_TEST);
+
+    // Render each panel
+    this.panels.forEach((config) => {
+      this.renderPanel(config, program);
+    });
+
+    // Re-enable depth testing
+    gl.enable(gl.DEPTH_TEST);
+  }
+
+  /**
+   * Render a single glass panel
+   */
+  private renderPanel(config: GlassPanelConfig, program: ShaderProgram): void {
+    const gl = this.gl;
+
+    // Set panel-specific uniforms
+    this.shaderManager.setUniform2f(program, 'u_panelPosition', config.position[0], config.position[1]);
+    this.shaderManager.setUniform2f(program, 'u_panelSize', config.size[0], config.size[1]);
+    this.shaderManager.setUniform1f(program, 'u_distortionStrength', config.distortionStrength);
+    this.shaderManager.setUniform1f(program, 'u_refractionIndex', config.refractionIndex);
+
+    // Bind geometry and render
+    this.bufferManager.bind();
+    gl.drawElements(gl.TRIANGLES, this.panelGeometry.indexCount, gl.UNSIGNED_SHORT, 0);
+  }
+
+  /**
+   * Set up default panel configurations
+   */
+  public setupDefaultPanels(): void {
+    // Landing panel configuration
+    this.addPanel('landing', {
+      position: [0.3, 0.3], // Centered
+      size: [0.4, 0.4],     // 40% of screen
+      distortionStrength: 0.015,
+      refractionIndex: 1.52 // Glass refractive index
+    });
+
+    // App panel configuration
+    this.addPanel('app', {
+      position: [0.05, 0.05], // Top-left
+      size: [0.35, 0.25],     // Smaller panel
+      distortionStrength: 0.012,
+      refractionIndex: 1.52
+    });
+  }
+
+  /**
+   * Enable/disable glass rendering for specific panels
+   */
+  public setPanelVisibility(_id: string, _visible: boolean): void {
+    // Could implement per-panel visibility if needed
+    // For now, panels are controlled by the panels Map
+  }
+
+  /**
+   * Get ocean texture for external use
+   */
+  public getOceanTexture(): WebGLTexture | null {
+    return this.oceanTexture;
+  }
+
+  /**
+   * Clean up resources
+   */
+  public dispose(): void {
+    const gl = this.gl;
+
+    // Clean up framebuffer
+    if (this.oceanFramebuffer) {
+      gl.deleteFramebuffer(this.oceanFramebuffer);
+      this.oceanFramebuffer = null;
+    }
+
+    if (this.oceanTexture) {
+      gl.deleteTexture(this.oceanTexture);
+      this.oceanTexture = null;
+    }
+
+    if (this.depthBuffer) {
+      gl.deleteRenderbuffer(this.depthBuffer);
+      this.depthBuffer = null;
+    }
+
+    // Clean up geometry
+    this.bufferManager.dispose();
+
+    // Clear panels
+    this.panels.clear();
+  }
+}
