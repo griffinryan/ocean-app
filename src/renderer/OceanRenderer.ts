@@ -171,7 +171,7 @@ export class OceanRenderer {
   }
 
   /**
-   * Initialize vessel system with default configuration
+   * Initialize vessel system with enhanced configuration
    */
   private initializeVesselSystem(): void {
     const vesselConfig: VesselConfig = {
@@ -180,8 +180,13 @@ export class OceanRenderer {
       vesselLifetime: 30000, // 30 seconds vessel lifetime
       speedRange: [2.0, 5.0], // Speed range in units/second
       oceanBounds: [-20, 20, -20, 20], // Ocean bounds [minX, maxX, minZ, maxZ]
-      wakeTrailLength: 200, // Maximum wake trail points
-      wakeDecayTime: 15000 // 15 seconds for wake to decay
+      wakeTrailLength: 300, // Increased maximum wake trail points
+      wakeDecayTime: 45000, // 45 seconds for wake to decay (extended)
+      // Enhanced wake configuration
+      maxOrphanedWakes: 5, // Maximum orphaned wake trails
+      orphanedWakeLifetime: 30000, // 30 seconds for orphaned wakes
+      offScreenFadeDuration: 5000, // 5 seconds fade when vessel leaves
+      wakeTrailSampleRate: 10 // 10 wake points per second
     };
 
     this.vesselSystem = new VesselSystem(vesselConfig);

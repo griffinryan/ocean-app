@@ -2,7 +2,14 @@
  * Vessel system for managing boat movements and wake generation
  */
 
-import { Vec3 } from '../utils/math';
+import {
+  Vec3,
+  calculateDynamicWakeAngle,
+  calculateShearMapping,
+  wakeWaveletTransform,
+  calculateOffScreenFade,
+  calculateWakeDecay
+} from '../utils/math';
 
 export interface Vessel {
   id: string;
@@ -28,6 +35,25 @@ export interface WakePoint {
   velocity: Vec3;
   intensity: number;
   timestamp: number;
+  // Enhanced wake properties for spline-wavelet transforms
+  vesselWeight: number;
+  vesselSpeed: number;
+  hullLength: number;
+  wakeAngle: number;
+  spreadFactor: number;
+  shearAngle: number;
+  amplitudeCoeff: number;
+  waveletPhase: number;
+}
+
+// Orphaned wake trail that persists after vessel is despawned
+export interface OrphanedWakeTrail {
+  id: string;
+  vesselId: string;
+  points: WakePoint[];
+  startFadeTime: number;
+  vesselWeight: number;
+  lastUpdateTime: number;
 }
 
 export enum MovementPattern {
@@ -64,6 +90,11 @@ export interface VesselConfig {
   oceanBounds: [number, number, number, number]; // [minX, maxX, minZ, maxZ]
   wakeTrailLength: number;
   wakeDecayTime: number;
+  // Enhanced wake configuration
+  maxOrphanedWakes: number;
+  orphanedWakeLifetime: number;
+  offScreenFadeDuration: number;
+  wakeTrailSampleRate: number; // Points per second
 }
 
 export class VesselSystem {
@@ -72,6 +103,11 @@ export class VesselSystem {
   private lastSpawnTime: number = 0;
   private idCounter: number = 0;
   private initialized: boolean = false;
+
+  // Enhanced wake trail management
+  private orphanedWakes: Map<string, OrphanedWakeTrail> = new Map();
+  private lastWakePointTime: Map<string, number> = new Map();
+  private wakeIdCounter: number = 0;
 
   // Vessel class configurations
   private static readonly VESSEL_CLASS_CONFIGS: Record<VesselClass, VesselClassConfig> = {
@@ -130,30 +166,32 @@ export class VesselSystem {
 
       // Check if vessel should be despawned
       if (currentTime - vessel.spawnTime > vessel.lifetime) {
-        this.despawnVessel(id);
+        this.despawnVessel(id, currentTime);
         continue;
       }
 
       // Update vessel position based on movement pattern
       this.updateVesselMovement(vessel, deltaTime);
 
-      // Add wake trail point
-      this.addWakeTrailPoint(vessel, currentTime);
+      // Add wake trail point with enhanced properties
+      this.addEnhancedWakeTrailPoint(vessel, currentTime);
 
-      // Clean old wake trail points
-      this.cleanWakeTrail(vessel, currentTime);
+      // Clean old wake trail points using new decay function
+      this.cleanEnhancedWakeTrail(vessel, currentTime);
 
       // Handle vessel state transitions based on bounds and timing
       this.updateVesselState(vessel, currentTime);
 
       // Only despawn vessels that have completed fading
       if (vessel.state === VesselState.FADING) {
-        const fadeDuration = 5000; // 5 seconds smooth fade
-        if (vessel.fadeStartTime && currentTime - vessel.fadeStartTime > fadeDuration) {
-          this.despawnVessel(id);
+        if (vessel.fadeStartTime && currentTime - vessel.fadeStartTime > this.config.offScreenFadeDuration) {
+          this.despawnVessel(id, currentTime);
         }
       }
     }
+
+    // Update orphaned wake trails
+    this.updateOrphanedWakes(currentTime);
   }
 
   /**
@@ -327,36 +365,91 @@ export class VesselSystem {
 
 
   /**
-   * Add wake trail point - simplified
+   * Add enhanced wake trail point with spline-wavelet properties
    */
-  private addWakeTrailPoint(vessel: Vessel, currentTime: number): void {
+  private addEnhancedWakeTrailPoint(vessel: Vessel, currentTime: number): void {
+    // Control wake point sampling rate
+    const lastPointTime = this.lastWakePointTime.get(vessel.id) || 0;
+    const timeSinceLastPoint = currentTime - lastPointTime;
+    const minInterval = 1000 / this.config.wakeTrailSampleRate; // Convert sample rate to interval
+
+    if (timeSinceLastPoint < minInterval) {
+      return; // Skip this frame to maintain sample rate
+    }
+
+    // Calculate dynamic wake properties
+    const wakeAngle = calculateDynamicWakeAngle(vessel.speed, vessel.weight, vessel.hullLength);
+    const shearData = calculateShearMapping(
+      vessel.wakeTrail.length * vessel.speed * 0.1, // Approximate distance
+      vessel.weight,
+      1.5 + vessel.weight * 2.0 // Base width
+    );
+
+    // Calculate wavelet amplitude coefficient
+    const trailAge = 0; // This is a new point
+    const amplitudeCoeff = wakeWaveletTransform(trailAge, vessel.weight, 1.0);
+
     const wakePoint: WakePoint = {
       position: vessel.position.clone(),
       velocity: vessel.velocity.clone(),
       intensity: 1.0,
-      timestamp: currentTime
+      timestamp: currentTime,
+      // Enhanced properties
+      vesselWeight: vessel.weight,
+      vesselSpeed: vessel.speed,
+      hullLength: vessel.hullLength,
+      wakeAngle,
+      spreadFactor: shearData.width / (1.5 + vessel.weight * 2.0),
+      shearAngle: shearData.shearAngle,
+      amplitudeCoeff,
+      waveletPhase: (currentTime * 0.001) % (2 * Math.PI) // Convert to radians
     };
 
     vessel.wakeTrail.push(wakePoint);
+    this.lastWakePointTime.set(vessel.id, currentTime);
 
-    // Limit trail length to 20 points for debugging only
-    if (vessel.wakeTrail.length > 20) {
+    // Use dynamic trail length based on vessel properties
+    const maxTrailPoints = Math.floor(this.config.wakeTrailLength * (1.0 + vessel.weight * 0.5));
+    if (vessel.wakeTrail.length > maxTrailPoints) {
       vessel.wakeTrail.shift();
     }
   }
 
   /**
-   * Clean old wake trail points
+   * Clean old wake trail points using enhanced decay
    */
-  private cleanWakeTrail(vessel: Vessel, currentTime: number): void {
-    vessel.wakeTrail = vessel.wakeTrail.filter(point =>
-      currentTime - point.timestamp < this.config.wakeDecayTime
-    );
+  private cleanEnhancedWakeTrail(vessel: Vessel, currentTime: number): void {
+    // Filter out points beyond maximum age
+    vessel.wakeTrail = vessel.wakeTrail.filter(point => {
+      const age = (currentTime - point.timestamp) / 1000; // Convert to seconds
+      return age < 45.0; // Maximum wake age
+    });
 
-    // Update intensities based on age
+    // Update intensities using spline-wavelet decay
     vessel.wakeTrail.forEach(point => {
-      const age = currentTime - point.timestamp;
-      point.intensity = Math.max(0, 1 - (age / this.config.wakeDecayTime));
+      const age = (currentTime - point.timestamp) / 1000; // Convert to seconds
+      const vesselWeight = point.vesselWeight;
+
+      // Calculate base decay using spline interpolation
+      const baseDecay = calculateWakeDecay(age, vesselWeight);
+
+      // Apply off-screen fade if vessel is in appropriate state
+      let fadeMultiplier = 1.0;
+      if (vessel.state === VesselState.FADING && vessel.fadeStartTime) {
+        fadeMultiplier = calculateOffScreenFade(vessel.fadeStartTime, currentTime, this.config.offScreenFadeDuration);
+      }
+
+      // Update point properties
+      point.intensity = baseDecay * fadeMultiplier;
+
+      // Recalculate amplitude coefficient based on current age
+      point.amplitudeCoeff = wakeWaveletTransform(age, vesselWeight, 1.0);
+
+      // Update shear mapping for dynamic spreading
+      const distance = age * point.vesselSpeed;
+      const shearData = calculateShearMapping(distance, vesselWeight, 1.5 + vesselWeight * 2.0);
+      point.spreadFactor = shearData.width / (1.5 + vesselWeight * 2.0);
+      point.shearAngle = shearData.shearAngle;
     });
   }
 
@@ -374,13 +467,83 @@ export class VesselSystem {
   }
 
   /**
-   * Despawn vessel
+   * Despawn vessel and create orphaned wake trail
    */
-  private despawnVessel(id: string): void {
+  private despawnVessel(id: string, currentTime: number): void {
     const vessel = this.vessels.get(id);
-    if (vessel) {
+    if (vessel && vessel.wakeTrail.length > 0) {
+      // Create orphaned wake trail if there are wake points to preserve
+      if (this.orphanedWakes.size < this.config.maxOrphanedWakes) {
+        const orphanedWake: OrphanedWakeTrail = {
+          id: `wake_${this.wakeIdCounter++}`,
+          vesselId: id,
+          points: [...vessel.wakeTrail], // Clone the wake trail
+          startFadeTime: currentTime,
+          vesselWeight: vessel.weight,
+          lastUpdateTime: currentTime
+        };
+
+        this.orphanedWakes.set(orphanedWake.id, orphanedWake);
+        console.log(`[VesselSystem] Created orphaned wake trail ${orphanedWake.id} with ${orphanedWake.points.length} points`);
+      }
+
       vessel.active = false;
       this.vessels.delete(id);
+      this.lastWakePointTime.delete(id);
+    }
+  }
+
+  /**
+   * Update orphaned wake trails
+   */
+  private updateOrphanedWakes(currentTime: number): void {
+    for (const [wakeId, orphanedWake] of this.orphanedWakes) {
+      const age = (currentTime - orphanedWake.startFadeTime) / 1000;
+
+      // Remove orphaned wake if it's too old
+      if (age > this.config.orphanedWakeLifetime / 1000) {
+        this.orphanedWakes.delete(wakeId);
+        continue;
+      }
+
+      // Update wake points in orphaned trail
+      orphanedWake.points = orphanedWake.points.filter(point => {
+        const pointAge = (currentTime - point.timestamp) / 1000;
+        return pointAge < 45.0; // Maximum wake age
+      });
+
+      // Update wake point properties
+      orphanedWake.points.forEach(point => {
+        const pointAge = (currentTime - point.timestamp) / 1000;
+        const vesselWeight = orphanedWake.vesselWeight;
+
+        // Calculate base decay
+        const baseDecay = calculateWakeDecay(pointAge, vesselWeight);
+
+        // Apply orphaned wake fade
+        const orphanedFade = calculateOffScreenFade(
+          orphanedWake.startFadeTime,
+          currentTime,
+          this.config.orphanedWakeLifetime
+        );
+
+        // Update point properties
+        point.intensity = baseDecay * orphanedFade;
+        point.amplitudeCoeff = wakeWaveletTransform(pointAge, vesselWeight, 1.0);
+
+        // Update shear mapping
+        const distance = pointAge * point.vesselSpeed;
+        const shearData = calculateShearMapping(distance, vesselWeight, 1.5 + vesselWeight * 2.0);
+        point.spreadFactor = shearData.width / (1.5 + vesselWeight * 2.0);
+        point.shearAngle = shearData.shearAngle;
+      });
+
+      // Remove orphaned wake if no points remain
+      if (orphanedWake.points.length === 0) {
+        this.orphanedWakes.delete(wakeId);
+      } else {
+        orphanedWake.lastUpdateTime = currentTime;
+      }
     }
   }
 
@@ -431,9 +594,8 @@ export class VesselSystem {
         stateValue = 1.0;
       } else if (vessel.state === VesselState.FADING) {
         // Encode fade progress: 2.0 = start, 3.0 = complete
-        const fadeDuration = 5000;
         if (vessel.fadeStartTime) {
-          const fadeProgress = Math.min(1.0, (currentTime - vessel.fadeStartTime) / fadeDuration);
+          const fadeProgress = Math.min(1.0, (currentTime - vessel.fadeStartTime) / this.config.offScreenFadeDuration);
           stateValue = 2.0 + fadeProgress;
         } else {
           stateValue = 2.0;
@@ -453,25 +615,60 @@ export class VesselSystem {
     };
   }
 
+  /**
+   * Get all wake trail points for enhanced shader rendering
+   */
+  getAllWakeTrailPoints(): WakePoint[] {
+    const allPoints: WakePoint[] = [];
+
+    // Add wake points from active vessels
+    for (const vessel of this.vessels.values()) {
+      allPoints.push(...vessel.wakeTrail);
+    }
+
+    // Add wake points from orphaned trails
+    for (const orphanedWake of this.orphanedWakes.values()) {
+      allPoints.push(...orphanedWake.points);
+    }
+
+    return allPoints;
+  }
+
 
   /**
    * Toggle vessel system on/off
    */
   setEnabled(enabled: boolean): void {
     if (!enabled) {
-      // Clear all vessels
+      // Clear all vessels and orphaned wakes
       this.vessels.clear();
+      this.orphanedWakes.clear();
+      this.lastWakePointTime.clear();
     }
   }
 
   /**
    * Get system statistics
    */
-  getStats(): { activeVessels: number; totalWakePoints: number } {
+  getStats(): {
+    activeVessels: number;
+    totalWakePoints: number;
+    orphanedWakes: number;
+    orphanedWakePoints: number;
+  } {
     const activeVessels = this.getActiveVessels().length;
     const totalWakePoints = Array.from(this.vessels.values())
       .reduce((sum, vessel) => sum + vessel.wakeTrail.length, 0);
 
-    return { activeVessels, totalWakePoints };
+    const orphanedWakes = this.orphanedWakes.size;
+    const orphanedWakePoints = Array.from(this.orphanedWakes.values())
+      .reduce((sum, wake) => sum + wake.points.length, 0);
+
+    return {
+      activeVessels,
+      totalWakePoints,
+      orphanedWakes,
+      orphanedWakePoints
+    };
   }
 }
