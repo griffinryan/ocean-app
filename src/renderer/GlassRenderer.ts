@@ -41,8 +41,8 @@ export class GlassRenderer {
     enabled: true,
     viscosity: 1.0,
     surfaceTension: 0.072,
-    refractionIndex: 1.33,
-    chromaticStrength: 0.5,
+    refractionIndex: 1.5, // Increased from 1.33 to 1.5 for stronger refraction
+    chromaticStrength: 1.0, // Increased from 0.5 to 1.0 for stronger chromatic aberration
     flowSpeed: 1.0
   };
 
@@ -52,7 +52,8 @@ export class GlassRenderer {
   private startTime: number;
 
   // Debug configuration
-  private debugMode: boolean = false;
+  private debugMode: boolean = true; // Enable debug by default
+  private _visualDebugMode: number = 1; // 0=normal, 1=show panels, 2=show distance
 
   constructor(gl: WebGL2RenderingContext, shaderManager: ShaderManager, canvas: HTMLCanvasElement) {
     this.gl = gl;
@@ -104,7 +105,8 @@ export class GlassRenderer {
         'u_surfaceTension',
         'u_refractionIndex',
         'u_chromaticStrength',
-        'u_flowSpeed'
+        'u_flowSpeed',
+        'u_debugMode'
       ];
 
       // Define attributes
@@ -209,6 +211,22 @@ export class GlassRenderer {
   public setDebugMode(enabled: boolean): void {
     this.debugMode = enabled;
     console.log(`Liquid glass debug mode ${enabled ? 'enabled' : 'disabled'}`);
+  }
+
+  /**
+   * Set visual debug mode for shader visualization
+   * @param mode 0=normal, 1=show panels, 2=show distance
+   */
+  public setVisualDebugMode(mode: number): void {
+    this._visualDebugMode = mode;
+    console.log(`Liquid glass visual debug mode set to ${mode}`);
+  }
+
+  /**
+   * Get current visual debug mode
+   */
+  public get visualDebugMode(): number {
+    return this._visualDebugMode;
   }
 
   /**
@@ -355,6 +373,9 @@ export class GlassRenderer {
     // Set liquid glass parameters
     this.applyLiquidGlassUniforms(program);
 
+    // Set debug mode
+    this.shaderManager.setUniform1i(program, 'u_debugMode', this._visualDebugMode);
+
     // Enable blending
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -380,8 +401,8 @@ export class GlassRenderer {
   private applyPanelUniforms(program: ShaderProgram): void {
     const panelData = this.panelTracker.getPanelData();
 
-    // Debug logging for panel data
-    if (this.debugMode && panelData.count > 0) {
+    // Debug logging for panel data (always enabled for troubleshooting)
+    if (panelData.count > 0) {
       console.log('Panel tracking data:', {
         count: panelData.count,
         enabled: this.config.enabled,
@@ -389,6 +410,8 @@ export class GlassRenderer {
         centers: panelData.centers.slice(0, panelData.count * 2),
         states: panelData.states.slice(0, panelData.count)
       });
+    } else {
+      console.log('No panels detected by glass renderer');
     }
 
     // Set panel count
@@ -430,16 +453,14 @@ export class GlassRenderer {
    * Apply liquid glass configuration uniforms
    */
   private applyLiquidGlassUniforms(program: ShaderProgram): void {
-    // Debug logging for liquid glass parameters
-    if (this.debugMode) {
-      console.log('Liquid glass parameters:', {
-        viscosity: this.config.viscosity,
-        surfaceTension: this.config.surfaceTension,
-        refractionIndex: this.config.refractionIndex,
-        chromaticStrength: this.config.chromaticStrength,
-        flowSpeed: this.config.flowSpeed
-      });
-    }
+    // Debug logging for liquid glass parameters (enabled for troubleshooting)
+    console.log('Liquid glass parameters:', {
+      viscosity: this.config.viscosity,
+      surfaceTension: this.config.surfaceTension,
+      refractionIndex: this.config.refractionIndex,
+      chromaticStrength: this.config.chromaticStrength,
+      flowSpeed: this.config.flowSpeed
+    });
 
     this.shaderManager.setUniform1f(program, 'u_liquidViscosity', this.config.viscosity);
     this.shaderManager.setUniform1f(program, 'u_surfaceTension', this.config.surfaceTension);

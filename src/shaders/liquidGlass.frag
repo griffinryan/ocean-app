@@ -27,6 +27,9 @@ uniform float u_refractionIndex;
 uniform float u_chromaticStrength;
 uniform float u_flowSpeed;
 
+// Debug parameters
+uniform int u_debugMode; // 0=normal, 1=show panels, 2=show distance
+
 // Output
 out vec4 fragColor;
 
@@ -212,11 +215,11 @@ vec2 calculateLiquidGlassDistortionCached(vec2 screenPos, float panelSDF, float 
     // Layer-based strength variation
     float layerStrength = 1.0;
     if (abs(panelSDF) < 0.05) {
-        // Meniscus layer - maximum distortion
-        layerStrength = 2.5;
+        // Meniscus layer - maximum distortion - DRAMATICALLY increased
+        layerStrength = 10.0; // Increased from 2.5 to 10.0
     } else if (abs(panelSDF) < 0.15) {
-        // Viscous layer - strong distortion
-        layerStrength = 1.8;
+        // Viscous layer - strong distortion - increased
+        layerStrength = 5.0; // Increased from 1.8 to 5.0
     } else {
         // Bulk liquid - moderate distortion
         layerStrength = 1.0;
@@ -226,8 +229,8 @@ vec2 calculateLiquidGlassDistortionCached(vec2 screenPos, float panelSDF, float 
     vec2 flowInfluence = liquidFlowField(screenPos, time) * 0.3;
     distortion += flowInfluence;
 
-    // Scale and apply intensity
-    distortion *= intensity * layerStrength * 0.08; // Increased strength for visibility
+    // Scale and apply intensity - DRAMATICALLY increased for visibility
+    distortion *= intensity * layerStrength * 2.0; // 25x increase from 0.08 to 2.0
 
     return distortion;
 }
@@ -242,9 +245,59 @@ void main() {
     vec2 screenPos = v_screenPos;
     vec2 uv = v_uv;
 
+    // Sample base ocean color
+    vec3 oceanColor = texture(u_oceanTexture, uv).rgb;
+
+    // Debug visualization modes
+    if (u_debugMode == 1) {
+        // Show panel bounds with colored overlays
+        for (int i = 0; i < u_panelCount && i < 8; i++) {
+            if (u_panelStates[i] < 0.01) continue; // Skip hidden panels
+
+            vec4 bounds = u_panelBounds[i];
+            bool inPanel = screenPos.x >= bounds.x && screenPos.x <= bounds.z &&
+                          screenPos.y >= bounds.y && screenPos.y <= bounds.w;
+
+            if (inPanel) {
+                // Bright colored overlay for panel areas
+                vec3 panelColor = vec3(1.0, 0.0, 0.0); // Red overlay
+                if (i == 1) panelColor = vec3(0.0, 1.0, 0.0); // Green for second panel
+                if (i == 2) panelColor = vec3(0.0, 0.0, 1.0); // Blue for third panel
+
+                oceanColor = mix(oceanColor, panelColor, 0.5); // 50% overlay
+                break; // Only show one panel color per pixel
+            }
+        }
+
+        fragColor = vec4(oceanColor, 1.0);
+        return;
+    }
+
+    if (u_debugMode == 2) {
+        // Show distance field visualization
+        float panelSDF = computeSignedDistanceToNearestPanel(screenPos);
+
+        // Color based on distance
+        vec3 distanceColor = vec3(0.0);
+        if (panelSDF < 0.0) {
+            // Inside panel - red
+            distanceColor = vec3(1.0, 0.0, 0.0);
+        } else if (panelSDF < 0.1) {
+            // Near panel edge - yellow
+            distanceColor = vec3(1.0, 1.0, 0.0);
+        } else if (panelSDF < 0.3) {
+            // Close to panel - green
+            distanceColor = vec3(0.0, 1.0, 0.0);
+        }
+
+        oceanColor = mix(oceanColor, distanceColor, 0.7);
+        fragColor = vec4(oceanColor, 1.0);
+        return;
+    }
+
+    // Normal rendering mode
     // Early exit if liquid glass disabled or no panels
     if (u_liquidGlassEnabled == 0 || u_panelCount == 0) {
-        vec3 oceanColor = texture(u_oceanTexture, uv).rgb;
         fragColor = vec4(oceanColor, 1.0);
         return;
     }
@@ -254,7 +307,6 @@ void main() {
 
     // Early discard for fragments far from any panel
     if (panelSDF > 0.6) {
-        vec3 oceanColor = texture(u_oceanTexture, uv).rgb;
         fragColor = vec4(oceanColor, 1.0);
         return;
     }

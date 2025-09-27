@@ -34,6 +34,10 @@ export class PanelTracker {
 
     // Initial scan for glass panels
     this.scanForPanels();
+
+    console.log('PanelTracker initialized');
+    console.log('Canvas size:', this.canvas.width, 'x', this.canvas.height);
+    this.logPanelData();
   }
 
   /**
@@ -256,6 +260,45 @@ export class PanelTracker {
   }
 
   /**
+   * Log current panel tracking data for debugging
+   */
+  public logPanelData(): void {
+    console.log('=== Panel Tracking Debug ===');
+    console.log('Total panels tracked:', this.panels.size);
+
+    if (this.panels.size === 0) {
+      console.log('No panels found! Looking for elements with class "glass-panel"');
+      const glassPanels = document.querySelectorAll('.glass-panel');
+      console.log('Found glass panel elements:', glassPanels.length);
+      glassPanels.forEach((el, i) => {
+        const htmlEl = el as HTMLElement;
+        console.log(`  Panel ${i}:`, htmlEl.id || 'no-id', htmlEl.classList.toString());
+      });
+      return;
+    }
+
+    this.panels.forEach((panel, id) => {
+      console.log(`Panel ${id}:`, {
+        state: panel.state,
+        bounds: panel.bounds,
+        center: panel.center,
+        size: panel.size,
+        distortion: panel.distortionStrength,
+        classes: panel.element.classList.toString()
+      });
+    });
+
+    const data = this.getPanelData();
+    console.log('Uniform data:', {
+      count: data.count,
+      bounds: data.bounds.slice(0, data.count * 4),
+      centers: data.centers.slice(0, data.count * 2),
+      states: data.states.slice(0, data.count)
+    });
+    console.log('=========================');
+  }
+
+  /**
    * Get panel data for WebGL uniforms
    */
   public getPanelData(): {
@@ -312,6 +355,7 @@ export class PanelTracker {
    * Notify all update callbacks
    */
   private notifyUpdates(): void {
+    console.log('Panel updates triggered - count:', this.panels.size);
     this.updateCallbacks.forEach(callback => callback());
   }
 

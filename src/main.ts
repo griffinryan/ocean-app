@@ -157,6 +157,24 @@ class OceanApp {
             this.updateGlassInfo(!isEnabled);
           }
           break;
+        case 'l':
+        case 'L':
+          // Log panel tracking data
+          if (this.renderer && this.renderer.getGlassRenderer()) {
+            this.renderer.getGlassRenderer()!.panelTracker.logPanelData();
+          }
+          break;
+        case 'm':
+        case 'M':
+          // Cycle liquid glass visual debug modes
+          if (this.renderer && this.renderer.getGlassRenderer()) {
+            const glassRenderer = this.renderer.getGlassRenderer()!;
+            const currentMode = glassRenderer.visualDebugMode || 0;
+            const newMode = (currentMode + 1) % 3; // 0=normal, 1=panels, 2=distance
+            glassRenderer.setVisualDebugMode(newMode);
+            this.updateLiquidGlassDebugInfo(newMode);
+          }
+          break;
         case '0':
         case '1':
         case '2':
@@ -180,6 +198,8 @@ class OceanApp {
     console.log('  0-4 - Select debug mode directly');
     console.log('  V - Toggle vessel wake system');
     console.log('  G - Toggle glass panel rendering');
+    console.log('  L - Log panel tracking data');
+    console.log('  M - Cycle liquid glass debug visualization');
     console.log('  Space - Reserved for future controls');
   }
 
@@ -241,6 +261,27 @@ class OceanApp {
       }
 
       glassElement.innerHTML = `<br>Glass Panels: ${enabled ? 'ON' : 'OFF'}`;
+    }
+  }
+
+  /**
+   * Update liquid glass debug visualization info display
+   */
+  private updateLiquidGlassDebugInfo(mode: number): void {
+    const infoElement = document.getElementById('info');
+    if (infoElement) {
+      const modeNames = ['Normal Rendering', 'Show Panel Bounds', 'Show Distance Field'];
+      const modeName = modeNames[mode] || 'Unknown';
+
+      // Update the existing info or add debug info
+      let debugElement = document.getElementById('liquid-glass-debug');
+      if (!debugElement) {
+        debugElement = document.createElement('div');
+        debugElement.id = 'liquid-glass-debug';
+        infoElement.appendChild(debugElement);
+      }
+      debugElement.innerHTML = `<br>Liquid Glass Debug: ${modeName} (${mode})`;
+      console.log(`Liquid glass debug mode: ${modeName} (${mode})`);
     }
   }
 
