@@ -133,37 +133,28 @@ void main() {
     // Calculate refraction direction
     vec3 refractionDir = calculateRefraction(viewDir, glassNormal, 1.0 / u_refractionIndex);
 
-    // Calculate advanced distorted UV coordinates with liquid warping
+    // Calculate uniform distorted UV coordinates with consistent liquid warping
     vec2 distortedUV = screenUV;
 
     if (length(refractionDir) > 0.0) {
-        // Apply enhanced refraction offset
+        // Apply uniform refraction offset
         vec2 refractionOffset = refractionDir.xy * u_distortionStrength;
 
-        // Add flowing liquid distortion patterns
+        // Add flowing liquid distortion patterns (consistent across panel)
         vec2 liquidOffset = vec2(
-            sin(panelUV.y * 12.0 + v_time * 2.0) * 0.01,
-            cos(panelUV.x * 10.0 + v_time * 1.5) * 0.01
+            sin(panelUV.y * 8.0 + v_time * 1.8) * 0.015,
+            cos(panelUV.x * 7.0 + v_time * 1.2) * 0.015
         );
 
-        // Create bubble-like distortions
-        vec2 bubbleUV = panelUV * 6.0 + v_time * 0.3;
-        vec2 bubbleId = floor(bubbleUV);
-        vec2 bubblePos = fract(bubbleUV);
-        float bubbleDist = length(bubblePos - 0.5);
-        vec2 bubbleOffset = normalize(bubblePos - 0.5) * (0.5 - bubbleDist) * 0.008;
+        // Create subtle ripple distortions
+        float ripplePhase = length(panelUV - 0.5) * 10.0 - v_time * 3.0;
+        vec2 rippleOffset = normalize(panelUV - 0.5) * sin(ripplePhase) * 0.01;
 
-        // Combine all distortion effects
-        vec2 totalOffset = refractionOffset + liquidOffset + bubbleOffset;
+        // Combine all distortion effects uniformly
+        vec2 totalOffset = refractionOffset + liquidOffset + rippleOffset;
 
-        // Add position-dependent distortion with stronger center effects
-        vec2 centerOffset = panelUV - 0.5;
-        float distanceFromCenter = length(centerOffset);
-        float centerAmplify = 1.0 + (1.0 - distanceFromCenter) * 0.8; // Stronger in center
-        float edgeFalloff = smoothstep(0.4, 0.6, distanceFromCenter);
-
-        // Apply distortion with center amplification
-        totalOffset *= centerAmplify * (1.0 - edgeFalloff * 0.3);
+        // Apply consistent distortion strength across entire panel
+        totalOffset *= 1.2; // Uniform amplification
 
         distortedUV += totalOffset;
     }
@@ -177,9 +168,9 @@ void main() {
     // Apply glass tinting
     oceanColor *= GLASS_TINT;
 
-    // Enhanced chromatic aberration for stronger glass effect
-    float chromaticAberration = u_distortionStrength * 0.008;
-    float chromaticFlow = sin(v_time * 1.2) * 0.002;
+    // Uniform chromatic aberration across entire panel
+    float chromaticAberration = u_distortionStrength * 0.006;
+    float chromaticFlow = sin(v_time * 1.0) * 0.001;
 
     vec3 chromaticColor = vec3(
         texture(u_oceanTexture, distortedUV + vec2(chromaticAberration + chromaticFlow, 0.0)).r,
@@ -187,11 +178,8 @@ void main() {
         texture(u_oceanTexture, distortedUV - vec2(chromaticAberration - chromaticFlow, 0.0)).b
     );
 
-    // Stronger chromatic aberration mixing
-    vec2 centerOffset = panelUV - 0.5;
-    float distanceFromCenter = length(centerOffset);
-    float chromaticMix = smoothstep(0.1, 0.6, distanceFromCenter);
-    oceanColor = mix(oceanColor, chromaticColor * GLASS_TINT, chromaticMix * 0.6);
+    // Apply uniform chromatic aberration mixing
+    oceanColor = mix(oceanColor, chromaticColor * GLASS_TINT, 0.35);
 
     // Enhanced glass surface reflection with flow
     vec3 reflection = vec3(0.85, 0.92, 1.0) * fresnelReflection * 0.15;
@@ -232,7 +220,7 @@ void main() {
     vec3 rimLight = vec3(0.9, 0.95, 1.0) * rimIntensity * 0.1;
 
     // Depth-based color tinting (thicker glass appears more blue)
-    float depth = length(centerOffset) * GLASS_THICKNESS;
+    float depth = length(panelUV - 0.5) * GLASS_THICKNESS;
     vec3 depthTint = mix(vec3(1.0), vec3(0.85, 0.92, 1.0), depth * 2.0);
 
     // Combine all effects with proper layering

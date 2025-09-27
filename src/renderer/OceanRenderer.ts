@@ -57,7 +57,7 @@ export class OceanRenderer {
     strengths: new Float32Array(2), // Reusable buffer for 2 panels
     count: 0,
     lastUpdate: 0,
-    updateInterval: 250, // Update every 250ms instead of every frame
+    updateInterval: 500, // Update every 500ms for better performance
     dirty: true
   };
 
@@ -67,6 +67,17 @@ export class OceanRenderer {
     appPanel: null as HTMLElement | null,
     fpsElement: null as HTMLElement | null,
     elementsInitialized: false
+  };
+
+  // Uniform update cache to reduce redundant WebGL calls
+  private uniformCache = {
+    lastAspectRatio: -1,
+    lastResolution: new Float32Array(2),
+    lastDebugMode: -1,
+    lastGlassEnabled: false,
+    lastWakesEnabled: false,
+    lastVesselCount: -1,
+    lastGlassPanelCount: -1
   };
 
   constructor(config: RenderConfig) {
@@ -321,7 +332,7 @@ export class OceanRenderer {
   }
 
   /**
-   * Draw the ocean scene with current uniforms
+   * Draw the ocean scene with optimized uniform updates
    */
   private drawOcean(elapsedTime: number): void {
     const gl = this.gl;
@@ -329,24 +340,46 @@ export class OceanRenderer {
     // Use ocean shader
     const program = this.shaderManager.useProgram('ocean');
 
-    // Set time for animation
+    // Always set time for animation (changes every frame)
     this.shaderManager.setUniform1f(program, 'u_time', elapsedTime);
 
-    // Set aspect ratio
+    // Set aspect ratio only if changed
     const aspect = this.canvas.width / this.canvas.height;
-    this.shaderManager.setUniform1f(program, 'u_aspectRatio', aspect);
+    if (aspect !== this.uniformCache.lastAspectRatio) {
+      this.shaderManager.setUniform1f(program, 'u_aspectRatio', aspect);
+      this.uniformCache.lastAspectRatio = aspect;
+    }
 
-    // Set resolution
-    this.shaderManager.setUniform2f(program, 'u_resolution', this.canvas.width, this.canvas.height);
+    // Set resolution only if changed
+    if (this.uniformCache.lastResolution[0] !== this.canvas.width ||
+        this.uniformCache.lastResolution[1] !== this.canvas.height) {
+      this.shaderManager.setUniform2f(program, 'u_resolution', this.canvas.width, this.canvas.height);
+      this.uniformCache.lastResolution[0] = this.canvas.width;
+      this.uniformCache.lastResolution[1] = this.canvas.height;
+    }
 
-    // Set debug mode
-    this.shaderManager.setUniform1i(program, 'u_debugMode', this.debugMode);
+    // Set debug mode only if changed
+    if (this.debugMode !== this.uniformCache.lastDebugMode) {
+      this.shaderManager.setUniform1i(program, 'u_debugMode', this.debugMode);
+      this.uniformCache.lastDebugMode = this.debugMode;
+    }
 
     // Set vessel wake uniforms
     const vesselData = this.vesselSystem.getVesselDataForShader(5, performance.now());
-    this.shaderManager.setUniform1i(program, 'u_vesselCount', vesselData.count);
-    this.shaderManager.setUniform1i(program, 'u_wakesEnabled', this.wakesEnabled ? 1 : 0);
 
+    // Set vessel count only if changed
+    if (vesselData.count !== this.uniformCache.lastVesselCount) {
+      this.shaderManager.setUniform1i(program, 'u_vesselCount', vesselData.count);
+      this.uniformCache.lastVesselCount = vesselData.count;
+    }
+
+    // Set wakes enabled only if changed
+    if (this.wakesEnabled !== this.uniformCache.lastWakesEnabled) {
+      this.shaderManager.setUniform1i(program, 'u_wakesEnabled', this.wakesEnabled ? 1 : 0);
+      this.uniformCache.lastWakesEnabled = this.wakesEnabled;
+    }
+
+    // Vessel data arrays need to be updated every frame when vessels are active
     if (vesselData.count > 0) {
       this.shaderManager.setUniform3fv(program, 'u_vesselPositions', vesselData.positions);
       this.shaderManager.setUniform3fv(program, 'u_vesselVelocities', vesselData.velocities);
@@ -356,12 +389,22 @@ export class OceanRenderer {
       this.shaderManager.setUniform1fv(program, 'u_vesselStates', vesselData.states);
     }
 
-    // Set glass panel uniforms
-    this.shaderManager.setUniform1i(program, 'u_glassEnabled', this.glassEnabled ? 1 : 0);
-    const glassData = this.getGlassPanelDataForShader();
-    this.shaderManager.setUniform1i(program, 'u_glassPanelCount', glassData.count);
+    // Set glass enabled only if changed
+    if (this.glassEnabled !== this.uniformCache.lastGlassEnabled) {
+      this.shaderManager.setUniform1i(program, 'u_glassEnabled', this.glassEnabled ? 1 : 0);
+      this.uniformCache.lastGlassEnabled = this.glassEnabled;
+    }
 
-    if (glassData.count > 0) {
+    const glassData = this.getGlassPanelDataForShader();
+
+    // Set glass panel count only if changed
+    if (glassData.count !== this.uniformCache.lastGlassPanelCount) {
+      this.shaderManager.setUniform1i(program, 'u_glassPanelCount', glassData.count);
+      this.uniformCache.lastGlassPanelCount = glassData.count;
+    }
+
+    // Glass panel data updated only when cache is dirty (every 500ms)
+    if (glassData.count > 0 && this.panelCache.dirty) {
       this.shaderManager.setUniform2fv(program, 'u_glassPanelPositions', glassData.positions);
       this.shaderManager.setUniform2fv(program, 'u_glassPanelSizes', glassData.sizes);
       this.shaderManager.setUniform1fv(program, 'u_glassDistortionStrengths', glassData.strengths);
@@ -558,7 +601,7 @@ export class OceanRenderer {
       this.panelCache.positions[count * 2 + 1] = panelData.position[1];
       this.panelCache.sizes[count * 2] = panelData.size[0];
       this.panelCache.sizes[count * 2 + 1] = panelData.size[1];
-      this.panelCache.strengths[count] = 2.0; // Strong distortion for landing panel
+      this.panelCache.strengths[count] = 4.0; // Enhanced distortion for landing panel
       count++;
     }
 
@@ -571,7 +614,7 @@ export class OceanRenderer {
       this.panelCache.positions[count * 2 + 1] = panelData.position[1];
       this.panelCache.sizes[count * 2] = panelData.size[0];
       this.panelCache.sizes[count * 2 + 1] = panelData.size[1];
-      this.panelCache.strengths[count] = 1.5; // Medium distortion for app panel
+      this.panelCache.strengths[count] = 3.0; // Enhanced distortion for app panel
       count++;
     }
 

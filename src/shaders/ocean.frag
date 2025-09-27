@@ -69,12 +69,12 @@ float noise(vec2 p) {
     return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
 }
 
-// Multiple octaves of noise
+// Optimized FBM with fewer octaves
 float fbm(vec2 p) {
     float value = 0.0;
     float amplitude = 0.5;
 
-    for(int i = 0; i < 5; i++) {
+    for(int i = 0; i < 3; i++) {
         value += amplitude * noise(p);
         p *= 2.0;
         amplitude *= 0.5;
@@ -113,56 +113,19 @@ float waveFrequency(float k) {
 }
 
 
-// Mexican Hat wavelet function for natural amplitude modulation
-float mexicanHat(float x, float sigma) {
-    float normalized = x / sigma;
-    float x2 = normalized * normalized;
-    return (1.0 - x2) * exp(-x2 * 0.5);
-}
 
-// Cubic Hermite spline interpolation
-float cubicHermite(float t, float p0, float p1, float m0, float m1) {
-    float t2 = t * t;
-    float t3 = t2 * t;
+// Simplified trail decay function for better performance
+float getSimplifiedTrailDecay(float normalizedDistance, float weight) {
+    // Simple exponential decay with smooth falloff
+    float decay = exp(-normalizedDistance * 2.5);
 
-    float h00 = 2.0 * t3 - 3.0 * t2 + 1.0;
-    float h10 = t3 - 2.0 * t2 + t;
-    float h01 = -2.0 * t3 + 3.0 * t2;
-    float h11 = t3 - t2;
+    // Add subtle wavelet-like modulation
+    float modulation = 1.0 - normalizedDistance * 0.3;
 
-    return h00 * p0 + h10 * m0 + h01 * p1 + h11 * m1;
-}
+    // Weight influence
+    float weightFactor = 1.0 + weight * 0.2;
 
-// Enhanced spline-wavelet decay function for extended graceful trails
-float getEnhancedTrailDecay(float normalizedDistance, float weight) {
-    // Spline control points for smooth decay curve
-    // Strong start -> gentle initial decay -> mid-trail fade -> rapid final fade -> complete fade
-    float splineDecay = 1.0;
-
-    if (normalizedDistance <= 0.3) {
-        // Stage 1: Strong start to gentle initial decay
-        float t = normalizedDistance / 0.3;
-        splineDecay = cubicHermite(t, 1.0, 0.85, -0.5, -0.8);
-    } else if (normalizedDistance <= 0.6) {
-        // Stage 2: Gentle decay to mid-trail fade
-        float t = (normalizedDistance - 0.3) / 0.3;
-        splineDecay = cubicHermite(t, 0.85, 0.5, -0.8, -1.2);
-    } else if (normalizedDistance <= 0.85) {
-        // Stage 3: Mid-trail to rapid fade
-        float t = (normalizedDistance - 0.6) / 0.25;
-        splineDecay = cubicHermite(t, 0.5, 0.2, -1.2, -2.0);
-    } else {
-        // Stage 4: Rapid final fade to complete fade
-        float t = (normalizedDistance - 0.85) / 0.15;
-        splineDecay = cubicHermite(t, 0.2, 0.0, -2.0, -3.0);
-    }
-
-    // Apply Mexican Hat wavelet for natural amplitude modulation
-    float waveletModulation = mexicanHat(normalizedDistance, 0.35);
-
-    // Combine spline and wavelet with weight influence
-    float weightFactor = 1.0 + weight * 0.3;
-    return max(0.0, splineDecay * waveletModulation * weightFactor);
+    return max(0.0, decay * modulation * weightFactor);
 }
 
 // Calculate vessel wake contribution using dynamic vessel properties
@@ -234,9 +197,9 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float weight
     // Enhanced dynamic wake amplitude with increased intensity
     float baseAmplitude = vesselSpeed * (0.15 + weight * 0.25) * stateIntensity; // Increased for visibility
 
-    // Enhanced spline-wavelet decay for graceful trail fading
+    // Simplified decay for graceful trail fading
     float normalizedPathDistance = min(pathDistance / maxTrailDistance, 1.0);
-    float enhancedDecay = getEnhancedTrailDecay(normalizedPathDistance, weight);
+    float simplifiedDecay = getSimplifiedTrailDecay(normalizedPathDistance, weight);
 
     // Smooth fade as vessel approaches edge of wake range with expanded transition
     float edgeFade = 1.0;
@@ -246,8 +209,8 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float weight
         edgeFade = 1.0 - smoothstep(0.0, 1.0, t);
     }
 
-    // Combined decay factor using enhanced spline-wavelet function
-    float ageFactor = enhancedDecay;
+    // Combined decay factor using simplified function
+    float ageFactor = simplifiedDecay;
 
     // Enhanced wake width with progressive spreading for curling effect
     float baseWakeWidth = 2.0 + weight * 3.0; // Increased range: 2.0-5.0 units for visibility
@@ -260,13 +223,13 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float weight
     // Golden ratio for fibonacci wave patterns
     float phi = 1.618;
 
-    // Left wake arm with dynamic properties
+    // Left wake arm with optimized wave components
     if (leftDist < effectiveWidth) {
         float armIntensity = smoothstep(effectiveWidth, effectiveWidth * 0.3, leftDist);
 
-        // Enhanced wave components with more layers for richer wake patterns
-        for (int j = 0; j < 3; j++) {
-            float wavelength = (2.5 + vesselSpeed * 0.5) * pow(phi, float(j) * 0.4);
+        // Optimized wave components (reduced from 3 to 2 for performance)
+        for (int j = 0; j < 2; j++) {
+            float wavelength = (2.5 + vesselSpeed * 0.5) * pow(phi, float(j) * 0.5);
             float k = waveNumber(wavelength);
             float omega = waveFrequency(k);
 
@@ -280,13 +243,13 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float weight
         }
     }
 
-    // Right wake arm with dynamic properties
+    // Right wake arm with optimized wave components
     if (rightDist < effectiveWidth) {
         float armIntensity = smoothstep(effectiveWidth, effectiveWidth * 0.3, rightDist);
 
-        // Enhanced wave components with more layers for richer wake patterns
-        for (int j = 0; j < 3; j++) {
-            float wavelength = (2.5 + vesselSpeed * 0.5) * pow(phi, float(j) * 0.4);
+        // Optimized wave components (reduced from 3 to 2 for performance)
+        for (int j = 0; j < 2; j++) {
+            float wavelength = (2.5 + vesselSpeed * 0.5) * pow(phi, float(j) * 0.5);
             float k = waveNumber(wavelength);
             float omega = waveFrequency(k);
 
@@ -351,61 +314,24 @@ vec2 getGlassDistortion(vec2 screenPos, float time) {
             // Distance from center for falloff calculations
             float distFromCenter = length(localPos);
 
-            // LOD-based quality reduction (reduce complexity near edges)
-            float lod = smoothstep(0.0, 0.5, distFromCenter);
-            bool isHighQuality = lod < 0.7;
+            // Simplified uniform liquid distortion
+            float flow1 = sin(localPos.y * 8.0 + time * 2.0) * cos(localPos.x * 6.0 + time * 1.5);
+            float flow2 = cos(localPos.x * 10.0 + time * 2.5) * sin(localPos.y * 8.0 + time * 1.8);
 
-            vec2 liquidDistortion;
+            // Simple ripple effects
+            float ripplePhase = distFromCenter * 12.0 - time * 3.0;
+            float ripple = sin(ripplePhase) * exp(-distFromCenter * 1.5) * 0.15;
 
-            if (isHighQuality) {
-                // High quality: Full liquid simulation for center regions
-                float flow1 = sin(localPos.y * 12.0 + time * 2.5) * cos(localPos.x * 8.0 + time * 1.8);
-                float flow2 = cos(localPos.x * 15.0 + time * 3.2) * sin(localPos.y * 10.0 + time * 2.1);
-
-                // Bubble-like distortions using cheaper noise
-                float bubbleNoise1 = cheapNoise(localPos * 18.0 + time * 0.8);
-                float bubbleNoise2 = cheapNoise(localPos * 25.0 - time * 0.6);
-
-                vec2 bubbleOffset = vec2(
-                    bubbleNoise1 * sin(time * 1.2),
-                    bubbleNoise2 * cos(time * 0.9)
-                ) * 0.3;
-
-                // Ripple effects
-                float ripplePhase = distFromCenter * 15.0 - time * 4.0;
-                float ripple = sin(ripplePhase) * exp(-distFromCenter * 2.0) * 0.2;
-
-                liquidDistortion = vec2(
-                    (flow1 + bubbleOffset.x + ripple) * 0.035,
-                    (flow2 + bubbleOffset.y + ripple) * 0.035
-                );
-
-                // Refraction-like warping
-                vec2 gradient = gradientNoise(localPos * 50.0 + time * 0.3);
-                liquidDistortion += gradient * 0.015;
-            } else {
-                // Low quality: Simple distortion for edge regions (3x faster)
-                liquidDistortion = vec2(
-                    sin(localPos.x * 8.0 + time * 2.0) * 0.025,
-                    cos(localPos.y * 6.0 + time * 1.5) * 0.025
-                );
-            }
-
-            // Add swirling motion (only in high quality mode for performance)
-            if (isHighQuality) {
-                float swirl = atan(localPos.y, localPos.x) + time * 0.5;
-                vec2 swirlOffset = vec2(cos(swirl), sin(swirl)) * distFromCenter * 0.01;
-                liquidDistortion += swirlOffset;
-            }
+            vec2 liquidDistortion = vec2(
+                (flow1 + ripple) * 0.15,
+                (flow2 + ripple) * 0.15
+            );
 
             // Edge falloff for smooth panel boundaries
             float edgeFade = smoothstep(0.6, 0.4, max(abs(localPos.x), abs(localPos.y)));
 
-            // Center amplification (stronger distortion in center)
-            float centerAmp = 1.0 + (1.0 - smoothstep(0.0, 0.3, distFromCenter)) * 1.2;
-
-            // Apply all modulation with enhanced strength
-            liquidDistortion *= distortionStrength * edgeFade * centerAmp;
+            // Apply uniform distortion strength across panel
+            liquidDistortion *= distortionStrength * edgeFade * 2.0;
 
             totalDistortion += liquidDistortion;
         }
@@ -414,6 +340,45 @@ vec2 getGlassDistortion(vec2 screenPos, float time) {
     return totalDistortion;
 }
 
+// Check if current fragment is under a glass panel
+float isUnderGlass(vec2 screenPos) {
+    if (!u_glassEnabled || u_glassPanelCount == 0) return 0.0;
+
+    float maxIntensity = 0.0;
+
+    for (int i = 0; i < u_glassPanelCount && i < 2; i++) {
+        vec2 panelCenter = u_glassPanelPositions[i];
+        vec2 panelSize = u_glassPanelSizes[i];
+
+        // Convert screen position to panel-relative coordinates
+        vec2 localPos = (screenPos - panelCenter) / panelSize;
+
+        // Check if within panel bounds
+        if (abs(localPos.x) < 0.5 && abs(localPos.y) < 0.5) {
+            // Calculate smooth falloff from panel edges
+            vec2 edgeDistance = abs(localPos);
+            float edgeFactor = 1.0 - smoothstep(0.3, 0.5, max(edgeDistance.x, edgeDistance.y));
+            maxIntensity = max(maxIntensity, edgeFactor);
+        }
+    }
+
+    return maxIntensity;
+}
+
+// 4x4 Bayer dithering matrix for ordered dithering patterns
+float bayerDither4x4(vec2 position) {
+    // Bayer matrix values normalized to [0,1]
+    const float matrix[16] = float[16](
+        0.0/16.0,  8.0/16.0,  2.0/16.0, 10.0/16.0,
+       12.0/16.0,  4.0/16.0, 14.0/16.0,  6.0/16.0,
+        3.0/16.0, 11.0/16.0,  1.0/16.0,  9.0/16.0,
+       15.0/16.0,  7.0/16.0, 13.0/16.0,  5.0/16.0
+    );
+
+    ivec2 pos = ivec2(mod(position, 4.0));
+    int index = pos.y * 4 + pos.x;
+    return matrix[index];
+}
 
 // Calculate ocean height with visible waves
 float getOceanHeight(vec2 pos, float time) {
@@ -486,7 +451,7 @@ void main() {
 
     // Apply glass distortion to ocean sampling position
     vec2 glassDistortion = getGlassDistortion(v_screenPos, v_time);
-    oceanPos += glassDistortion * 12.0; // Increased scale for dramatic distortion visibility
+    oceanPos += glassDistortion * 25.0; // Enhanced scale for visible liquid glass effect
 
     // Debug mode outputs
     if (u_debugMode == 1) {
@@ -513,67 +478,126 @@ void main() {
         return;
     }
 
-    // Get wave height
-    float height = getOceanHeight(oceanPos, v_time);
+    // Check if under glass panel for different rendering
+    float glassIntensity = isUnderGlass(v_screenPos);
 
-    // Calculate normal for lighting
-    vec3 normal = calculateNormal(oceanPos, v_time);
+    float height;
+    vec3 normal;
 
-    // Base ocean color based on height
-    vec3 baseColor = mix(DEEP_WATER, SHALLOW_WATER, smoothstep(-0.3, 0.3, height));
+    if (glassIntensity > 0.1) {
+        // Under glass: use noise-based crystalline pattern
+        vec2 noisePos = oceanPos * 3.0 + v_time * 0.3;
+        float noisePattern = fbm(noisePos) * 2.0 - 1.0;
 
-    // Add wave crests with stronger contrast
-    float crestAmount = smoothstep(0.12, 0.28, height);
-    baseColor = mix(baseColor, WAVE_CREST, crestAmount);
+        // Add animated crystalline structure
+        float crystalNoise = cheapNoise(oceanPos * 8.0 + v_time * 0.5);
+        height = (noisePattern + crystalNoise * 0.3) * 0.4;
 
-    // Add foam at highest peaks
-    float foamAmount = smoothstep(0.18, 0.35, height);
-    baseColor = mix(baseColor, FOAM_COLOR, foamAmount);
-
-    // Add vessel position indicators (subtle disturbance)
-    float vesselDisturbance = getVesselDisturbance(oceanPos);
-    if (vesselDisturbance > 0.0) {
-        vec3 vesselColor = mix(baseColor, FOAM_COLOR, vesselDisturbance * 0.8);
-        baseColor = vesselColor;
+        // Simplified normal calculation for performance
+        float eps = 0.2;
+        float hx = fbm((oceanPos + vec2(eps, 0.0)) * 3.0 + v_time * 0.3) * 2.0 - 1.0;
+        float hy = fbm((oceanPos + vec2(0.0, eps)) * 3.0 + v_time * 0.3) * 2.0 - 1.0;
+        normal = normalize(vec3((height - hx) / eps, (height - hy) / eps, 1.0));
+    } else {
+        // Standard ocean rendering
+        height = getOceanHeight(oceanPos, v_time);
+        normal = calculateNormal(oceanPos, v_time);
     }
 
-    // Enhanced top-down lighting with multiple light sources
-    vec3 mainLight = normalize(vec3(0.6, 1.0, 0.4));
-    vec3 rimLight = normalize(vec3(-0.3, 0.8, -0.5));
+    vec3 baseColor;
 
-    float mainLighting = max(0.2, dot(normal, mainLight));
-    float rimLighting = max(0.0, dot(normal, rimLight)) * 0.3;
+    if (glassIntensity > 0.1) {
+        // Crystalline color palette for glass effect
+        vec3 glassColors[4] = vec3[4](
+            vec3(0.05, 0.15, 0.35),  // Deep crystalline blue
+            vec3(0.15, 0.35, 0.55),  // Medium crystal blue
+            vec3(0.25, 0.55, 0.75),  // Light crystal blue
+            vec3(0.6, 0.8, 0.95)     // Crystal highlight
+        );
 
-    float totalLighting = mainLighting + rimLighting;
-    baseColor *= clamp(totalLighting, 0.3, 1.3);
+        // Apply Bayer dithering for quantization
+        float dither = bayerDither4x4(gl_FragCoord.xy);
+        float animatedNoise = cheapNoise(oceanPos * 6.0 + v_time * 0.2);
 
-    // Enhanced caustics with multiple layers
-    vec2 causticPos1 = oceanPos * 18.0 + v_time * 2.5;
-    vec2 causticPos2 = oceanPos * 25.0 - v_time * 1.8;
+        // Quantize height to 4 levels with dithering
+        float normalizedHeight = (height + 0.6) / 1.2; // Normalize to [0,1] range
+        float level = normalizedHeight * 3.0 + dither * 0.5 + animatedNoise * 0.3;
+        int colorIndex = clamp(int(level), 0, 3);
 
-    float caustic1 = fbm(causticPos1);
-    float caustic2 = fbm(causticPos2);
+        // Select color from crystalline palette
+        baseColor = glassColors[colorIndex];
 
-    caustic1 = smoothstep(0.6, 0.85, caustic1);
-    caustic2 = smoothstep(0.65, 0.9, caustic2);
+        // Add stippling effect for texture
+        float stipple = step(0.6, fract(gl_FragCoord.x * 0.5) + fract(gl_FragCoord.y * 0.5));
+        baseColor *= 0.8 + stipple * 0.2;
 
-    float totalCaustics = caustic1 * 0.15 + caustic2 * 0.1;
-    baseColor += vec3(totalCaustics);
+        // Simple lighting for crystalline effect
+        float simpleLighting = max(0.3, dot(normal, normalize(vec3(0.5, 1.0, 0.3))));
+        baseColor *= simpleLighting;
 
-    // Add animated foam trails following wave direction
-    vec2 flowDir = vec2(cos(v_time * 0.5), sin(v_time * 0.3));
-    vec2 flowPos = oceanPos + flowDir * v_time * 2.0;
-    float flowNoise = fbm(flowPos * 12.0);
-    float flowFoam = smoothstep(0.75, 0.95, flowNoise) * foamAmount;
-    baseColor += vec3(flowFoam * 0.2);
+        // Add crystalline sparkles
+        float sparkle = step(0.95, cheapNoise(oceanPos * 12.0 + v_time * 0.8));
+        baseColor += vec3(sparkle * 0.3);
 
-    // Stylistic quantization with dithering
-    baseColor = quantizeColor(baseColor, 8);
+    } else {
+        // Standard ocean rendering
+        baseColor = mix(DEEP_WATER, SHALLOW_WATER, smoothstep(-0.3, 0.3, height));
 
-    // Add subtle dithering for better gradients
-    vec2 ditherPos = gl_FragCoord.xy * 0.75;
-    float dither = fract(sin(dot(ditherPos, vec2(12.9898, 78.233))) * 43758.5453);
-    baseColor += vec3((dither - 0.5) * 0.02);
+        // Add wave crests with stronger contrast
+        float crestAmount = smoothstep(0.12, 0.28, height);
+        baseColor = mix(baseColor, WAVE_CREST, crestAmount);
+
+        // Add foam at highest peaks
+        float foamAmount = smoothstep(0.18, 0.35, height);
+        baseColor = mix(baseColor, FOAM_COLOR, foamAmount);
+
+        // Add vessel position indicators (subtle disturbance)
+        float vesselDisturbance = getVesselDisturbance(oceanPos);
+        if (vesselDisturbance > 0.0) {
+            vec3 vesselColor = mix(baseColor, FOAM_COLOR, vesselDisturbance * 0.8);
+            baseColor = vesselColor;
+        }
+
+        // Enhanced top-down lighting with multiple light sources
+        vec3 mainLight = normalize(vec3(0.6, 1.0, 0.4));
+        vec3 rimLight = normalize(vec3(-0.3, 0.8, -0.5));
+
+        float mainLighting = max(0.2, dot(normal, mainLight));
+        float rimLighting = max(0.0, dot(normal, rimLight)) * 0.3;
+
+        float totalLighting = mainLighting + rimLighting;
+        baseColor *= clamp(totalLighting, 0.3, 1.3);
+
+        // Enhanced caustics with multiple layers
+        vec2 causticPos1 = oceanPos * 18.0 + v_time * 2.5;
+        vec2 causticPos2 = oceanPos * 25.0 - v_time * 1.8;
+
+        float caustic1 = fbm(causticPos1);
+        float caustic2 = fbm(causticPos2);
+
+        caustic1 = smoothstep(0.6, 0.85, caustic1);
+        caustic2 = smoothstep(0.65, 0.9, caustic2);
+
+        float totalCaustics = caustic1 * 0.15 + caustic2 * 0.1;
+        baseColor += vec3(totalCaustics);
+
+        // Add animated foam trails following wave direction
+        vec2 flowDir = vec2(cos(v_time * 0.5), sin(v_time * 0.3));
+        vec2 flowPos = oceanPos + flowDir * v_time * 2.0;
+        float flowNoise = fbm(flowPos * 12.0);
+        float flowFoam = smoothstep(0.75, 0.95, flowNoise) * foamAmount;
+        baseColor += vec3(flowFoam * 0.2);
+    }
+
+    // Apply stylistic quantization only to non-glass areas
+    if (glassIntensity < 0.1) {
+        baseColor = quantizeColor(baseColor, 8);
+
+        // Add subtle dithering for better gradients
+        vec2 ditherPos = gl_FragCoord.xy * 0.75;
+        float dither = fract(sin(dot(ditherPos, vec2(12.9898, 78.233))) * 43758.5453);
+        baseColor += vec3((dither - 0.5) * 0.02);
+    }
 
     // Optional debug grid (only in debug mode 0)
     if (u_debugMode == 0) {
