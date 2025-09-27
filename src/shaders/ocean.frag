@@ -1,10 +1,13 @@
 #version 300 es
 
 precision highp float;
+precision highp int;
 
 in vec2 v_uv;
-in vec2 v_screenPos;
+in vec2 v_oceanPos;
+in vec3 v_worldPos;
 in float v_time;
+in vec3 v_vertexNormal;
 
 uniform float u_aspectRatio;
 uniform vec2 u_resolution;
@@ -45,13 +48,26 @@ uniform float u_choppyModulation;
 uniform float u_lodBias;
 uniform vec2 u_cameraPosition;
 
+// Environmental uniforms for natural rendering
+uniform vec3 u_sunDirection;
+uniform vec3 u_sunColor;
+uniform vec3 u_skyColor;
+uniform vec3 u_horizonColor;
+uniform float u_sunIntensity;
+
 out vec4 fragColor;
 
-// Ocean color palette
-const vec3 DEEP_WATER = vec3(0.05, 0.15, 0.4);
-const vec3 SHALLOW_WATER = vec3(0.1, 0.4, 0.7);
-const vec3 FOAM_COLOR = vec3(0.9, 0.95, 1.0);
-const vec3 WAVE_CREST = vec3(0.3, 0.6, 0.9);
+// Natural ocean color palette
+const vec3 DEEP_OCEAN = vec3(0.006, 0.024, 0.058);
+const vec3 SHALLOW_OCEAN = vec3(0.013, 0.094, 0.169);
+const vec3 SURFACE_SCATTER = vec3(0.004, 0.016, 0.047);
+const vec3 FOAM_COLOR = vec3(0.95, 0.98, 1.0);
+const vec3 WAVE_TIP = vec3(0.8, 0.9, 0.95);
+
+// Physical constants
+const float FRESNEL_POWER = 5.0;
+const float WATER_IOR = 1.333;
+const float AIR_IOR = 1.0;
 
 // Hash function for procedural noise
 float hash21(vec2 p) {
@@ -130,11 +146,28 @@ GerstnerResult gerstnerWave(vec2 pos, vec2 direction, float amplitude, float wav
     return result;
 }
 
+// Fresnel reflection calculation
+float calculateFresnel(vec3 normal, vec3 viewDir) {
+    float cosTheta = max(0.0, dot(normal, viewDir));
+    float fresnel = pow(1.0 - cosTheta, FRESNEL_POWER);
+
+    // Schlick's approximation
+    float f0 = pow((AIR_IOR - WATER_IOR) / (AIR_IOR + WATER_IOR), 2.0);
+    return f0 + (1.0 - f0) * fresnel;
+}
+
 // Calculate distance-based LOD factor
 float calculateLOD(vec2 pos) {
     float distance = length(pos - u_cameraPosition);
     float lodFactor = 1.0 - clamp((distance - 10.0) / 50.0, 0.0, 0.8);
     return mix(u_lodBias, 1.0, lodFactor);
+}
+
+// Subsurface scattering approximation
+vec3 calculateSubsurfaceScattering(vec3 normal, vec3 lightDir, vec3 viewDir) {
+    float backlight = max(0.0, dot(-lightDir, viewDir));
+    float scatter = pow(backlight, 4.0);
+    return SURFACE_SCATTER * scatter * 0.5;
 }
 
 // Enhanced wave interference calculation
@@ -253,124 +286,116 @@ vec3 calculateNormal(vec2 pos, float time) {
     return normal;
 }
 
-// Quantize color for stylized look
-vec3 quantizeColor(vec3 color, int levels) {
-    return floor(color * float(levels) + 0.5) / float(levels);
+// Natural foam calculation with persistence
+float calculateNaturalFoam(vec2 pos, float height, float time) {
+    // Base foam from wave crests
+    float foamFromHeight = smoothstep(u_foamThreshold * 0.8, u_foamThreshold * 1.2, height);
+
+    // Dynamic foam patterns with wind direction
+    vec2 windDir = normalize(u_choppyWindDirection);
+    vec2 foamFlow = pos + windDir * time * u_choppyWindSpeed * 0.08;
+
+    // Multi-scale foam noise
+    float foamNoise1 = fbm(foamFlow * 12.0);
+    float foamNoise2 = fbm(foamFlow * 24.0) * 0.5;
+    float foamPattern = foamNoise1 + foamNoise2;
+
+    // Foam persistence based on wave energy
+    float waveEnergy = clamp(height * u_waveScale, 0.0, 1.0);
+    float foamPersistence = smoothstep(0.6, 0.9, foamPattern) * waveEnergy;
+
+    return foamFromHeight + foamPersistence * 0.3;
+}
+
+// Natural caustics calculation
+vec3 calculateNaturalCaustics(vec2 pos, vec3 normal, float time) {
+    vec2 causticUV = pos * 0.15 + normal.xz * 0.3;
+    causticUV += vec2(cos(time * 0.3), sin(time * 0.4)) * 0.5;
+
+    float caustic1 = fbm(causticUV * 8.0);
+    float caustic2 = fbm(causticUV * 16.0) * 0.7;
+
+    float causticPattern = caustic1 + caustic2;
+    float causticMask = smoothstep(0.7, 1.0, causticPattern);
+
+    vec3 causticColor = u_sunColor * causticMask * 0.4;
+    return causticColor * (1.0 + sin(time * 2.0) * 0.2); // Gentle animation
 }
 
 void main() {
-    // Convert screen position to ocean coordinates
-    vec2 oceanPos = v_screenPos * 15.0; // Scale for wave visibility
-    oceanPos.x *= u_aspectRatio; // Maintain aspect ratio
+    // Use ocean position from vertex shader
+    vec2 oceanPos = v_oceanPos;
 
     // Debug mode outputs
     if (u_debugMode == 1) {
-        // Show UV coordinates as color
         fragColor = vec4(v_uv, 0.5, 1.0);
         return;
     } else if (u_debugMode == 2) {
-        // Show wave height as grayscale
         float height = getOceanHeight(oceanPos, v_time);
         float gray = height + 0.5;
         fragColor = vec4(vec3(gray), 1.0);
         return;
     } else if (u_debugMode == 3) {
-        // Show normals as color
-        vec3 normal = calculateNormal(oceanPos, v_time);
+        vec3 normal = normalize(v_vertexNormal);
         fragColor = vec4(normal * 0.5 + 0.5, 1.0);
         return;
     }
 
-    // Get wave height
+    // Get wave properties
     float height = getOceanHeight(oceanPos, v_time);
+    vec3 normal = normalize(v_vertexNormal);
 
-    // Calculate normal for lighting
-    vec3 normal = calculateNormal(oceanPos, v_time);
+    // Calculate view direction (top-down view)
+    vec3 viewDir = normalize(vec3(0.0, 1.0, 0.0));
 
-    // Base ocean color based on height with dynamic scaling
-    float heightRange = u_waveScale * 0.6;
-    vec3 baseColor = mix(DEEP_WATER, SHALLOW_WATER, smoothstep(-heightRange, heightRange, height));
+    // Sun direction (use default if not provided)
+    vec3 sunDir = normalize(mix(vec3(0.3, 0.8, 0.5), u_sunDirection, step(0.1, length(u_sunDirection))));
+    vec3 sunColor = mix(vec3(1.0, 0.95, 0.8), u_sunColor, step(0.1, length(u_sunColor)));
+    vec3 skyColor = mix(vec3(0.4, 0.7, 1.0), u_skyColor, step(0.1, length(u_skyColor)));
 
-    // Dynamic wave crests based on wave pattern
-    float crestThreshold = u_foamThreshold * 0.6;
-    float crestAmount = smoothstep(crestThreshold, crestThreshold + 0.15, height);
-    baseColor = mix(baseColor, WAVE_CREST, crestAmount);
+    // Base ocean color with depth variation
+    float depth = 1.0 - smoothstep(-0.5, 0.5, height);
+    vec3 baseWaterColor = mix(SHALLOW_OCEAN, DEEP_OCEAN, depth);
 
-    // Dynamic foam based on pattern-specific threshold
-    float foamAmount = smoothstep(u_foamThreshold, u_foamThreshold + 0.2, height);
+    // Fresnel reflection
+    float fresnel = calculateFresnel(normal, viewDir);
 
-    // Enhanced foam for higher wave patterns
-    if (u_wavePatternType >= 3) { // Rough seas and above
-        float extraFoam = smoothstep(u_foamThreshold * 0.7, u_foamThreshold, height) * 0.3;
-        foamAmount += extraFoam;
-    }
+    // Sky reflection with distortion
+    vec2 reflectionUV = oceanPos * 0.02 + normal.xz * 0.1;
+    vec3 skyReflection = skyColor * (1.0 + fbm(reflectionUV + v_time * 0.1) * 0.2);
 
-    baseColor = mix(baseColor, FOAM_COLOR, foamAmount);
+    // Subsurface scattering
+    vec3 subsurface = calculateSubsurfaceScattering(normal, sunDir, viewDir);
 
-    // Enhanced top-down lighting with multiple light sources
-    vec3 mainLight = normalize(vec3(0.6, 1.0, 0.4));
-    vec3 rimLight = normalize(vec3(-0.3, 0.8, -0.5));
+    // Combine water color with physics
+    vec3 waterColor = mix(baseWaterColor + subsurface, skyReflection, fresnel);
 
-    float mainLighting = max(0.2, dot(normal, mainLight));
-    float rimLighting = max(0.0, dot(normal, rimLight)) * 0.3;
+    // Natural lighting
+    float sunlight = max(0.3, dot(normal, sunDir));
+    float skylight = 0.6 + 0.4 * normal.y; // Ambient sky lighting
 
-    float totalLighting = mainLighting + rimLighting;
-    baseColor *= clamp(totalLighting, 0.3, 1.3);
+    vec3 lighting = sunColor * sunlight + skyColor * skylight * 0.5;
+    waterColor *= lighting;
 
-    // Enhanced caustics with pattern-aware behavior
-    float causticScale = mix(18.0, 25.0, float(u_wavePatternType) / 7.0);
-    vec2 causticFlow = u_choppyWindDirection * v_time * 0.8;
+    // Natural caustics
+    vec3 caustics = calculateNaturalCaustics(oceanPos, normal, v_time);
+    waterColor += caustics;
 
-    vec2 causticPos1 = oceanPos * causticScale + causticFlow;
-    vec2 causticPos2 = oceanPos * (causticScale * 1.4) - causticFlow * 0.7;
+    // Natural foam
+    float foamAmount = calculateNaturalFoam(oceanPos, height, v_time);
+    waterColor = mix(waterColor, FOAM_COLOR, foamAmount);
 
-    float caustic1 = fbm(causticPos1);
-    float caustic2 = fbm(causticPos2);
+    // Wave tips highlighting
+    float waveTip = smoothstep(u_foamThreshold * 1.1, u_foamThreshold * 1.3, height);
+    waterColor = mix(waterColor, WAVE_TIP, waveTip * 0.4);
 
-    // Dynamic caustic thresholds based on wave conditions
-    float causticThreshold1 = mix(0.6, 0.75, float(u_wavePatternType) / 7.0);
-    float causticThreshold2 = mix(0.65, 0.8, float(u_wavePatternType) / 7.0);
+    // Natural color grading (remove artificial quantization)
+    waterColor = pow(waterColor, vec3(0.95)); // Slight gamma adjustment
 
-    caustic1 = smoothstep(causticThreshold1, causticThreshold1 + 0.25, caustic1);
-    caustic2 = smoothstep(causticThreshold2, causticThreshold2 + 0.25, caustic2);
+    // Subtle atmospheric perspective
+    float distance = length(oceanPos) * 0.01;
+    vec3 atmosphericColor = mix(skyColor, vec3(0.8, 0.9, 1.0), 0.3);
+    waterColor = mix(waterColor, atmosphericColor, clamp(distance * 0.1, 0.0, 0.3));
 
-    float causticIntensity = mix(0.1, 0.2, u_waveScale);
-    float totalCaustics = caustic1 * causticIntensity + caustic2 * (causticIntensity * 0.7);
-    baseColor += vec3(totalCaustics);
-
-    // Enhanced foam trails with wind direction
-    vec2 flowDir = normalize(u_choppyWindDirection + vec2(cos(v_time * 0.2), sin(v_time * 0.15)) * 0.3);
-    vec2 flowPos = oceanPos + flowDir * v_time * u_choppyWindSpeed * 0.1;
-    float flowNoise = fbm(flowPos * 8.0);
-
-    // Multi-scale foam trails
-    float flowFoam1 = smoothstep(0.7, 0.95, flowNoise) * foamAmount;
-    float flowFoam2 = smoothstep(0.75, 0.85, fbm(flowPos * 15.0)) * foamAmount * 0.5;
-    baseColor += vec3((flowFoam1 + flowFoam2) * 0.25);
-
-    // Add pattern-specific visual effects
-    if (u_wavePatternType >= 4) { // Storm conditions
-        // Enhanced storm effects
-        float stormIntensity = (float(u_wavePatternType) - 3.0) / 4.0;
-        vec2 stormPos = oceanPos * 30.0 + v_time * 3.0;
-        float stormNoise = fbm(stormPos) * stormIntensity;
-        baseColor += vec3(stormNoise * 0.1) * vec3(0.8, 0.9, 1.0);
-    }
-
-    // Stylistic quantization with dithering
-    baseColor = quantizeColor(baseColor, 8);
-
-    // Add subtle dithering for better gradients
-    vec2 ditherPos = gl_FragCoord.xy * 0.75;
-    float dither = fract(sin(dot(ditherPos, vec2(12.9898, 78.233))) * 43758.5453);
-    baseColor += vec3((dither - 0.5) * 0.02);
-
-    // Optional debug grid (only in debug mode 0)
-    if (u_debugMode == 0) {
-        vec2 grid = abs(fract(oceanPos * 0.3) - 0.5);
-        float gridLine = smoothstep(0.015, 0.005, min(grid.x, grid.y));
-        baseColor += vec3(gridLine * 0.05);
-    }
-
-    fragColor = vec4(baseColor, 1.0);
+    fragColor = vec4(waterColor, 1.0);
 }

@@ -1,8 +1,10 @@
 /**
  * WavePatternManager handles dynamic wave patterns and their interactions
+ * Enhanced with physics-based wave dynamics and natural evolution
  */
 
 import { Vec3 } from '../utils/math';
+import { WaveDynamics } from './WaveDynamics';
 
 export interface GerstnerWave {
   amplitude: number;
@@ -29,6 +31,17 @@ export interface ChoppyWaveLayer {
   frequency: number;
   amplitude: number;
   modulation: number;
+  turbulenceStrength: number;
+  foamPersistence: number;
+}
+
+export interface DynamicWaveProperties {
+  baseEnergy: number;
+  coherenceLength: number;
+  temporalStability: number;
+  crossWaveInteraction: number;
+  breakingThreshold: number;
+  dissipationRate: number;
 }
 
 export interface WavePattern {
@@ -38,6 +51,9 @@ export interface WavePattern {
   choppyLayer: ChoppyWaveLayer;
   foamThreshold: number;
   waveScale: number;
+  dynamicProperties: DynamicWaveProperties;
+  naturalVariation: number;
+  environmentalResponse: number;
 }
 
 export enum WavePatternType {
@@ -61,12 +77,19 @@ export class WavePatternManager {
   // Wave pattern presets
   private patterns: Map<WavePatternType, WavePattern> = new Map();
 
+  // Enhanced wave dynamics system
+  private waveDynamics: WaveDynamics;
+  private dynamicWaveGeneration: boolean = true;
+
   // Dynamic parameters
   private globalWindDirection: Vec3 = new Vec3(1, 0, 0);
   private globalWindSpeed: number = 5.0;
   private waveEnergyMultiplier: number = 1.0;
+  private environmentalInfluence: number = 0.8;
+  private memoryDecay: number = 0.95;
 
   constructor() {
+    this.waveDynamics = new WaveDynamics();
     this.initializePatterns();
     this.currentPattern = this.patterns.get(WavePatternType.GENTLE)!;
     this.targetPattern = this.currentPattern;
@@ -90,10 +113,22 @@ export class WavePatternManager {
         windSpeed: 2.0,
         frequency: 15.0,
         amplitude: 0.02,
-        modulation: 0.5
+        modulation: 0.5,
+        turbulenceStrength: 0.1,
+        foamPersistence: 0.3
       },
       foamThreshold: 0.15,
-      waveScale: 1.0
+      waveScale: 1.0,
+      dynamicProperties: {
+        baseEnergy: 0.2,
+        coherenceLength: 50.0,
+        temporalStability: 0.9,
+        crossWaveInteraction: 0.1,
+        breakingThreshold: 0.3,
+        dissipationRate: 0.02
+      },
+      naturalVariation: 0.2,
+      environmentalResponse: 0.5
     });
 
     // GENTLE - Pleasant sailing conditions
@@ -111,10 +146,22 @@ export class WavePatternManager {
         windSpeed: 5.0,
         frequency: 12.0,
         amplitude: 0.04,
-        modulation: 0.7
+        modulation: 0.7,
+        turbulenceStrength: 0.2,
+        foamPersistence: 0.4
       },
       foamThreshold: 0.18,
-      waveScale: 1.0
+      waveScale: 1.0,
+      dynamicProperties: {
+        baseEnergy: 0.4,
+        coherenceLength: 40.0,
+        temporalStability: 0.8,
+        crossWaveInteraction: 0.2,
+        breakingThreshold: 0.35,
+        dissipationRate: 0.03
+      },
+      naturalVariation: 0.3,
+      environmentalResponse: 0.6
     });
 
     // MODERATE - Active wave conditions
@@ -135,10 +182,22 @@ export class WavePatternManager {
         windSpeed: 8.0,
         frequency: 10.0,
         amplitude: 0.06,
-        modulation: 0.8
+        modulation: 0.8,
+        turbulenceStrength: 0.4,
+        foamPersistence: 0.5
       },
       foamThreshold: 0.22,
-      waveScale: 1.0
+      waveScale: 1.0,
+      dynamicProperties: {
+        baseEnergy: 0.6,
+        coherenceLength: 30.0,
+        temporalStability: 0.7,
+        crossWaveInteraction: 0.3,
+        breakingThreshold: 0.4,
+        dissipationRate: 0.04
+      },
+      naturalVariation: 0.4,
+      environmentalResponse: 0.7
     });
 
     // ROUGH - Challenging conditions
@@ -161,10 +220,22 @@ export class WavePatternManager {
         windSpeed: 12.0,
         frequency: 8.0,
         amplitude: 0.08,
-        modulation: 0.9
+        modulation: 0.9,
+        turbulenceStrength: 0.6,
+        foamPersistence: 0.6
       },
       foamThreshold: 0.28,
-      waveScale: 1.0
+      waveScale: 1.0,
+      dynamicProperties: {
+        baseEnergy: 0.8,
+        coherenceLength: 25.0,
+        temporalStability: 0.6,
+        crossWaveInteraction: 0.4,
+        breakingThreshold: 0.45,
+        dissipationRate: 0.05
+      },
+      naturalVariation: 0.5,
+      environmentalResponse: 0.8
     });
 
     // STORM - Extreme conditions
@@ -189,10 +260,22 @@ export class WavePatternManager {
         windSpeed: 18.0,
         frequency: 6.0,
         amplitude: 0.12,
-        modulation: 1.0
+        modulation: 1.0,
+        turbulenceStrength: 0.8,
+        foamPersistence: 0.8
       },
       foamThreshold: 0.35,
-      waveScale: 1.0
+      waveScale: 1.0,
+      dynamicProperties: {
+        baseEnergy: 1.0,
+        coherenceLength: 20.0,
+        temporalStability: 0.5,
+        crossWaveInteraction: 0.5,
+        breakingThreshold: 0.5,
+        dissipationRate: 0.06
+      },
+      naturalVariation: 0.6,
+      environmentalResponse: 0.9
     });
 
     // SWELL_NORTH - Long period swell from north
@@ -211,10 +294,22 @@ export class WavePatternManager {
         windSpeed: 6.0,
         frequency: 12.0,
         amplitude: 0.03,
-        modulation: 0.6
+        modulation: 0.6,
+        turbulenceStrength: 0.15,
+        foamPersistence: 0.3
       },
       foamThreshold: 0.20,
-      waveScale: 1.0
+      waveScale: 1.0,
+      dynamicProperties: {
+        baseEnergy: 0.5,
+        coherenceLength: 80.0,
+        temporalStability: 0.9,
+        crossWaveInteraction: 0.1,
+        breakingThreshold: 0.25,
+        dissipationRate: 0.01
+      },
+      naturalVariation: 0.2,
+      environmentalResponse: 0.4
     });
 
     // SWELL_SOUTH - Long period swell from south
@@ -233,10 +328,22 @@ export class WavePatternManager {
         windSpeed: 7.0,
         frequency: 11.0,
         amplitude: 0.04,
-        modulation: 0.65
+        modulation: 0.65,
+        turbulenceStrength: 0.18,
+        foamPersistence: 0.35
       },
       foamThreshold: 0.22,
-      waveScale: 1.0
+      waveScale: 1.0,
+      dynamicProperties: {
+        baseEnergy: 0.55,
+        coherenceLength: 75.0,
+        temporalStability: 0.85,
+        crossWaveInteraction: 0.15,
+        breakingThreshold: 0.28,
+        dissipationRate: 0.015
+      },
+      naturalVariation: 0.25,
+      environmentalResponse: 0.45
     });
 
     // CROSSING_SEAS - Multiple swell systems intersecting
@@ -257,10 +364,22 @@ export class WavePatternManager {
         windSpeed: 9.0,
         frequency: 9.0,
         amplitude: 0.07,
-        modulation: 0.85
+        modulation: 0.85,
+        turbulenceStrength: 0.5,
+        foamPersistence: 0.7
       },
       foamThreshold: 0.25,
-      waveScale: 1.0
+      waveScale: 1.0,
+      dynamicProperties: {
+        baseEnergy: 0.7,
+        coherenceLength: 35.0,
+        temporalStability: 0.6,
+        crossWaveInteraction: 0.6,
+        breakingThreshold: 0.35,
+        dissipationRate: 0.08
+      },
+      naturalVariation: 0.7,
+      environmentalResponse: 0.8
     });
   }
 
@@ -338,9 +457,14 @@ export class WavePatternManager {
   }
 
   /**
-   * Update wave patterns and handle transitions
+   * Update wave patterns and handle transitions with enhanced dynamics
    */
   update(currentTime: number): void {
+    // Update the underlying wave dynamics system
+    const deltaTime = currentTime - (this.lastUpdateTime || currentTime);
+    this.waveDynamics.update(deltaTime);
+    this.lastUpdateTime = currentTime;
+
     // Handle pattern transitions
     if (this.transitionProgress < 1.0) {
       const elapsed = currentTime - this.transitionStartTime;
@@ -352,30 +476,92 @@ export class WavePatternManager {
       if (t >= 1.0) {
         this.currentPattern = this.targetPattern;
         this.transitionProgress = 1.0;
+        this.syncDynamicsWithPattern();
       }
     }
 
     // Update dynamic wave properties based on global conditions
     this.updateDynamicProperties(currentTime);
+
+    // Update wind conditions in dynamics system
+    this.updateWindConditions(currentTime);
+  }
+
+  private lastUpdateTime: number = 0;
+
+  /**
+   * Update dynamic wave properties with enhanced natural variation
+   */
+  private updateDynamicProperties(time: number): void {
+    const pattern = this.currentPattern;
+    const dynamics = pattern.dynamicProperties;
+
+    // Multi-scale temporal variation for more organic behavior
+    const ultraSlowOscillation = Math.sin(time * 0.02) * 0.05; // Weather-scale changes
+    const slowOscillation = Math.sin(time * 0.1) * 0.1; // Swell evolution
+    const mediumOscillation = Math.sin(time * 0.3) * 0.05; // Wave groups
+    const fastOscillation = Math.sin(time * 0.8) * 0.02; // Individual wave variation
+
+    // Natural wind direction evolution with memory
+    const naturalShift = ultraSlowOscillation + slowOscillation * 0.5;
+    const currentAngle = Math.atan2(this.globalWindDirection.z, this.globalWindDirection.x);
+    const targetAngle = currentAngle + naturalShift * pattern.naturalVariation;
+
+    // Apply memory decay for smooth transitions
+    const memoryFactor = this.memoryDecay;
+    const newAngle = currentAngle * memoryFactor + targetAngle * (1 - memoryFactor);
+    this.globalWindDirection = new Vec3(Math.cos(newAngle), 0, Math.sin(newAngle));
+
+    // Enhanced wind speed variation with environmental response
+    const baseSpeed = 5.0 + pattern.dynamicProperties.baseEnergy * 8.0;
+    const speedVariation = slowOscillation * 3.0 + mediumOscillation * 1.5 + fastOscillation * 0.8;
+    const environmentalFactor = 1.0 + ultraSlowOscillation * pattern.environmentalResponse;
+
+    this.globalWindSpeed = (baseSpeed + speedVariation) * environmentalFactor;
+    this.globalWindSpeed = Math.max(1.0, Math.min(25.0, this.globalWindSpeed));
+
+    // Dynamic wave energy with temporal coherence
+    const energyVariation = slowOscillation * 0.3 + mediumOscillation * 0.15 + fastOscillation * 0.1;
+    this.waveEnergyMultiplier = 1.0 + energyVariation * dynamics.temporalStability;
+
+    // Environmental influence factor
+    this.environmentalInfluence = 0.5 + ultraSlowOscillation * 0.3 + slowOscillation * 0.2;
   }
 
   /**
-   * Update dynamic wave properties
+   * Update wind conditions in the dynamics system
    */
-  private updateDynamicProperties(time: number): void {
-    // Add time-varying elements to make waves more organic
-    const slowOscillation = Math.sin(time * 0.1) * 0.1;
-    const fastOscillation = Math.sin(time * 0.3) * 0.05;
+  private updateWindConditions(_time: number): void {
+    const pattern = this.currentPattern;
 
-    // Update wind direction slightly over time
-    const windAngle = time * 0.05 + slowOscillation;
-    this.globalWindDirection = new Vec3(Math.cos(windAngle), 0, Math.sin(windAngle));
+    // Blend current pattern wind with global wind evolution
+    const patternWind = pattern.choppyLayer.windDirection;
+    const blendFactor = this.environmentalInfluence * pattern.environmentalResponse;
 
-    // Update wind speed with some variation
-    this.globalWindSpeed = 5.0 + slowOscillation * 2.0 + fastOscillation;
+    const blendedDirection = patternWind.multiplyScalar(1 - blendFactor)
+      .add(this.globalWindDirection.multiplyScalar(blendFactor))
+      .normalize();
 
-    // Update wave energy with natural variation
-    this.waveEnergyMultiplier = 1.0 + slowOscillation * 0.2 + fastOscillation * 0.1;
+    const blendedSpeed = pattern.choppyLayer.windSpeed * (1 - blendFactor) +
+                        this.globalWindSpeed * blendFactor;
+
+    this.waveDynamics.setWindCondition(
+      blendedDirection,
+      blendedSpeed,
+      pattern.naturalVariation
+    );
+  }
+
+  /**
+   * Synchronize dynamics system with current pattern
+   */
+  private syncDynamicsWithPattern(): void {
+    const pattern = this.currentPattern;
+    this.waveDynamics.setWindCondition(
+      pattern.choppyLayer.windDirection,
+      pattern.choppyLayer.windSpeed,
+      pattern.naturalVariation
+    );
   }
 
   /**
@@ -386,7 +572,7 @@ export class WavePatternManager {
   }
 
   /**
-   * Get current interpolated wave pattern for rendering
+   * Get current interpolated wave pattern for rendering with enhanced dynamics
    */
   getCurrentWaveData(): {
     primaryWaves: GerstnerWave[];
@@ -395,27 +581,91 @@ export class WavePatternManager {
     foamThreshold: number;
     waveScale: number;
     transitionFactor: number;
+    dynamicWaves: GerstnerWave[];
+    turbulenceMap: Map<string, Vec3>;
+    foamMap: Map<string, number>;
   } {
+    let primaryWaves: GerstnerWave[];
+    let swellSystems: SwellSystem[];
+    let choppyLayer: ChoppyWaveLayer;
+    let foamThreshold: number;
+    let waveScale: number;
+    let transitionFactor: number;
+
     if (this.transitionProgress >= 1.0) {
-      return {
-        primaryWaves: this.currentPattern.primaryWaves,
-        swellSystems: this.currentPattern.swellSystems,
-        choppyLayer: this.currentPattern.choppyLayer,
-        foamThreshold: this.currentPattern.foamThreshold,
-        waveScale: this.currentPattern.waveScale * this.waveEnergyMultiplier,
-        transitionFactor: 1.0
-      };
+      primaryWaves = this.currentPattern.primaryWaves;
+      swellSystems = this.currentPattern.swellSystems;
+      choppyLayer = this.currentPattern.choppyLayer;
+      foamThreshold = this.currentPattern.foamThreshold;
+      waveScale = this.currentPattern.waveScale * this.waveEnergyMultiplier;
+      transitionFactor = 1.0;
+    } else {
+      // Return interpolated values during transition
+      const t = this.smoothStep(this.transitionProgress);
+      primaryWaves = this.interpolateWaves(this.currentPattern.primaryWaves, this.targetPattern.primaryWaves, t);
+      swellSystems = this.interpolateSwellSystems(this.currentPattern.swellSystems, this.targetPattern.swellSystems, t);
+      choppyLayer = this.interpolateChoppyLayer(this.currentPattern.choppyLayer, this.targetPattern.choppyLayer, t);
+      foamThreshold = this.lerp(this.currentPattern.foamThreshold, this.targetPattern.foamThreshold, t);
+      waveScale = this.lerp(this.currentPattern.waveScale, this.targetPattern.waveScale, t) * this.waveEnergyMultiplier;
+      transitionFactor = t;
     }
 
-    // Return interpolated values during transition
-    const t = this.smoothStep(this.transitionProgress);
+    // Get dynamic waves from physics simulation
+    let dynamicWaves: GerstnerWave[] = [];
+    if (this.dynamicWaveGeneration) {
+      dynamicWaves = this.waveDynamics.getGerstnerWaves();
+
+      // Blend with pattern waves based on environmental influence
+      const blendFactor = this.environmentalInfluence;
+      for (let i = 0; i < Math.min(primaryWaves.length, dynamicWaves.length); i++) {
+        const patternWave = primaryWaves[i];
+        const dynamicWave = dynamicWaves[i];
+
+        // Blend amplitudes and directions
+        primaryWaves[i].amplitude = this.lerp(
+          patternWave.amplitude,
+          dynamicWave.amplitude,
+          blendFactor
+        );
+
+        primaryWaves[i].direction = this.lerpVec3(
+          patternWave.direction,
+          dynamicWave.direction,
+          blendFactor * 0.3 // Reduce direction blending for stability
+        ).normalize();
+      }
+    }
+
+    // Generate turbulence and foam maps for shader
+    const turbulenceMap = new Map<string, Vec3>();
+    const foamMap = new Map<string, number>();
+
+    // Sample turbulence and foam at grid points for shader interpolation
+    const gridSize = 16;
+    for (let x = 0; x < gridSize; x++) {
+      for (let z = 0; z < gridSize; z++) {
+        const worldPos = new Vec3(
+          (x - gridSize/2) * 10,
+          0,
+          (z - gridSize/2) * 10
+        );
+
+        const key = `${x}_${z}`;
+        turbulenceMap.set(key, this.waveDynamics.getTurbulenceAt(worldPos));
+        foamMap.set(key, this.waveDynamics.getFoamAt(worldPos));
+      }
+    }
+
     return {
-      primaryWaves: this.interpolateWaves(this.currentPattern.primaryWaves, this.targetPattern.primaryWaves, t),
-      swellSystems: this.interpolateSwellSystems(this.currentPattern.swellSystems, this.targetPattern.swellSystems, t),
-      choppyLayer: this.interpolateChoppyLayer(this.currentPattern.choppyLayer, this.targetPattern.choppyLayer, t),
-      foamThreshold: this.lerp(this.currentPattern.foamThreshold, this.targetPattern.foamThreshold, t),
-      waveScale: this.lerp(this.currentPattern.waveScale, this.targetPattern.waveScale, t) * this.waveEnergyMultiplier,
-      transitionFactor: t
+      primaryWaves,
+      swellSystems,
+      choppyLayer,
+      foamThreshold,
+      waveScale,
+      transitionFactor,
+      dynamicWaves,
+      turbulenceMap,
+      foamMap
     };
   }
 
@@ -461,7 +711,9 @@ export class WavePatternManager {
       windSpeed: this.lerp(layer1.windSpeed, layer2.windSpeed, t),
       frequency: this.lerp(layer1.frequency, layer2.frequency, t),
       amplitude: this.lerp(layer1.amplitude, layer2.amplitude, t),
-      modulation: this.lerp(layer1.modulation, layer2.modulation, t)
+      modulation: this.lerp(layer1.modulation, layer2.modulation, t),
+      turbulenceStrength: this.lerp(layer1.turbulenceStrength, layer2.turbulenceStrength, t),
+      foamPersistence: this.lerp(layer1.foamPersistence, layer2.foamPersistence, t)
     };
   }
 
@@ -535,10 +787,51 @@ export class WavePatternManager {
   }
 
   /**
-   * Set manual wind override
+   * Set manual wind override and update dynamics
    */
   setWindProperties(direction: Vec3, speed: number): void {
-    this.globalWindDirection = direction;
-    this.globalWindSpeed = speed;
+    this.globalWindDirection = direction.normalize();
+    this.globalWindSpeed = Math.max(1.0, Math.min(25.0, speed));
+
+    // Update dynamics system
+    this.waveDynamics.setWindCondition(
+      this.globalWindDirection,
+      this.globalWindSpeed,
+      this.currentPattern.naturalVariation
+    );
+  }
+
+  /**
+   * Enable/disable dynamic wave generation
+   */
+  setDynamicWaveGeneration(enabled: boolean): void {
+    this.dynamicWaveGeneration = enabled;
+  }
+
+
+  /**
+   * Get wave dynamics system for advanced control
+   */
+  getWaveDynamics(): WaveDynamics {
+    return this.waveDynamics;
+  }
+
+  /**
+   * Set environmental influence factor
+   */
+  setEnvironmentalInfluence(factor: number): void {
+    this.environmentalInfluence = Math.max(0.0, Math.min(1.0, factor));
+  }
+
+  /**
+   * Get current environmental conditions
+   */
+  getEnvironmentalConditions() {
+    return {
+      wind: this.waveDynamics.getWindCondition(),
+      weather: this.waveDynamics.getWeatherSystem(),
+      influence: this.environmentalInfluence,
+      energy: this.waveEnergyMultiplier
+    };
   }
 }

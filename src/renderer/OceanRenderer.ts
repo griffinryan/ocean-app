@@ -42,6 +42,13 @@ export class OceanRenderer {
   // Debug mode
   private debugMode: number = 0;
 
+  // Environmental settings for natural rendering
+  private sunDirection: Vec3 = new Vec3(0.3, 0.8, 0.5).normalize();
+  private sunColor: Vec3 = new Vec3(1.0, 0.95, 0.8);
+  private skyColor: Vec3 = new Vec3(0.4, 0.7, 1.0);
+  private horizonColor: Vec3 = new Vec3(0.8, 0.9, 1.0);
+  private sunIntensity: number = 1.0;
+
   constructor(config: RenderConfig) {
     this.canvas = config.canvas;
     this.startTime = performance.now();
@@ -211,7 +218,14 @@ export class OceanRenderer {
 
       // Performance optimization
       'u_lodBias',
-      'u_cameraPosition'
+      'u_cameraPosition',
+
+      // Environmental uniforms for natural rendering
+      'u_sunDirection',
+      'u_sunColor',
+      'u_skyColor',
+      'u_horizonColor',
+      'u_sunIntensity'
     ];
 
     const attributes = [
@@ -307,6 +321,17 @@ export class OceanRenderer {
     // Performance optimization
     this.shaderManager.setUniform1f(program, 'u_lodBias', 0.8); // Adjust as needed
     this.shaderManager.setUniform2f(program, 'u_cameraPosition', 0.0, 0.0); // Top-down view center
+
+    // Environmental uniforms for natural rendering
+    this.shaderManager.setUniform3f(program, 'u_sunDirection',
+      this.sunDirection.x, this.sunDirection.y, this.sunDirection.z);
+    this.shaderManager.setUniform3f(program, 'u_sunColor',
+      this.sunColor.x, this.sunColor.y, this.sunColor.z);
+    this.shaderManager.setUniform3f(program, 'u_skyColor',
+      this.skyColor.x, this.skyColor.y, this.skyColor.z);
+    this.shaderManager.setUniform3f(program, 'u_horizonColor',
+      this.horizonColor.x, this.horizonColor.y, this.horizonColor.z);
+    this.shaderManager.setUniform1f(program, 'u_sunIntensity', this.sunIntensity);
   }
 
   /**
@@ -448,6 +473,91 @@ export class OceanRenderer {
    */
   getWindProperties(): { direction: Vec3; speed: number } {
     return this.wavePatternManager.getWindProperties();
+  }
+
+  /**
+   * Set environmental lighting properties
+   */
+  setEnvironmentalLighting(
+    sunDirection: Vec3,
+    sunColor: Vec3,
+    skyColor: Vec3,
+    sunIntensity: number = 1.0
+  ): void {
+    this.sunDirection = sunDirection.normalize();
+    this.sunColor = sunColor;
+    this.skyColor = skyColor;
+    this.sunIntensity = sunIntensity;
+  }
+
+  /**
+   * Get current environmental settings
+   */
+  getEnvironmentalSettings(): {
+    sunDirection: Vec3;
+    sunColor: Vec3;
+    skyColor: Vec3;
+    horizonColor: Vec3;
+    sunIntensity: number;
+  } {
+    return {
+      sunDirection: this.sunDirection,
+      sunColor: this.sunColor,
+      skyColor: this.skyColor,
+      horizonColor: this.horizonColor,
+      sunIntensity: this.sunIntensity
+    };
+  }
+
+  /**
+   * Update environmental settings based on time of day
+   */
+  updateTimeOfDay(timeOfDay: number): void {
+    // timeOfDay: 0.0 = midnight, 0.5 = noon, 1.0 = midnight
+    const normalizedTime = (timeOfDay % 1.0) * 2.0 * Math.PI;
+
+    // Update sun direction
+    const sunAngle = normalizedTime - Math.PI / 2; // Start at dawn
+    this.sunDirection = new Vec3(
+      Math.cos(sunAngle) * 0.6,
+      Math.sin(sunAngle),
+      0.5
+    ).normalize();
+
+    // Update sun color based on time
+    const dayAmount = Math.max(0, this.sunDirection.y);
+
+    // Interpolate colors
+    const midnightColor = new Vec3(0.1, 0.15, 0.3);
+    const sunriseColor = new Vec3(1.0, 0.7, 0.4);
+    const noonColor = new Vec3(1.0, 0.95, 0.8);
+
+    if (dayAmount > 0) {
+      // Day time
+      this.sunColor = new Vec3(
+        this.lerp(sunriseColor.x, noonColor.x, dayAmount),
+        this.lerp(sunriseColor.y, noonColor.y, dayAmount),
+        this.lerp(sunriseColor.z, noonColor.z, dayAmount)
+      );
+      this.skyColor = new Vec3(
+        this.lerp(0.6, 0.4, dayAmount),
+        this.lerp(0.8, 0.7, dayAmount),
+        1.0
+      );
+      this.sunIntensity = 0.8 + dayAmount * 0.4;
+    } else {
+      // Night time
+      this.sunColor = midnightColor;
+      this.skyColor = new Vec3(0.1, 0.2, 0.4);
+      this.sunIntensity = 0.2;
+    }
+  }
+
+  /**
+   * Helper function for linear interpolation
+   */
+  private lerp(a: number, b: number, t: number): number {
+    return a + (b - a) * t;
   }
 
   /**

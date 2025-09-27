@@ -9,6 +9,10 @@ export class Vec3 {
     return new Vec3(x, y, z);
   }
 
+  clone(): Vec3 {
+    return new Vec3(this.x, this.y, this.z);
+  }
+
   normalize(): Vec3 {
     const len = Math.sqrt(this.x * this.x + this.y * this.y + this.z * this.z);
     if (len > 0) {
@@ -17,6 +21,25 @@ export class Vec3 {
       this.z /= len;
     }
     return this;
+  }
+
+  add(other: Vec3): Vec3 {
+    return new Vec3(this.x + other.x, this.y + other.y, this.z + other.z);
+  }
+
+  multiplyScalar(scalar: number): Vec3 {
+    return new Vec3(this.x * scalar, this.y * scalar, this.z * scalar);
+  }
+
+  dot(other: Vec3): number {
+    return this.x * other.x + this.y * other.y + this.z * other.z;
+  }
+
+  distanceTo(other: Vec3): number {
+    const dx = this.x - other.x;
+    const dy = this.y - other.y;
+    const dz = this.z - other.z;
+    return Math.sqrt(dx * dx + dy * dy + dz * dz);
   }
 
   cross(other: Vec3): Vec3 {
