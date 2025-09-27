@@ -353,11 +353,11 @@ float isUnderGlass(vec2 screenPos) {
         // Convert screen position to panel-relative coordinates
         vec2 localPos = (screenPos - panelCenter) / panelSize;
 
-        // Check if within panel bounds
-        if (abs(localPos.x) < 0.5 && abs(localPos.y) < 0.5) {
+        // Check if within panel bounds (consistent with getGlassDistortion)
+        if (abs(localPos.x) < 0.6 && abs(localPos.y) < 0.6) {
             // Calculate smooth falloff from panel edges
             vec2 edgeDistance = abs(localPos);
-            float edgeFactor = 1.0 - smoothstep(0.3, 0.5, max(edgeDistance.x, edgeDistance.y));
+            float edgeFactor = 1.0 - smoothstep(0.4, 0.6, max(edgeDistance.x, edgeDistance.y));
             maxIntensity = max(maxIntensity, edgeFactor);
         }
     }
@@ -379,6 +379,7 @@ float bayerDither4x4(vec2 position) {
     int index = pos.y * 4 + pos.x;
     return matrix[index];
 }
+
 
 // Calculate ocean height with visible waves
 float getOceanHeight(vec2 pos, float time) {
@@ -439,34 +440,68 @@ vec3 calculateNormal(vec2 pos, float time) {
     return normal;
 }
 
+// Glass-aware height calculation
+float getHeightWithGlass(vec2 pos, float time, float glassIntensity) {
+    if (glassIntensity > 0.1) {
+        // Under glass: use noise-based crystalline pattern
+        vec2 noisePos = pos * 3.0 + time * 0.3;
+        float noisePattern = fbm(noisePos) * 2.0 - 1.0;
+
+        // Add animated crystalline structure
+        float crystalNoise = cheapNoise(pos * 8.0 + time * 0.5);
+        return (noisePattern + crystalNoise * 0.3) * 0.4;
+    } else {
+        return getOceanHeight(pos, time);
+    }
+}
+
+// Glass-aware normal calculation
+vec3 getNormalWithGlass(vec2 pos, float time, float glassIntensity) {
+    if (glassIntensity > 0.1) {
+        // Under glass: simplified normal calculation for crystalline pattern
+        float eps = 0.2;
+        float height = getHeightWithGlass(pos, time, glassIntensity);
+        float hx = getHeightWithGlass(pos + vec2(eps, 0.0), time, glassIntensity);
+        float hy = getHeightWithGlass(pos + vec2(0.0, eps), time, glassIntensity);
+        return normalize(vec3((height - hx) / eps, (height - hy) / eps, 1.0));
+    } else {
+        return calculateNormal(pos, time);
+    }
+}
+
 // Quantize color for stylized look
 vec3 quantizeColor(vec3 color, int levels) {
     return floor(color * float(levels) + 0.5) / float(levels);
 }
 
 void main() {
+    // FIRST: Check if under glass panel (using original screen position)
+    float glassIntensity = isUnderGlass(v_screenPos);
+
     // Convert screen position to ocean coordinates
     vec2 oceanPos = v_screenPos * 15.0; // Scale for wave visibility
     oceanPos.x *= u_aspectRatio; // Maintain aspect ratio
 
-    // Apply glass distortion to ocean sampling position
-    vec2 glassDistortion = getGlassDistortion(v_screenPos, v_time);
-    oceanPos += glassDistortion * 25.0; // Enhanced scale for visible liquid glass effect
+    // Apply glass distortion ONLY to areas NOT under glass panels
+    if (glassIntensity < 0.1) {
+        vec2 glassDistortion = getGlassDistortion(v_screenPos, v_time);
+        oceanPos += glassDistortion * 25.0; // Enhanced scale for visible liquid glass effect
+    }
 
-    // Debug mode outputs
+    // Debug mode outputs (now glass-aware)
     if (u_debugMode == 1) {
         // Show UV coordinates as color
         fragColor = vec4(v_uv, 0.5, 1.0);
         return;
     } else if (u_debugMode == 2) {
-        // Show wave height as grayscale
-        float height = getOceanHeight(oceanPos, v_time);
+        // Show wave height as grayscale (glass-aware)
+        float height = getHeightWithGlass(oceanPos, v_time, glassIntensity);
         float gray = height + 0.5;
         fragColor = vec4(vec3(gray), 1.0);
         return;
     } else if (u_debugMode == 3) {
-        // Show normals as color
-        vec3 normal = calculateNormal(oceanPos, v_time);
+        // Show normals as color (glass-aware)
+        vec3 normal = getNormalWithGlass(oceanPos, v_time, glassIntensity);
         fragColor = vec4(normal * 0.5 + 0.5, 1.0);
         return;
     } else if (u_debugMode == 4) {
@@ -478,66 +513,48 @@ void main() {
         return;
     }
 
-    // Check if under glass panel for different rendering
-    float glassIntensity = isUnderGlass(v_screenPos);
-
-    float height;
-    vec3 normal;
-
-    if (glassIntensity > 0.1) {
-        // Under glass: use noise-based crystalline pattern
-        vec2 noisePos = oceanPos * 3.0 + v_time * 0.3;
-        float noisePattern = fbm(noisePos) * 2.0 - 1.0;
-
-        // Add animated crystalline structure
-        float crystalNoise = cheapNoise(oceanPos * 8.0 + v_time * 0.5);
-        height = (noisePattern + crystalNoise * 0.3) * 0.4;
-
-        // Simplified normal calculation for performance
-        float eps = 0.2;
-        float hx = fbm((oceanPos + vec2(eps, 0.0)) * 3.0 + v_time * 0.3) * 2.0 - 1.0;
-        float hy = fbm((oceanPos + vec2(0.0, eps)) * 3.0 + v_time * 0.3) * 2.0 - 1.0;
-        normal = normalize(vec3((height - hx) / eps, (height - hy) / eps, 1.0));
-    } else {
-        // Standard ocean rendering
-        height = getOceanHeight(oceanPos, v_time);
-        normal = calculateNormal(oceanPos, v_time);
-    }
+    // Use glass-aware functions for consistent rendering
+    float height = getHeightWithGlass(oceanPos, v_time, glassIntensity);
+    vec3 normal = getNormalWithGlass(oceanPos, v_time, glassIntensity);
 
     vec3 baseColor;
 
     if (glassIntensity > 0.1) {
-        // Crystalline color palette for glass effect
+        // Enhanced crystalline color palette with higher contrast
         vec3 glassColors[4] = vec3[4](
-            vec3(0.05, 0.15, 0.35),  // Deep crystalline blue
-            vec3(0.15, 0.35, 0.55),  // Medium crystal blue
-            vec3(0.25, 0.55, 0.75),  // Light crystal blue
-            vec3(0.6, 0.8, 0.95)     // Crystal highlight
+            vec3(0.1, 0.2, 0.6),     // Deep crystalline blue
+            vec3(0.2, 0.4, 0.8),     // Medium crystal blue
+            vec3(0.4, 0.7, 1.0),     // Bright crystal blue
+            vec3(0.8, 0.9, 1.0)      // Crystal white highlight
         );
 
         // Apply Bayer dithering for quantization
         float dither = bayerDither4x4(gl_FragCoord.xy);
         float animatedNoise = cheapNoise(oceanPos * 6.0 + v_time * 0.2);
 
-        // Quantize height to 4 levels with dithering
+        // Quantize height to 4 levels with enhanced dithering
         float normalizedHeight = (height + 0.6) / 1.2; // Normalize to [0,1] range
-        float level = normalizedHeight * 3.0 + dither * 0.5 + animatedNoise * 0.3;
+        float level = normalizedHeight * 3.0 + dither * 0.8 + animatedNoise * 0.5;
         int colorIndex = clamp(int(level), 0, 3);
 
-        // Select color from crystalline palette
+        // Select color from enhanced crystalline palette
         baseColor = glassColors[colorIndex];
 
-        // Add stippling effect for texture
-        float stipple = step(0.6, fract(gl_FragCoord.x * 0.5) + fract(gl_FragCoord.y * 0.5));
-        baseColor *= 0.8 + stipple * 0.2;
+        // Enhanced stippling effect for more texture
+        float stipple = step(0.5, fract(gl_FragCoord.x * 0.5) + fract(gl_FragCoord.y * 0.5));
+        baseColor *= 0.7 + stipple * 0.3;
 
         // Simple lighting for crystalline effect
-        float simpleLighting = max(0.3, dot(normal, normalize(vec3(0.5, 1.0, 0.3))));
+        float simpleLighting = max(0.4, dot(normal, normalize(vec3(0.5, 1.0, 0.3))));
         baseColor *= simpleLighting;
 
-        // Add crystalline sparkles
-        float sparkle = step(0.95, cheapNoise(oceanPos * 12.0 + v_time * 0.8));
-        baseColor += vec3(sparkle * 0.3);
+        // Enhanced crystalline sparkles
+        float sparkle = step(0.9, cheapNoise(oceanPos * 15.0 + v_time * 1.2));
+        baseColor += vec3(sparkle * 0.5);
+
+        // Add crystalline edge highlights
+        float edgeHighlight = step(0.8, fract(gl_FragCoord.x * 0.25) + fract(gl_FragCoord.y * 0.25));
+        baseColor += vec3(edgeHighlight * 0.2);
 
     } else {
         // Standard ocean rendering

@@ -110,13 +110,20 @@ void main() {
     vec2 screenUV = (v_screenPos + 1.0) * 0.5;
     screenUV.y = 1.0 - screenUV.y; // Flip Y coordinate
 
-    // Calculate position relative to panel
-    vec2 panelUV = (screenUV - u_panelPosition) / u_panelSize;
+    // Calculate position relative to panel (center-based)
+    vec2 panelCenter = (u_panelPosition + 1.0) * 0.5; // Convert from [-1,1] to [0,1]
+    vec2 panelSizeNorm = u_panelSize * 0.5; // Half-size for center-based calculation
 
-    // Only render within panel bounds
-    if (panelUV.x < 0.0 || panelUV.x > 1.0 || panelUV.y < 0.0 || panelUV.y > 1.0) {
+    vec2 deltaFromCenter = screenUV - panelCenter;
+    vec2 panelUV = (deltaFromCenter / panelSizeNorm) * 0.5 + 0.5; // Convert to [0,1] range
+
+    // Only render within panel bounds with some tolerance
+    if (panelUV.x < -0.1 || panelUV.x > 1.1 || panelUV.y < -0.1 || panelUV.y > 1.1) {
         discard;
     }
+
+    // Clamp panelUV to valid range for distortion calculations
+    panelUV = clamp(panelUV, vec2(0.0), vec2(1.0));
 
     // Calculate liquid glass surface normal with flowing animation
     vec3 glassNormal = calculateLiquidGlassNormal(panelUV, v_time);
@@ -140,21 +147,29 @@ void main() {
         // Apply uniform refraction offset
         vec2 refractionOffset = refractionDir.xy * u_distortionStrength;
 
-        // Add flowing liquid distortion patterns (consistent across panel)
+        // Enhanced flowing liquid distortion patterns
         vec2 liquidOffset = vec2(
-            sin(panelUV.y * 8.0 + v_time * 1.8) * 0.015,
-            cos(panelUV.x * 7.0 + v_time * 1.2) * 0.015
+            sin(panelUV.y * 12.0 + v_time * 2.5) * 0.04,
+            cos(panelUV.x * 10.0 + v_time * 2.0) * 0.04
         );
 
-        // Create subtle ripple distortions
-        float ripplePhase = length(panelUV - 0.5) * 10.0 - v_time * 3.0;
-        vec2 rippleOffset = normalize(panelUV - 0.5) * sin(ripplePhase) * 0.01;
+        // Multiple ripple layers for complexity
+        float ripplePhase1 = length(panelUV - 0.5) * 15.0 - v_time * 4.0;
+        float ripplePhase2 = length(panelUV - 0.3) * 20.0 - v_time * 3.5;
+        vec2 rippleOffset = normalize(panelUV - 0.5) * (sin(ripplePhase1) * 0.025 + sin(ripplePhase2) * 0.015);
 
-        // Combine all distortion effects uniformly
-        vec2 totalOffset = refractionOffset + liquidOffset + rippleOffset;
+        // Add noise-based distortion for more organic feel
+        vec2 noisePos = panelUV * 8.0 + v_time * 0.8;
+        vec2 noiseOffset = vec2(
+            noise(noisePos) - 0.5,
+            noise(noisePos + vec2(100.0)) - 0.5
+        ) * 0.03;
 
-        // Apply consistent distortion strength across entire panel
-        totalOffset *= 1.2; // Uniform amplification
+        // Combine all distortion effects with enhanced strength
+        vec2 totalOffset = refractionOffset + liquidOffset + rippleOffset + noiseOffset;
+
+        // Much stronger distortion for clear visibility
+        totalOffset *= u_distortionStrength * 3.0;
 
         distortedUV += totalOffset;
     }
@@ -226,18 +241,29 @@ void main() {
     // Combine all effects with proper layering
     vec3 finalColor = oceanColor * depthTint + reflection + edgeLight + causticLight + scratches + rimLight;
 
-    // Enhanced glass opacity with liquid variation
-    float alpha = 0.25 + fresnelReflection * 0.08;
+    // Enhanced glass opacity with much stronger visibility
+    float alpha = 0.4 + fresnelReflection * 0.15;
 
     // Add flowing opacity variation
     float opacityFlow = sin(panelUV.x * 5.0 + v_time * 1.8) * cos(panelUV.y * 4.0 + v_time * 1.2);
-    alpha += opacityFlow * 0.03;
+    alpha += opacityFlow * 0.05;
 
-    // Stronger edge opacity for more visible borders
-    alpha += edgeGlow * 0.15;
+    // Much stronger edge opacity for clear borders
+    alpha += edgeGlow * 0.3;
 
     // Add depth-based opacity
-    alpha += depth * 0.1;
+    alpha += depth * 0.15;
+
+    // Add a subtle glass tint to the background
+    vec3 glassTint = vec3(0.9, 0.95, 1.0);
+    finalColor = mix(finalColor, finalColor * glassTint, 0.2);
+
+    // Add visible crystalline patterns
+    float crystalPattern = sin(panelUV.x * 30.0) * sin(panelUV.y * 30.0) * 0.1;
+    finalColor += vec3(crystalPattern * 0.15);
+
+    // Ensure minimum visibility
+    alpha = max(alpha, 0.3);
 
     fragColor = vec4(finalColor, alpha);
 }

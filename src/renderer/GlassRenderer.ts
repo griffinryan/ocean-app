@@ -64,7 +64,42 @@ export class GlassRenderer {
    */
   async initializeShaders(vertexShader: string, fragmentShader: string): Promise<void> {
     try {
-      this.glassProgram = await this.shaderManager.createProgram('glass', vertexShader, fragmentShader);
+      // Define uniforms and attributes for glass shader
+      const uniforms = [
+        'u_projectionMatrix',
+        'u_viewMatrix',
+        'u_time',
+        'u_aspectRatio',
+        'u_resolution',
+        'u_oceanTexture',
+        'u_panelPosition',
+        'u_panelSize',
+        'u_distortionStrength',
+        'u_refractionIndex'
+      ];
+
+      const attributes = [
+        'a_position',
+        'a_uv'
+      ];
+
+      // Create glass shader program
+      this.glassProgram = this.shaderManager.createProgram(
+        'glass',
+        vertexShader,
+        fragmentShader,
+        uniforms,
+        attributes
+      );
+
+      // Set up vertex attributes for glass rendering
+      const positionLocation = this.glassProgram.attributeLocations.get('a_position');
+      const uvLocation = this.glassProgram.attributeLocations.get('a_uv');
+
+      if (positionLocation !== undefined && uvLocation !== undefined) {
+        this.bufferManager.setupAttributes(positionLocation, uvLocation);
+      }
+
       console.log('Glass shaders initialized successfully!');
     } catch (error) {
       console.error('Failed to initialize glass shaders:', error);
@@ -227,6 +262,9 @@ export class GlassRenderer {
       return;
     }
 
+    // Update panel positions before rendering
+    this.updatePanelPositions();
+
     // Use glass shader program
     const program = this.shaderManager.useProgram('glass');
 
@@ -254,9 +292,13 @@ export class GlassRenderer {
     // Disable depth testing for glass panels
     gl.disable(gl.DEPTH_TEST);
 
-    // Render each panel
-    this.panels.forEach((config) => {
-      this.renderPanel(config, program);
+    // Render each visible panel
+    this.panels.forEach((config, id) => {
+      // Check if the corresponding HTML element is visible
+      const element = document.getElementById(id === 'landing' ? 'landing-panel' : 'app-panel');
+      if (element && !element.classList.contains('hidden')) {
+        this.renderPanel(config, program);
+      }
     });
 
     // Re-enable depth testing
@@ -284,21 +326,23 @@ export class GlassRenderer {
    * Set up default panel configurations
    */
   public setupDefaultPanels(): void {
-    // Landing panel configuration - centered
+    // Initialize with temporary values - will be updated dynamically
     this.addPanel('landing', {
-      position: [0.3, 0.25], // Properly centered position
-      size: [0.4, 0.5],      // Larger size for better visibility
-      distortionStrength: 0.08, // Much stronger distortion
-      refractionIndex: 1.52 // Glass refractive index
-    });
-
-    // App panel configuration - top-left
-    this.addPanel('app', {
-      position: [0.05, 0.05], // Top-left position
-      size: [0.35, 0.3],      // Slightly taller panel
-      distortionStrength: 0.06, // Strong distortion
+      position: [0.0, 0.0],
+      size: [0.4, 0.5],
+      distortionStrength: 0.25, // Much stronger distortion for clear visibility
       refractionIndex: 1.52
     });
+
+    this.addPanel('app', {
+      position: [0.0, 0.0],
+      size: [0.35, 0.3],
+      distortionStrength: 0.2, // Strong distortion
+      refractionIndex: 1.52
+    });
+
+    // Update positions immediately
+    this.updatePanelPositions();
   }
 
   /**
@@ -335,14 +379,20 @@ export class GlassRenderer {
    * Convert HTML element rect to normalized WebGL coordinates
    */
   private htmlRectToNormalized(elementRect: DOMRect, canvasRect: DOMRect): { position: [number, number], size: [number, number] } {
-    // Convert to normalized coordinates (0-1 range)
-    const x = (elementRect.left - canvasRect.left) / canvasRect.width;
-    const y = (elementRect.top - canvasRect.top) / canvasRect.height;
-    const width = elementRect.width / canvasRect.width;
-    const height = elementRect.height / canvasRect.height;
+    // Calculate center position in normalized coordinates
+    const centerX = ((elementRect.left + elementRect.width / 2) - canvasRect.left) / canvasRect.width;
+    const centerY = ((elementRect.top + elementRect.height / 2) - canvasRect.top) / canvasRect.height;
+
+    // Convert to WebGL coordinates (-1 to 1, with Y flipped)
+    const glX = centerX * 2.0 - 1.0;
+    const glY = (1.0 - centerY) * 2.0 - 1.0; // Flip Y and convert to [-1,1]
+
+    // Calculate size in normalized coordinates
+    const width = elementRect.width / canvasRect.width * 2.0; // Convert to [-1,1] range
+    const height = elementRect.height / canvasRect.height * 2.0;
 
     return {
-      position: [x, y],
+      position: [glX, glY],
       size: [width, height]
     };
   }

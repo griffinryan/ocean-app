@@ -50,21 +50,8 @@ export class OceanRenderer {
   private glassRenderer: GlassRenderer | null = null;
   private glassEnabled: boolean = false;
 
-  // Cached panel data for performance
-  private panelCache = {
-    positions: new Float32Array(4), // Reusable buffer for 2 panels * 2 coords
-    sizes: new Float32Array(4),     // Reusable buffer for 2 panels * 2 coords
-    strengths: new Float32Array(2), // Reusable buffer for 2 panels
-    count: 0,
-    lastUpdate: 0,
-    updateInterval: 500, // Update every 500ms for better performance
-    dirty: true
-  };
-
   // Pre-cached DOM elements
   private cachedElements = {
-    landingPanel: null as HTMLElement | null,
-    appPanel: null as HTMLElement | null,
     fpsElement: null as HTMLElement | null,
     elementsInitialized: false
   };
@@ -74,10 +61,8 @@ export class OceanRenderer {
     lastAspectRatio: -1,
     lastResolution: new Float32Array(2),
     lastDebugMode: -1,
-    lastGlassEnabled: false,
     lastWakesEnabled: false,
-    lastVesselCount: -1,
-    lastGlassPanelCount: -1
+    lastVesselCount: -1
   };
 
   constructor(config: RenderConfig) {
@@ -191,9 +176,6 @@ export class OceanRenderer {
       if (this.glassRenderer) {
         this.glassRenderer.resizeFramebuffer(canvasWidth, canvasHeight);
       }
-
-      // Mark panel cache as dirty since canvas size changed
-      this.markPanelCacheDirty();
     }
   }
 
@@ -321,14 +303,29 @@ export class OceanRenderer {
   }
 
   /**
-   * Render ocean scene with integrated glass distortion
+   * Render ocean scene with glass overlay pipeline
    */
   private renderOceanScene(elapsedTime: number): void {
     const gl = this.gl;
 
-    // Clear and render ocean with integrated glass distortion
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-    this.drawOcean(elapsedTime);
+    if (this.glassEnabled && this.glassRenderer) {
+      // Render ocean to texture for glass distortion
+      this.glassRenderer.captureOceanScene(() => {
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        this.drawOcean(elapsedTime);
+      });
+
+      // Clear screen and render ocean without glass effects
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      this.drawOcean(elapsedTime);
+
+      // Render glass panels as overlay
+      this.glassRenderer.render();
+    } else {
+      // Normal rendering without glass effects
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      this.drawOcean(elapsedTime);
+    }
   }
 
   /**
@@ -389,26 +386,9 @@ export class OceanRenderer {
       this.shaderManager.setUniform1fv(program, 'u_vesselStates', vesselData.states);
     }
 
-    // Set glass enabled only if changed
-    if (this.glassEnabled !== this.uniformCache.lastGlassEnabled) {
-      this.shaderManager.setUniform1i(program, 'u_glassEnabled', this.glassEnabled ? 1 : 0);
-      this.uniformCache.lastGlassEnabled = this.glassEnabled;
-    }
-
-    const glassData = this.getGlassPanelDataForShader();
-
-    // Set glass panel count only if changed
-    if (glassData.count !== this.uniformCache.lastGlassPanelCount) {
-      this.shaderManager.setUniform1i(program, 'u_glassPanelCount', glassData.count);
-      this.uniformCache.lastGlassPanelCount = glassData.count;
-    }
-
-    // Glass panel data updated only when cache is dirty (every 500ms)
-    if (glassData.count > 0 && this.panelCache.dirty) {
-      this.shaderManager.setUniform2fv(program, 'u_glassPanelPositions', glassData.positions);
-      this.shaderManager.setUniform2fv(program, 'u_glassPanelSizes', glassData.sizes);
-      this.shaderManager.setUniform1fv(program, 'u_glassDistortionStrengths', glassData.strengths);
-    }
+    // Disable integrated glass effects since we're using overlay approach
+    this.shaderManager.setUniform1i(program, 'u_glassEnabled', 0);
+    this.shaderManager.setUniform1i(program, 'u_glassPanelCount', 0);
 
     // Bind geometry and render
     this.bufferManager.bind();
@@ -533,17 +513,8 @@ export class OceanRenderer {
    */
   setGlassEnabled(enabled: boolean): void {
     this.glassEnabled = enabled && this.glassRenderer !== null;
-    if (this.glassEnabled) {
-      this.markPanelCacheDirty();
-    }
   }
 
-  /**
-   * Mark panel cache as dirty to force update on next frame
-   */
-  public markPanelCacheDirty(): void {
-    this.panelCache.dirty = true;
-  }
 
   /**
    * Get glass rendering state
@@ -565,107 +536,10 @@ export class OceanRenderer {
   private initializeCachedElements(): void {
     if (this.cachedElements.elementsInitialized) return;
 
-    this.cachedElements.landingPanel = document.getElementById('landing-panel');
-    this.cachedElements.appPanel = document.getElementById('app-panel');
     this.cachedElements.fpsElement = document.getElementById('fps');
     this.cachedElements.elementsInitialized = true;
   }
 
-  /**
-   * Update panel cache with current panel positions
-   */
-  private updatePanelCache(): void {
-    const now = performance.now();
-
-    // Skip update if not dirty and within update interval
-    if (!this.panelCache.dirty && (now - this.panelCache.lastUpdate) < this.panelCache.updateInterval) {
-      return;
-    }
-
-    this.initializeCachedElements();
-
-    const canvasRect = this.canvas.getBoundingClientRect();
-    let count = 0;
-
-    // Reset arrays (reuse existing buffers)
-    this.panelCache.positions.fill(0);
-    this.panelCache.sizes.fill(0);
-    this.panelCache.strengths.fill(0);
-
-    // Check landing panel
-    if (this.cachedElements.landingPanel && !this.cachedElements.landingPanel.classList.contains('hidden')) {
-      const rect = this.cachedElements.landingPanel.getBoundingClientRect();
-      const panelData = this.htmlRectToShaderCoords(rect, canvasRect);
-
-      this.panelCache.positions[count * 2] = panelData.position[0];
-      this.panelCache.positions[count * 2 + 1] = panelData.position[1];
-      this.panelCache.sizes[count * 2] = panelData.size[0];
-      this.panelCache.sizes[count * 2 + 1] = panelData.size[1];
-      this.panelCache.strengths[count] = 4.0; // Enhanced distortion for landing panel
-      count++;
-    }
-
-    // Check app panel
-    if (this.cachedElements.appPanel && !this.cachedElements.appPanel.classList.contains('hidden')) {
-      const rect = this.cachedElements.appPanel.getBoundingClientRect();
-      const panelData = this.htmlRectToShaderCoords(rect, canvasRect);
-
-      this.panelCache.positions[count * 2] = panelData.position[0];
-      this.panelCache.positions[count * 2 + 1] = panelData.position[1];
-      this.panelCache.sizes[count * 2] = panelData.size[0];
-      this.panelCache.sizes[count * 2 + 1] = panelData.size[1];
-      this.panelCache.strengths[count] = 3.0; // Enhanced distortion for app panel
-      count++;
-    }
-
-    this.panelCache.count = count;
-    this.panelCache.lastUpdate = now;
-    this.panelCache.dirty = false;
-  }
-
-  /**
-   * Get glass panel data for ocean shader (optimized)
-   */
-  private getGlassPanelDataForShader(): { count: number; positions: Float32Array; sizes: Float32Array; strengths: Float32Array } {
-    if (!this.glassEnabled) {
-      return {
-        count: 0,
-        positions: this.panelCache.positions,
-        sizes: this.panelCache.sizes,
-        strengths: this.panelCache.strengths
-      };
-    }
-
-    this.updatePanelCache();
-
-    return {
-      count: this.panelCache.count,
-      positions: this.panelCache.positions,
-      sizes: this.panelCache.sizes,
-      strengths: this.panelCache.strengths
-    };
-  }
-
-  /**
-   * Convert HTML element rect to ocean shader coordinates
-   */
-  private htmlRectToShaderCoords(elementRect: DOMRect, canvasRect: DOMRect): { position: [number, number], size: [number, number] } {
-    // Convert to normalized screen coordinates (-1 to 1)
-    const centerX = ((elementRect.left + elementRect.width / 2) - canvasRect.left) / canvasRect.width * 2.0 - 1.0;
-    const centerY = ((elementRect.top + elementRect.height / 2) - canvasRect.top) / canvasRect.height * 2.0 - 1.0;
-
-    // Flip Y coordinate for WebGL
-    const flippedY = -centerY;
-
-    // Calculate size in screen space
-    const sizeX = elementRect.width / canvasRect.width * 2.0;
-    const sizeY = elementRect.height / canvasRect.height * 2.0;
-
-    return {
-      position: [centerX, flippedY],
-      size: [sizeX, sizeY]
-    };
-  }
 
   /**
    * Clean up resources
