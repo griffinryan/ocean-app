@@ -160,6 +160,8 @@ class OceanApp {
         case 'd':
         case 'D':
           // Cycle through debug modes
+          event.preventDefault();
+          event.stopPropagation();
           if (this.renderer) {
             const currentMode = this.renderer.getDebugMode();
             const nextMode = (currentMode + 1) % 5; // 0-4 debug modes (added wake debug)
@@ -170,6 +172,8 @@ class OceanApp {
         case 'v':
         case 'V':
           // Toggle vessel wake system
+          event.preventDefault();
+          event.stopPropagation();
           if (this.renderer) {
             this.renderer.toggleWakes();
             this.updateVesselInfo();
@@ -178,6 +182,8 @@ class OceanApp {
         case 'g':
         case 'G':
           // Toggle glass panel rendering
+          event.preventDefault();
+          event.stopPropagation();
           if (this.renderer) {
             const isEnabled = this.renderer.getGlassEnabled();
             this.renderer.setGlassEnabled(!isEnabled);
@@ -190,6 +196,8 @@ class OceanApp {
         case '4':
         case '0':
           // Direct debug mode selection
+          event.preventDefault();
+          event.stopPropagation();
           if (this.renderer) {
             const mode = parseInt(event.key);
             this.renderer.setDebugMode(mode);

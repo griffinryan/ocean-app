@@ -107,30 +107,7 @@ export class PanelManager {
           this.transitionTo('landing');
         }
         break;
-      case '1':
-        // Quick access to app
-        event.preventDefault();
-        window.location.hash = 'app';
-        this.transitionTo('app');
-        break;
-      case '2':
-        // Quick access to portfolio
-        event.preventDefault();
-        window.location.hash = 'portfolio';
-        this.transitionTo('portfolio');
-        break;
-      case '3':
-        // Quick access to resume
-        event.preventDefault();
-        window.location.hash = 'resume';
-        this.transitionTo('resume');
-        break;
-      case '4':
-        // Quick access to paper
-        event.preventDefault();
-        window.location.hash = 'paper';
-        this.transitionTo('paper');
-        break;
+      // Removed keyboard shortcuts 1-4 to prevent conflict with debug mode controls
     }
   }
 
