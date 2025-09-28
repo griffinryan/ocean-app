@@ -18,6 +18,7 @@ export class PanelManager {
   private resumePanel: HTMLElement;
   private paperBtn: HTMLElement;
   private appBtn: HTMLElement;
+  private navbar: HTMLElement;
 
   // Default transition settings
   private defaultTransition: PanelTransition = {
@@ -32,6 +33,7 @@ export class PanelManager {
     this.resumePanel = this.getElement('resume-panel');
     this.paperBtn = this.getElement('paper-btn');
     this.appBtn = this.getElement('app-btn');
+    this.navbar = this.getElement('navbar');
 
     this.setupEventListeners();
     this.initializeState();
@@ -284,6 +286,7 @@ export class PanelManager {
     this.appPanel.classList.add('webgl-enhanced');
     this.portfolioPanel.classList.add('webgl-enhanced');
     this.resumePanel.classList.add('webgl-enhanced');
+    this.navbar.classList.add('webgl-enhanced');
   }
 
   public disableWebGLDistortion(): void {
@@ -292,6 +295,7 @@ export class PanelManager {
     this.appPanel.classList.remove('webgl-enhanced');
     this.portfolioPanel.classList.remove('webgl-enhanced');
     this.resumePanel.classList.remove('webgl-enhanced');
+    this.navbar.classList.remove('webgl-enhanced');
   }
 
   public dispose(): void {

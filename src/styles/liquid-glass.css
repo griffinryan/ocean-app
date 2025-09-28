@@ -199,14 +199,11 @@ body {
   border-bottom: 1px solid rgba(255, 255, 255, 0.15);
   z-index: 200;
 
-  /* Enhanced glass effect for navigation */
-  backdrop-filter: blur(25px);
-  -webkit-backdrop-filter: blur(25px);
+  /* Enhanced glass effect for navigation - matches other panels */
   background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.12) 0%,
-    rgba(255, 255, 255, 0.08) 50%,
-    rgba(255, 255, 255, 0.04) 100%
+    135deg,
+    var(--glass-tint) 0%,
+    rgba(255, 255, 255, 0.05) 100%
   );
 
   /* Transition states */
@@ -230,14 +227,11 @@ body {
 
 .navbar-panel.scrolled {
   background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.16) 0%,
-    rgba(255, 255, 255, 0.12) 50%,
+    135deg,
+    var(--glass-tint) 0%,
     rgba(255, 255, 255, 0.08) 100%
   );
   border-bottom-color: rgba(255, 255, 255, 0.25);
-  backdrop-filter: blur(30px);
-  -webkit-backdrop-filter: blur(30px);
 }
 
 .navbar-content {
