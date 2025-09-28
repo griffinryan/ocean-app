@@ -330,14 +330,14 @@ export class GlassRenderer {
     this.addPanel('landing', {
       position: [0.0, 0.0],
       size: [0.4, 0.5],
-      distortionStrength: 0.25, // Much stronger distortion for clear visibility
+      distortionStrength: 0.4, // Enhanced distortion for better text visibility
       refractionIndex: 1.52
     });
 
     this.addPanel('app', {
       position: [0.0, 0.0],
       size: [0.35, 0.3],
-      distortionStrength: 0.2, // Strong distortion
+      distortionStrength: 0.35, // Enhanced distortion for better text visibility
       refractionIndex: 1.52
     });
 

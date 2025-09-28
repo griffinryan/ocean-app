@@ -71,9 +71,16 @@ body {
     var(--glass-tint) 0%,
     rgba(255, 255, 255, 0.05) 100%
   );
-  border: 1px solid var(--glass-border);
+  border: 2px solid rgba(255, 255, 255, 0.25);
   border-radius: var(--panel-radius);
-  box-shadow: var(--glass-shadow);
+  box-shadow:
+    var(--glass-shadow),
+    /* Beveled edge effects */
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),          /* Top highlight */
+    inset 1px 0 0 rgba(255, 255, 255, 0.2),          /* Left highlight */
+    inset 0 -1px 0 rgba(0, 0, 0, 0.2),               /* Bottom shadow */
+    inset -1px 0 0 rgba(0, 0, 0, 0.1),               /* Right shadow */
+    inset 0 2px 4px rgba(255, 255, 255, 0.1);
   padding: var(--panel-padding);
   z-index: 100;
 
@@ -94,30 +101,40 @@ body {
   border-radius: var(--panel-radius);
   background: linear-gradient(
     135deg,
-    rgba(255, 255, 255, 0.1) 0%,
-    rgba(255, 255, 255, 0.02) 50%,
-    rgba(255, 255, 255, 0.08) 100%
+    rgba(255, 255, 255, 0.15) 0%,
+    rgba(255, 255, 255, 0.03) 50%,
+    rgba(255, 255, 255, 0.12) 100%
   );
+  box-shadow:
+    /* Enhanced beveled highlights */
+    inset 0 1px 2px rgba(255, 255, 255, 0.3),
+    inset 1px 0 1px rgba(255, 255, 255, 0.2);
   pointer-events: none;
   z-index: -1;
 }
 
-/* Inner glow effect */
+/* Enhanced edge masking and inner glow */
 .glass-panel::after {
   content: '';
   position: absolute;
-  top: 1px;
-  left: 1px;
-  right: 1px;
-  bottom: 1px;
-  border-radius: calc(var(--panel-radius) - 1px);
+  top: 2px;
+  left: 2px;
+  right: 2px;
+  bottom: 2px;
+  border-radius: calc(var(--panel-radius) - 2px);
   background: linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.1) 0%,
+    rgba(255, 255, 255, 0.15) 0%,
     transparent 50%
   );
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  box-shadow:
+    /* Inner rim light */
+    0 0 8px rgba(255, 255, 255, 0.2),
+    /* Outer masking shadow */
+    0 0 0 3px rgba(255, 255, 255, 0.1);
   pointer-events: none;
-  z-index: -1;
+  z-index: 1; /* Above WebGL shader to provide masking */
 }
 
 /* ===== LANDING PANEL ===== */
