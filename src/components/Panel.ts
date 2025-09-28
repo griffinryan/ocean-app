@@ -3,6 +3,8 @@
  * Manages panel transitions, routing, and glass effects
  */
 
+import { GlassRenderer } from '../renderer/GlassRenderer';
+
 export type PanelState = 'landing' | 'app' | 'portfolio' | 'resume' | 'paper' | 'not-found';
 
 export interface PanelTransition {
@@ -18,6 +20,7 @@ export class PanelManager {
   private resumePanel: HTMLElement;
   private paperBtn: HTMLElement;
   private appBtn: HTMLElement;
+  private glassRenderer: GlassRenderer | null = null;
 
   // Default transition settings
   private defaultTransition: PanelTransition = {
@@ -148,6 +151,11 @@ export class PanelManager {
   }
 
   private performTransition(oldState: PanelState, newState: PanelState): void {
+    // Notify glass renderer that transition is starting
+    if (this.glassRenderer) {
+      this.glassRenderer.startTransition();
+    }
+
     // Fade out current panel
     this.fadeOutCurrentPanel(oldState);
 
@@ -155,6 +163,13 @@ export class PanelManager {
     setTimeout(() => {
       this.updatePanelVisibility();
       this.fadeInNewPanel(newState);
+
+      // Notify glass renderer that transition is ending
+      setTimeout(() => {
+        if (this.glassRenderer) {
+          this.glassRenderer.endTransition();
+        }
+      }, this.defaultTransition.duration / 2);
     }, this.defaultTransition.duration / 2);
   }
 
@@ -266,6 +281,10 @@ export class PanelManager {
   }
 
   // Public API methods
+  public setGlassRenderer(glassRenderer: GlassRenderer): void {
+    this.glassRenderer = glassRenderer;
+  }
+
   public getCurrentState(): PanelState {
     return this.currentState;
   }

@@ -5,6 +5,7 @@
 
 import { Router } from './Router';
 import { PanelState } from './Panel';
+import { GlassRenderer } from '../renderer/GlassRenderer';
 
 export interface NavigationItem {
   id: string;
@@ -25,6 +26,7 @@ export class NavigationManager {
   private navItems: NodeListOf<HTMLElement>;
   private brandElement: HTMLElement;
   private router: Router;
+  private glassRenderer: GlassRenderer | null = null;
 
   private state: NavigationState = {
     isVisible: false,
@@ -236,28 +238,54 @@ export class NavigationManager {
 
   // Public API methods
 
+  public setGlassRenderer(glassRenderer: GlassRenderer): void {
+    this.glassRenderer = glassRenderer;
+  }
+
   public show(): void {
     if (this.state.isVisible) return;
 
     this.state.isVisible = true;
+
+    // Notify glass renderer that transition is starting
+    if (this.glassRenderer) {
+      this.glassRenderer.startTransition();
+    }
+
     this.navbar.classList.remove('hidden');
     this.navbar.classList.add('navbar-enter');
 
     setTimeout(() => {
       this.navbar.classList.remove('navbar-enter');
       this.navbar.classList.add('navbar-visible');
-    }, 50);
+
+      // Notify glass renderer that transition is ending
+      if (this.glassRenderer) {
+        this.glassRenderer.endTransition();
+      }
+    }, 400); // Match CSS transition duration
   }
 
   public hide(): void {
     if (!this.state.isVisible) return;
 
     this.state.isVisible = false;
+
+    // Notify glass renderer that transition is starting
+    if (this.glassRenderer) {
+      this.glassRenderer.startTransition();
+    }
+
     this.navbar.classList.add('navbar-exit');
 
     setTimeout(() => {
       this.navbar.classList.remove('navbar-visible', 'navbar-exit');
       this.navbar.classList.add('hidden');
+
+      // Notify glass renderer that transition is ending
+      if (this.glassRenderer) {
+        this.glassRenderer.endTransition();
+      }
     }, 300);
   }
 

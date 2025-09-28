@@ -111,7 +111,7 @@ class OceanApp {
    * Connect UI components to the WebGL renderer
    */
   private connectUIToRenderer(): void {
-    if (!this.renderer || !this.panelManager) {
+    if (!this.renderer || !this.panelManager || !this.navigationManager) {
       return;
     }
 
@@ -122,6 +122,10 @@ class OceanApp {
 
       // Enable WebGL enhancement on panels
       this.panelManager.enableWebGLDistortion();
+
+      // Connect glass renderer to UI managers for transition callbacks
+      this.panelManager.setGlassRenderer(glassRenderer);
+      this.navigationManager.setGlassRenderer(glassRenderer);
 
       console.log('UI connected to glass renderer successfully!');
     } else {

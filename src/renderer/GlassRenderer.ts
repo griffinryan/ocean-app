@@ -38,6 +38,15 @@ export class GlassRenderer {
   // Animation
   private startTime: number;
 
+  // Transition tracking
+  private isTransitioning: boolean = false;
+  private transitionTimeout: number | null = null;
+  private positionUpdateTimeout: number | null = null;
+  private resizeObserver: ResizeObserver | null = null;
+
+  // Cached positions to avoid recalculation during transitions
+  private cachedPositions: Map<string, { position: [number, number], size: [number, number] }> = new Map();
+
   constructor(gl: WebGL2RenderingContext, shaderManager: ShaderManager) {
     this.gl = gl;
     this.shaderManager = shaderManager;
@@ -57,6 +66,9 @@ export class GlassRenderer {
 
     // Initialize framebuffer
     this.initializeFramebuffer();
+
+    // Setup ResizeObserver for element changes
+    this.setupResizeObserver();
   }
 
   /**
@@ -375,9 +387,87 @@ export class GlassRenderer {
   }
 
   /**
+   * Setup ResizeObserver to watch for element changes
+   */
+  private setupResizeObserver(): void {
+    if (typeof ResizeObserver !== 'undefined') {
+      this.resizeObserver = new ResizeObserver(() => {
+        // Debounce position updates when elements resize
+        this.schedulePositionUpdate();
+      });
+    }
+  }
+
+  /**
+   * Start transition tracking
+   */
+  public startTransition(): void {
+    this.isTransitioning = true;
+
+    // Clear any existing timeout
+    if (this.transitionTimeout) {
+      clearTimeout(this.transitionTimeout);
+    }
+
+    // Set timeout to end transition after CSS transition duration (400ms + buffer)
+    this.transitionTimeout = setTimeout(() => {
+      this.endTransition();
+    }, 500) as unknown as number;
+  }
+
+  /**
+   * End transition tracking and update positions
+   */
+  public endTransition(): void {
+    this.isTransitioning = false;
+
+    if (this.transitionTimeout) {
+      clearTimeout(this.transitionTimeout);
+      this.transitionTimeout = null;
+    }
+
+    // Update positions after transition completes
+    this.schedulePositionUpdate();
+  }
+
+  /**
+   * Schedule a delayed position update with debouncing
+   */
+  private schedulePositionUpdate(): void {
+    // Clear any existing timeout
+    if (this.positionUpdateTimeout) {
+      clearTimeout(this.positionUpdateTimeout);
+    }
+
+    // Schedule update after a short delay to allow DOM to settle
+    this.positionUpdateTimeout = setTimeout(() => {
+      this.forceUpdatePanelPositions();
+    }, 100) as unknown as number;
+  }
+
+  /**
+   * Force immediate position update (used after transitions)
+   */
+  private forceUpdatePanelPositions(): void {
+    this.updatePanelPositionsInternal();
+  }
+
+  /**
    * Update panel positions based on HTML element positions
    */
   public updatePanelPositions(): void {
+    // Don't update positions during transitions
+    if (this.isTransitioning) {
+      return;
+    }
+
+    this.updatePanelPositionsInternal();
+  }
+
+  /**
+   * Internal method to update panel positions with caching
+   */
+  private updatePanelPositionsInternal(): void {
     const canvas = this.gl.canvas as HTMLCanvasElement;
     const canvasRect = canvas.getBoundingClientRect();
 
@@ -387,86 +477,56 @@ export class GlassRenderer {
       return;
     }
 
-    // Update landing panel position
-    const landingElement = document.getElementById('landing-panel');
-    if (landingElement && !landingElement.classList.contains('hidden')) {
-      const rect = landingElement.getBoundingClientRect();
-
-      // Only update if element is visible and has valid dimensions
-      if (rect.width > 0 && rect.height > 0) {
-        const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
-        this.updatePanel('landing', {
-          position: normalizedPos.position,
-          size: normalizedPos.size
-        });
+    // Helper function to update panel position with caching and safety checks
+    const updateElementPosition = (panelId: string, elementId: string) => {
+      const element = document.getElementById(elementId);
+      if (!element || element.classList.contains('hidden')) {
+        return;
       }
-    }
 
-    // Update app panel position
-    const appElement = document.getElementById('app-panel');
-    if (appElement && !appElement.classList.contains('hidden')) {
-      const rect = appElement.getBoundingClientRect();
+      const rect = element.getBoundingClientRect();
 
-      // Only update if element is visible and has valid dimensions
-      if (rect.width > 0 && rect.height > 0) {
-        const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
-        this.updatePanel('app', {
-          position: normalizedPos.position,
-          size: normalizedPos.size
-        });
+      // Validate element dimensions
+      if (rect.width <= 0 || rect.height <= 0) {
+        return;
       }
-    }
 
-    // Update portfolio panel position
-    const portfolioElement = document.getElementById('portfolio-panel');
-    if (portfolioElement && !portfolioElement.classList.contains('hidden')) {
-      const rect = portfolioElement.getBoundingClientRect();
-
-      // Only update if element is visible and has valid dimensions
-      if (rect.width > 0 && rect.height > 0) {
-        const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
-        this.updatePanel('portfolio', {
-          position: normalizedPos.position,
-          size: normalizedPos.size
-        });
+      // Check if element is actually visible on screen
+      if (rect.bottom < 0 || rect.top > window.innerHeight ||
+          rect.right < 0 || rect.left > window.innerWidth) {
+        console.warn(`GlassRenderer: Element ${elementId} is outside viewport`);
+        return;
       }
-    }
 
-    // Update resume panel position
-    const resumeElement = document.getElementById('resume-panel');
-    if (resumeElement && !resumeElement.classList.contains('hidden')) {
-      const rect = resumeElement.getBoundingClientRect();
+      const normalizedPos = this.htmlRectToNormalizedSafe(rect, canvasRect);
 
-      // Only update if element is visible and has valid dimensions
-      if (rect.width > 0 && rect.height > 0) {
-        const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
-        this.updatePanel('resume', {
-          position: normalizedPos.position,
-          size: normalizedPos.size
-        });
+      // Cache the position
+      this.cachedPositions.set(panelId, normalizedPos);
+
+      // Update panel configuration
+      this.updatePanel(panelId, {
+        position: normalizedPos.position,
+        size: normalizedPos.size
+      });
+
+      // Observe element for changes
+      if (this.resizeObserver) {
+        this.resizeObserver.observe(element);
       }
-    }
+    };
 
-    // Update navbar position (only when visible)
-    const navbarElement = document.getElementById('navbar');
-    if (navbarElement && !navbarElement.classList.contains('hidden')) {
-      const rect = navbarElement.getBoundingClientRect();
-
-      // Only update if element is visible and has valid dimensions
-      if (rect.width > 0 && rect.height > 0) {
-        const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
-        this.updatePanel('navbar', {
-          position: normalizedPos.position,
-          size: normalizedPos.size
-        });
-      }
-    }
+    // Update all panel positions using the helper function
+    updateElementPosition('landing', 'landing-panel');
+    updateElementPosition('app', 'app-panel');
+    updateElementPosition('portfolio', 'portfolio-panel');
+    updateElementPosition('resume', 'resume-panel');
+    updateElementPosition('navbar', 'navbar');
   }
 
   /**
-   * Convert HTML element rect to normalized WebGL coordinates
+   * Convert HTML element rect to normalized WebGL coordinates with safety checks
    */
-  private htmlRectToNormalized(elementRect: DOMRect, canvasRect: DOMRect): { position: [number, number], size: [number, number] } {
+  private htmlRectToNormalizedSafe(elementRect: DOMRect, canvasRect: DOMRect): { position: [number, number], size: [number, number] } {
     // Ensure we have valid rectangles
     if (elementRect.width === 0 || elementRect.height === 0 || canvasRect.width === 0 || canvasRect.height === 0) {
       console.warn('GlassRenderer: Invalid rectangle dimensions detected');
@@ -474,26 +534,29 @@ export class GlassRenderer {
     }
 
     // Calculate center position in normalized coordinates (0 to 1)
-    const centerX = ((elementRect.left + elementRect.width / 2) - canvasRect.left) / canvasRect.width;
-    const centerY = ((elementRect.top + elementRect.height / 2) - canvasRect.top) / canvasRect.height;
+    const centerX = Math.max(0, Math.min(1, ((elementRect.left + elementRect.width / 2) - canvasRect.left) / canvasRect.width));
+    const centerY = Math.max(0, Math.min(1, ((elementRect.top + elementRect.height / 2) - canvasRect.top) / canvasRect.height));
 
     // Convert to WebGL coordinates (-1 to 1, with Y flipped)
     const glX = centerX * 2.0 - 1.0;
     const glY = (1.0 - centerY) * 2.0 - 1.0; // Flip Y and convert to [-1,1]
 
     // Calculate size in normalized coordinates (as fraction of screen size * 2 for [-1,1] range)
-    const width = (elementRect.width / canvasRect.width) * 2.0;
-    const height = (elementRect.height / canvasRect.height) * 2.0;
+    const width = Math.min(2.0, (elementRect.width / canvasRect.width) * 2.0);
+    const height = Math.min(2.0, (elementRect.height / canvasRect.height) * 2.0);
 
-    // Debug logging (can be removed in production)
-    console.debug(`GlassRenderer Panel Mapping:
+    // Clamp final values to reasonable bounds
+    const clampedGlX = Math.max(-1.0, Math.min(1.0, glX));
+    const clampedGlY = Math.max(-1.0, Math.min(1.0, glY));
+
+    console.debug(`GlassRenderer Panel Mapping (Safe):
       Element: ${elementRect.width}x${elementRect.height} at (${elementRect.left}, ${elementRect.top})
       Canvas: ${canvasRect.width}x${canvasRect.height}
-      WebGL Center: (${glX.toFixed(3)}, ${glY.toFixed(3)})
+      WebGL Center: (${clampedGlX.toFixed(3)}, ${clampedGlY.toFixed(3)})
       WebGL Size: (${width.toFixed(3)}, ${height.toFixed(3)})`);
 
     return {
-      position: [glX, glY],
+      position: [clampedGlX, clampedGlY],
       size: [width, height]
     };
   }
@@ -519,6 +582,23 @@ export class GlassRenderer {
   public dispose(): void {
     const gl = this.gl;
 
+    // Clean up transition tracking
+    if (this.transitionTimeout) {
+      clearTimeout(this.transitionTimeout);
+      this.transitionTimeout = null;
+    }
+
+    if (this.positionUpdateTimeout) {
+      clearTimeout(this.positionUpdateTimeout);
+      this.positionUpdateTimeout = null;
+    }
+
+    // Clean up ResizeObserver
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+      this.resizeObserver = null;
+    }
+
     // Clean up framebuffer
     if (this.oceanFramebuffer) {
       gl.deleteFramebuffer(this.oceanFramebuffer);
@@ -538,7 +618,8 @@ export class GlassRenderer {
     // Clean up geometry
     this.bufferManager.dispose();
 
-    // Clear panels
+    // Clear panels and cached positions
     this.panels.clear();
+    this.cachedPositions.clear();
   }
 }
