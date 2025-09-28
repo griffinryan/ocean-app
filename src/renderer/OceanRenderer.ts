@@ -50,6 +50,21 @@ export class OceanRenderer {
   private glassRenderer: GlassRenderer | null = null;
   private glassEnabled: boolean = false;
 
+  // Pre-cached DOM elements
+  private cachedElements = {
+    fpsElement: null as HTMLElement | null,
+    elementsInitialized: false
+  };
+
+  // Uniform update cache to reduce redundant WebGL calls
+  private uniformCache = {
+    lastAspectRatio: -1,
+    lastResolution: new Float32Array(2),
+    lastDebugMode: -1,
+    lastWakesEnabled: false,
+    lastVesselCount: -1
+  };
+
   constructor(config: RenderConfig) {
     this.canvas = config.canvas;
     this.startTime = performance.now();
@@ -246,7 +261,12 @@ export class OceanRenderer {
       'u_vesselClasses',
       'u_vesselHullLengths',
       'u_vesselStates',
-      'u_wakesEnabled'
+      'u_wakesEnabled',
+      'u_glassEnabled',
+      'u_glassPanelCount',
+      'u_glassPanelPositions',
+      'u_glassPanelSizes',
+      'u_glassDistortionStrengths'
     ];
 
     const attributes = [
@@ -283,27 +303,33 @@ export class OceanRenderer {
   }
 
   /**
-   * Render ocean scene (for both framebuffer and screen)
+   * Render ocean scene with glass overlay pipeline
    */
   private renderOceanScene(elapsedTime: number): void {
     const gl = this.gl;
 
-    // If glass is enabled, first render to framebuffer for distortion
     if (this.glassEnabled && this.glassRenderer) {
+      // Render ocean to texture for glass distortion
       this.glassRenderer.captureOceanScene(() => {
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
         this.drawOcean(elapsedTime);
       });
+
+      // Clear screen and render ocean without glass effects
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      this.drawOcean(elapsedTime);
+
+      // Render glass panels as overlay
+      this.glassRenderer.render();
+    } else {
+      // Normal rendering without glass effects
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      this.drawOcean(elapsedTime);
     }
-
-    // Clear the screen framebuffer
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-    // Render ocean to screen
-    this.drawOcean(elapsedTime);
   }
 
   /**
-   * Draw the ocean scene with current uniforms
+   * Draw the ocean scene with optimized uniform updates
    */
   private drawOcean(elapsedTime: number): void {
     const gl = this.gl;
@@ -311,24 +337,46 @@ export class OceanRenderer {
     // Use ocean shader
     const program = this.shaderManager.useProgram('ocean');
 
-    // Set time for animation
+    // Always set time for animation (changes every frame)
     this.shaderManager.setUniform1f(program, 'u_time', elapsedTime);
 
-    // Set aspect ratio
+    // Set aspect ratio only if changed
     const aspect = this.canvas.width / this.canvas.height;
-    this.shaderManager.setUniform1f(program, 'u_aspectRatio', aspect);
+    if (aspect !== this.uniformCache.lastAspectRatio) {
+      this.shaderManager.setUniform1f(program, 'u_aspectRatio', aspect);
+      this.uniformCache.lastAspectRatio = aspect;
+    }
 
-    // Set resolution
-    this.shaderManager.setUniform2f(program, 'u_resolution', this.canvas.width, this.canvas.height);
+    // Set resolution only if changed
+    if (this.uniformCache.lastResolution[0] !== this.canvas.width ||
+        this.uniformCache.lastResolution[1] !== this.canvas.height) {
+      this.shaderManager.setUniform2f(program, 'u_resolution', this.canvas.width, this.canvas.height);
+      this.uniformCache.lastResolution[0] = this.canvas.width;
+      this.uniformCache.lastResolution[1] = this.canvas.height;
+    }
 
-    // Set debug mode
-    this.shaderManager.setUniform1i(program, 'u_debugMode', this.debugMode);
+    // Set debug mode only if changed
+    if (this.debugMode !== this.uniformCache.lastDebugMode) {
+      this.shaderManager.setUniform1i(program, 'u_debugMode', this.debugMode);
+      this.uniformCache.lastDebugMode = this.debugMode;
+    }
 
     // Set vessel wake uniforms
     const vesselData = this.vesselSystem.getVesselDataForShader(5, performance.now());
-    this.shaderManager.setUniform1i(program, 'u_vesselCount', vesselData.count);
-    this.shaderManager.setUniform1i(program, 'u_wakesEnabled', this.wakesEnabled ? 1 : 0);
 
+    // Set vessel count only if changed
+    if (vesselData.count !== this.uniformCache.lastVesselCount) {
+      this.shaderManager.setUniform1i(program, 'u_vesselCount', vesselData.count);
+      this.uniformCache.lastVesselCount = vesselData.count;
+    }
+
+    // Set wakes enabled only if changed
+    if (this.wakesEnabled !== this.uniformCache.lastWakesEnabled) {
+      this.shaderManager.setUniform1i(program, 'u_wakesEnabled', this.wakesEnabled ? 1 : 0);
+      this.uniformCache.lastWakesEnabled = this.wakesEnabled;
+    }
+
+    // Vessel data arrays need to be updated every frame when vessels are active
     if (vesselData.count > 0) {
       this.shaderManager.setUniform3fv(program, 'u_vesselPositions', vesselData.positions);
       this.shaderManager.setUniform3fv(program, 'u_vesselVelocities', vesselData.velocities);
@@ -337,6 +385,10 @@ export class OceanRenderer {
       this.shaderManager.setUniform1fv(program, 'u_vesselHullLengths', vesselData.hullLengths);
       this.shaderManager.setUniform1fv(program, 'u_vesselStates', vesselData.states);
     }
+
+    // Disable integrated glass effects since we're using overlay approach
+    this.shaderManager.setUniform1i(program, 'u_glassEnabled', 0);
+    this.shaderManager.setUniform1i(program, 'u_glassPanelCount', 0);
 
     // Bind geometry and render
     this.bufferManager.bind();
@@ -356,13 +408,8 @@ export class OceanRenderer {
     // Update vessel system
     this.vesselSystem.update(currentTime, deltaTime);
 
-    // Render ocean scene
+    // Render ocean scene with integrated glass distortion
     this.renderOceanScene(elapsedTime);
-
-    // Render glass panels if enabled
-    if (this.glassEnabled && this.glassRenderer) {
-      this.glassRenderer.render();
-    }
 
     // Update FPS counter
     this.updateFPS(currentTime);
@@ -379,10 +426,10 @@ export class OceanRenderer {
       this.frameCount = 0;
       this.lastFpsUpdate = currentTime;
 
-      // Update FPS display if element exists
-      const fpsElement = document.getElementById('fps');
-      if (fpsElement) {
-        fpsElement.textContent = `FPS: ${this.fps}`;
+      // Update FPS display if element exists (using cached reference)
+      this.initializeCachedElements();
+      if (this.cachedElements.fpsElement) {
+        this.cachedElements.fpsElement.textContent = `FPS: ${this.fps}`;
       }
     }
   }
@@ -468,6 +515,7 @@ export class OceanRenderer {
     this.glassEnabled = enabled && this.glassRenderer !== null;
   }
 
+
   /**
    * Get glass rendering state
    */
@@ -481,6 +529,17 @@ export class OceanRenderer {
   getGlassRenderer(): GlassRenderer | null {
     return this.glassRenderer;
   }
+
+  /**
+   * Initialize cached DOM elements for performance
+   */
+  private initializeCachedElements(): void {
+    if (this.cachedElements.elementsInitialized) return;
+
+    this.cachedElements.fpsElement = document.getElementById('fps');
+    this.cachedElements.elementsInitialized = true;
+  }
+
 
   /**
    * Clean up resources

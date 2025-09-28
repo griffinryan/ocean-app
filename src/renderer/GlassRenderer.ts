@@ -64,7 +64,42 @@ export class GlassRenderer {
    */
   async initializeShaders(vertexShader: string, fragmentShader: string): Promise<void> {
     try {
-      this.glassProgram = await this.shaderManager.createProgram('glass', vertexShader, fragmentShader);
+      // Define uniforms and attributes for glass shader
+      const uniforms = [
+        'u_projectionMatrix',
+        'u_viewMatrix',
+        'u_time',
+        'u_aspectRatio',
+        'u_resolution',
+        'u_oceanTexture',
+        'u_panelPosition',
+        'u_panelSize',
+        'u_distortionStrength',
+        'u_refractionIndex'
+      ];
+
+      const attributes = [
+        'a_position',
+        'a_uv'
+      ];
+
+      // Create glass shader program
+      this.glassProgram = this.shaderManager.createProgram(
+        'glass',
+        vertexShader,
+        fragmentShader,
+        uniforms,
+        attributes
+      );
+
+      // Set up vertex attributes for glass rendering
+      const positionLocation = this.glassProgram.attributeLocations.get('a_position');
+      const uvLocation = this.glassProgram.attributeLocations.get('a_uv');
+
+      if (positionLocation !== undefined && uvLocation !== undefined) {
+        this.bufferManager.setupAttributes(positionLocation, uvLocation);
+      }
+
       console.log('Glass shaders initialized successfully!');
     } catch (error) {
       console.error('Failed to initialize glass shaders:', error);
@@ -142,26 +177,55 @@ export class GlassRenderer {
   }
 
   /**
-   * Capture ocean scene to texture
+   * Capture ocean scene to texture for glass distortion
    */
   public captureOceanScene(renderOceanCallback: () => void): void {
     const gl = this.gl;
 
-    if (!this.oceanFramebuffer) {
+    if (!this.oceanFramebuffer || !this.oceanTexture) {
       return;
     }
 
-    // Bind framebuffer
+    // Store current viewport
+    const viewport = gl.getParameter(gl.VIEWPORT);
+
+    // Bind framebuffer for rendering
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.oceanFramebuffer);
+
+    // Set viewport to match framebuffer size
+    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
 
     // Clear framebuffer
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-    // Render ocean scene
+    // Render ocean scene to framebuffer
     renderOceanCallback();
 
-    // Unbind framebuffer (render to screen)
+    // Restore screen framebuffer
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+    // Restore viewport
+    gl.viewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+  }
+
+  /**
+   * Copy current screen contents to ocean texture (alternative method)
+   */
+  public copyScreenToTexture(): void {
+    const gl = this.gl;
+
+    if (!this.oceanTexture) {
+      return;
+    }
+
+    // Bind the ocean texture
+    gl.bindTexture(gl.TEXTURE_2D, this.oceanTexture);
+
+    // Copy current framebuffer to texture
+    gl.copyTexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 0, 0, gl.canvas.width, gl.canvas.height, 0);
+
+    // Unbind texture
+    gl.bindTexture(gl.TEXTURE_2D, null);
   }
 
   /**
@@ -198,6 +262,9 @@ export class GlassRenderer {
       return;
     }
 
+    // Update panel positions before rendering
+    this.updatePanelPositions();
+
     // Use glass shader program
     const program = this.shaderManager.useProgram('glass');
 
@@ -225,9 +292,13 @@ export class GlassRenderer {
     // Disable depth testing for glass panels
     gl.disable(gl.DEPTH_TEST);
 
-    // Render each panel
-    this.panels.forEach((config) => {
-      this.renderPanel(config, program);
+    // Render each visible panel
+    this.panels.forEach((config, id) => {
+      // Check if the corresponding HTML element is visible
+      const element = document.getElementById(id === 'landing' ? 'landing-panel' : 'app-panel');
+      if (element && !element.classList.contains('hidden')) {
+        this.renderPanel(config, program);
+      }
     });
 
     // Re-enable depth testing
@@ -255,21 +326,102 @@ export class GlassRenderer {
    * Set up default panel configurations
    */
   public setupDefaultPanels(): void {
-    // Landing panel configuration
+    // Initialize with temporary values - will be updated dynamically
     this.addPanel('landing', {
-      position: [0.3, 0.3], // Centered
-      size: [0.4, 0.4],     // 40% of screen
-      distortionStrength: 0.015,
-      refractionIndex: 1.52 // Glass refractive index
-    });
-
-    // App panel configuration
-    this.addPanel('app', {
-      position: [0.05, 0.05], // Top-left
-      size: [0.35, 0.25],     // Smaller panel
-      distortionStrength: 0.012,
+      position: [0.0, 0.0],
+      size: [0.4, 0.5],
+      distortionStrength: 0.25, // Much stronger distortion for clear visibility
       refractionIndex: 1.52
     });
+
+    this.addPanel('app', {
+      position: [0.0, 0.0],
+      size: [0.35, 0.3],
+      distortionStrength: 0.2, // Strong distortion
+      refractionIndex: 1.52
+    });
+
+    // Update positions immediately
+    this.updatePanelPositions();
+  }
+
+  /**
+   * Update panel positions based on HTML element positions
+   */
+  public updatePanelPositions(): void {
+    const canvas = this.gl.canvas as HTMLCanvasElement;
+    const canvasRect = canvas.getBoundingClientRect();
+
+    // Ensure canvas has valid dimensions
+    if (canvasRect.width === 0 || canvasRect.height === 0) {
+      console.warn('GlassRenderer: Canvas has invalid dimensions, skipping panel position update');
+      return;
+    }
+
+    // Update landing panel position
+    const landingElement = document.getElementById('landing-panel');
+    if (landingElement && !landingElement.classList.contains('hidden')) {
+      const rect = landingElement.getBoundingClientRect();
+
+      // Only update if element is visible and has valid dimensions
+      if (rect.width > 0 && rect.height > 0) {
+        const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
+        this.updatePanel('landing', {
+          position: normalizedPos.position,
+          size: normalizedPos.size
+        });
+      }
+    }
+
+    // Update app panel position
+    const appElement = document.getElementById('app-panel');
+    if (appElement && !appElement.classList.contains('hidden')) {
+      const rect = appElement.getBoundingClientRect();
+
+      // Only update if element is visible and has valid dimensions
+      if (rect.width > 0 && rect.height > 0) {
+        const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
+        this.updatePanel('app', {
+          position: normalizedPos.position,
+          size: normalizedPos.size
+        });
+      }
+    }
+  }
+
+  /**
+   * Convert HTML element rect to normalized WebGL coordinates
+   */
+  private htmlRectToNormalized(elementRect: DOMRect, canvasRect: DOMRect): { position: [number, number], size: [number, number] } {
+    // Ensure we have valid rectangles
+    if (elementRect.width === 0 || elementRect.height === 0 || canvasRect.width === 0 || canvasRect.height === 0) {
+      console.warn('GlassRenderer: Invalid rectangle dimensions detected');
+      return { position: [0, 0], size: [0, 0] };
+    }
+
+    // Calculate center position in normalized coordinates (0 to 1)
+    const centerX = ((elementRect.left + elementRect.width / 2) - canvasRect.left) / canvasRect.width;
+    const centerY = ((elementRect.top + elementRect.height / 2) - canvasRect.top) / canvasRect.height;
+
+    // Convert to WebGL coordinates (-1 to 1, with Y flipped)
+    const glX = centerX * 2.0 - 1.0;
+    const glY = (1.0 - centerY) * 2.0 - 1.0; // Flip Y and convert to [-1,1]
+
+    // Calculate size in normalized coordinates (as fraction of screen size * 2 for [-1,1] range)
+    const width = (elementRect.width / canvasRect.width) * 2.0;
+    const height = (elementRect.height / canvasRect.height) * 2.0;
+
+    // Debug logging (can be removed in production)
+    console.debug(`GlassRenderer Panel Mapping:
+      Element: ${elementRect.width}x${elementRect.height} at (${elementRect.left}, ${elementRect.top})
+      Canvas: ${canvasRect.width}x${canvasRect.height}
+      WebGL Center: (${glX.toFixed(3)}, ${glY.toFixed(3)})
+      WebGL Size: (${width.toFixed(3)}, ${height.toFixed(3)})`);
+
+    return {
+      position: [glX, glY],
+      size: [width, height]
+    };
   }
 
   /**
