@@ -43,6 +43,12 @@ This is a WebGL2-based ocean simulation and rendering application built with Typ
 - Implements double-buffered ping-pong rendering for particle updates
 - Note: Particle system is implemented but not currently integrated into main renderer
 
+**Glass Renderer (`src/renderer/GlassRenderer.ts`)**
+- WebGL2-based liquid glass panel system with real-time distortion effects
+- Captures ocean scene to framebuffer for distortion mapping
+- Maps HTML element positions to WebGL coordinates for precise boundary control
+- Supports multiple panels with individual distortion settings
+
 **Math Utilities (`src/utils/math.ts`)**
 - Contains matrix math classes (`Mat4`, `Vec3`) for 3D transformations
 - Provides helper functions for WebGL matrix operations
@@ -59,6 +65,12 @@ This is a WebGL2-based ocean simulation and rendering application built with Typ
 - Features normal calculation from height derivatives for lighting
 - Includes caustics effects, foam generation, and stylized color quantization
 - Supports 4 debug visualization modes
+
+**Glass Fragment Shader (`src/shaders/glass.frag`)**
+- Liquid glass surface simulation with flowing animations and multi-layer distortion
+- Strict boundary enforcement (0.0-1.0 UV range) with soft edge fading
+- Chromatic aberration, Fresnel reflections, and caustic light patterns
+- Real-time coordinate mapping from HTML element bounds to shader UV space
 
 ### Technical Details
 
@@ -77,3 +89,21 @@ The ocean uses layered sine waves with different:
 - Speeds (0.8-2.2 units/time)
 
 Wave height is calculated by summing multiple sine wave functions, creating realistic interference patterns. Normals are derived from height gradients for lighting calculations.
+
+## Glass Panel System
+
+### Adding New Glass Panels
+
+1. **HTML Structure**: Create panel with `.glass-panel` class and unique ID
+2. **CSS Styling**: Define panel positioning, size, and visual properties in `liquid-glass.css`
+3. **Glass Renderer Integration**:
+   - Add panel config in `GlassRenderer.setupDefaultPanels()`
+   - Update `updatePanelPositions()` to track new element ID
+   - Ensure panel has valid `getBoundingClientRect()` dimensions
+
+### Key Implementation Details
+
+- **Boundary Enforcement**: Glass effect strictly contained within HTML element bounds (0.0-1.0 UV range)
+- **Coordinate Mapping**: HTML DOM coordinates automatically converted to WebGL space
+- **Performance**: Uses framebuffer capture for ocean distortion with single full-screen quad render
+- **Responsiveness**: Real-time position updates via `ResizeObserver` and `getBoundingClientRect()`
