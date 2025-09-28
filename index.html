@@ -10,6 +10,32 @@
   <body>
     <canvas id="ocean-canvas"></canvas>
 
+    <!-- Navigation Bar (hidden initially) -->
+    <nav id="navbar" class="glass-panel navbar-panel hidden">
+      <div class="navbar-content">
+        <!-- Brand/Logo -->
+        <div id="nav-brand" class="nav-brand">
+          <span class="brand-text">Griffin Ryan</span>
+        </div>
+
+        <!-- Navigation Items -->
+        <div class="nav-items">
+          <a href="#app" class="nav-item" data-nav="home">
+            <span class="nav-label">Home</span>
+          </a>
+          <a href="#portfolio" class="nav-item" data-nav="portfolio">
+            <span class="nav-label">Portfolio</span>
+          </a>
+          <a href="#resume" class="nav-item" data-nav="resume">
+            <span class="nav-label">Resume</span>
+          </a>
+          <a href="mailto:griffin@griffinryan.com" class="nav-item contact-item" data-nav="contact">
+            <span class="nav-label">Contact</span>
+          </a>
+        </div>
+      </div>
+    </nav>
+
     <!-- Landing Panel -->
     <div id="landing-panel" class="glass-panel landing-panel">
       <h1>Griffin Ryan<br>Software Engineer</h1>
@@ -23,8 +49,59 @@
 
     <!-- App Panel (hidden initially) -->
     <div id="app-panel" class="glass-panel app-panel hidden">
-      <h2>Griffin Ryan</h2>
-      <p>Portfolio navigation coming soon...</p>
+      <h2>Welcome to My Portfolio</h2>
+      <p>Explore my work in software engineering, WebGL development, and interactive experiences.</p>
+      <div class="portfolio-preview">
+        <div class="project-card">
+          <h3>Ocean Simulation</h3>
+          <p>Real-time WebGL2 ocean rendering with dynamic waves and glass effects.</p>
+        </div>
+        <div class="project-card">
+          <h3>More Projects Coming Soon</h3>
+          <p>Additional portfolio pieces will be showcased here.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Portfolio Panel (hidden initially) -->
+    <div id="portfolio-panel" class="glass-panel app-panel hidden">
+      <h2>Portfolio</h2>
+      <p>A detailed view of my projects, case studies, and technical implementations.</p>
+      <div class="portfolio-grid">
+        <div class="project-detail">
+          <h3>Ocean WebGL Renderer</h3>
+          <p>Advanced real-time ocean simulation using WebGL2 shaders and mathematical wave functions.</p>
+        </div>
+        <div class="project-detail">
+          <h3>Liquid Glass UI System</h3>
+          <p>Custom glassmorphism implementation with WebGL distortion effects.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Resume Panel (hidden initially) -->
+    <div id="resume-panel" class="glass-panel app-panel hidden">
+      <h2>Resume</h2>
+      <div class="resume-content">
+        <div class="resume-section">
+          <h3>Experience</h3>
+          <div class="experience-item">
+            <h4>Software Engineer</h4>
+            <p>Specializing in WebGL development, real-time rendering, and interactive web experiences.</p>
+          </div>
+        </div>
+        <div class="resume-section">
+          <h3>Skills</h3>
+          <div class="skills-grid">
+            <span class="skill-tag">TypeScript</span>
+            <span class="skill-tag">WebGL</span>
+            <span class="skill-tag">GLSL</span>
+            <span class="skill-tag">JavaScript</span>
+            <span class="skill-tag">3D Graphics</span>
+            <span class="skill-tag">Real-time Rendering</span>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Debug Info Panel -->

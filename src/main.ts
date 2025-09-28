@@ -5,6 +5,7 @@
 import { OceanRenderer } from './renderer/OceanRenderer';
 import { PanelManager } from './components/Panel';
 import { Router } from './components/Router';
+import { NavigationManager } from './components/Navigation';
 
 // Import shaders as strings
 import oceanVertexShader from './shaders/ocean.vert';
@@ -16,6 +17,7 @@ class OceanApp {
   public renderer: OceanRenderer | null = null;
   public panelManager: PanelManager | null = null;
   public router: Router | null = null;
+  public navigationManager: NavigationManager | null = null;
 
   async init(): Promise<void> {
     try {
@@ -63,7 +65,7 @@ class OceanApp {
   }
 
   /**
-   * Initialize UI components (panels and router)
+   * Initialize UI components (panels, router, and navigation)
    */
   private initializeUI(): void {
     try {
@@ -73,11 +75,36 @@ class OceanApp {
       // Initialize router with panel manager
       this.router = new Router(this.panelManager);
 
+      // Initialize navigation manager with router
+      this.navigationManager = new NavigationManager(this.router);
+
+      // Connect navigation visibility to panel state changes
+      this.setupNavigationIntegration();
+
       console.log('UI components initialized successfully!');
     } catch (error) {
       console.error('Failed to initialize UI components:', error);
       throw error;
     }
+  }
+
+  /**
+   * Setup navigation integration with panel state changes
+   */
+  private setupNavigationIntegration(): void {
+    if (!this.navigationManager || !this.panelManager) {
+      return;
+    }
+
+    // Listen for panel state changes and update navigation visibility
+    const originalTransitionTo = this.panelManager.transitionTo.bind(this.panelManager);
+    this.panelManager.transitionTo = (newState) => {
+      // Call original transition
+      originalTransitionTo(newState);
+
+      // Update navigation visibility based on panel state
+      this.navigationManager!.updateVisibilityForPanelState(newState);
+    };
   }
 
   /**
@@ -281,6 +308,11 @@ class OceanApp {
     if (this.renderer) {
       this.renderer.dispose();
       this.renderer = null;
+    }
+
+    if (this.navigationManager) {
+      this.navigationManager.dispose();
+      this.navigationManager = null;
     }
 
     if (this.panelManager) {

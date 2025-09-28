@@ -34,8 +34,20 @@ export class Router {
       {
         path: 'app',
         state: 'app',
-        title: 'Griffin Ryan - Portfolio',
+        title: 'Griffin Ryan - Home',
         description: 'Software engineering portfolio and projects'
+      },
+      {
+        path: 'portfolio',
+        state: 'portfolio',
+        title: 'Griffin Ryan - Portfolio',
+        description: 'Detailed project showcases and case studies'
+      },
+      {
+        path: 'resume',
+        state: 'resume',
+        title: 'Griffin Ryan - Resume',
+        description: 'Professional experience, skills, and qualifications'
       },
       {
         path: 'paper',
@@ -140,6 +152,14 @@ export class Router {
 
   public goToApp(): void {
     this.navigate('app');
+  }
+
+  public goToPortfolio(): void {
+    this.navigate('portfolio');
+  }
+
+  public goToResume(): void {
+    this.navigate('resume');
   }
 
   public goToPaper(): void {

@@ -3,7 +3,7 @@
  * Manages panel transitions, routing, and glass effects
  */
 
-export type PanelState = 'landing' | 'app' | 'paper' | 'not-found';
+export type PanelState = 'landing' | 'app' | 'portfolio' | 'resume' | 'paper' | 'not-found';
 
 export interface PanelTransition {
   duration: number;
@@ -14,6 +14,8 @@ export class PanelManager {
   private currentState: PanelState = 'landing';
   private landingPanel: HTMLElement;
   private appPanel: HTMLElement;
+  private portfolioPanel: HTMLElement;
+  private resumePanel: HTMLElement;
   private paperBtn: HTMLElement;
   private appBtn: HTMLElement;
 
@@ -26,6 +28,8 @@ export class PanelManager {
   constructor() {
     this.landingPanel = this.getElement('landing-panel');
     this.appPanel = this.getElement('app-panel');
+    this.portfolioPanel = this.getElement('portfolio-panel');
+    this.resumePanel = this.getElement('resume-panel');
     this.paperBtn = this.getElement('paper-btn');
     this.appBtn = this.getElement('app-btn');
 
@@ -71,6 +75,12 @@ export class PanelManager {
       case 'app':
         this.transitionTo('app');
         break;
+      case 'portfolio':
+        this.transitionTo('portfolio');
+        break;
+      case 'resume':
+        this.transitionTo('resume');
+        break;
       case 'paper':
         this.transitionTo('paper');
         break;
@@ -104,6 +114,18 @@ export class PanelManager {
         this.transitionTo('app');
         break;
       case '2':
+        // Quick access to portfolio
+        event.preventDefault();
+        window.location.hash = 'portfolio';
+        this.transitionTo('portfolio');
+        break;
+      case '3':
+        // Quick access to resume
+        event.preventDefault();
+        window.location.hash = 'resume';
+        this.transitionTo('resume');
+        break;
+      case '4':
         // Quick access to paper
         event.preventDefault();
         window.location.hash = 'paper';
@@ -180,8 +202,8 @@ export class PanelManager {
       setTimeout(() => {
         element.classList.remove('fade-in');
 
-        // Add active class for app panel
-        if (state === 'app') {
+        // Add active class for content panels
+        if (state === 'app' || state === 'portfolio' || state === 'resume') {
           element.classList.add('active');
         }
       }, this.defaultTransition.duration / 2);
@@ -192,7 +214,11 @@ export class PanelManager {
     // Reset all panels
     this.landingPanel.classList.add('hidden');
     this.appPanel.classList.add('hidden');
+    this.portfolioPanel.classList.add('hidden');
+    this.resumePanel.classList.add('hidden');
     this.appPanel.classList.remove('active');
+    this.portfolioPanel.classList.remove('active');
+    this.resumePanel.classList.remove('active');
 
     // Show current panel
     const currentPanel = this.getPanelElement(this.currentState);
@@ -207,6 +233,10 @@ export class PanelManager {
         return this.landingPanel;
       case 'app':
         return this.appPanel;
+      case 'portfolio':
+        return this.portfolioPanel;
+      case 'resume':
+        return this.resumePanel;
       default:
         return null;
     }
@@ -275,12 +305,16 @@ export class PanelManager {
     // Mark panels for WebGL enhancement
     this.landingPanel.classList.add('webgl-enhanced');
     this.appPanel.classList.add('webgl-enhanced');
+    this.portfolioPanel.classList.add('webgl-enhanced');
+    this.resumePanel.classList.add('webgl-enhanced');
   }
 
   public disableWebGLDistortion(): void {
     // Remove WebGL enhancement
     this.landingPanel.classList.remove('webgl-enhanced');
     this.appPanel.classList.remove('webgl-enhanced');
+    this.portfolioPanel.classList.remove('webgl-enhanced');
+    this.resumePanel.classList.remove('webgl-enhanced');
   }
 
   public dispose(): void {
