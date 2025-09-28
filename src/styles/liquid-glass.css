@@ -188,15 +188,17 @@ body {
 
 .navbar-panel {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  width: 100%;
-  height: 70px;
+  top: 20px;
+  left: 20px;
+  right: 20px;
+  width: calc(100% - 40px);
+  max-width: 1400px;
+  margin: 0 auto;
+  height: 60px;
   padding: 0;
-  border-radius: 0;
-  border: none;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1);
   z-index: 200;
 
   /* Enhanced glass effect for navigation - matches other panels */
@@ -207,7 +209,7 @@ body {
   );
 
   /* Transition states */
-  transform: translateY(-100%);
+  transform: translateY(calc(-100% - 20px));
   opacity: 0;
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -596,7 +598,7 @@ body {
 
 @keyframes navbarSlideIn {
   from {
-    transform: translateY(-100%);
+    transform: translateY(calc(-100% - 20px));
     opacity: 0;
   }
   to {
@@ -611,7 +613,7 @@ body {
     opacity: 1;
   }
   to {
-    transform: translateY(-100%);
+    transform: translateY(calc(-100% - 20px));
     opacity: 0;
   }
 }
@@ -640,8 +642,40 @@ body {
 /* ===== RESPONSIVE DESIGN ===== */
 
 @media (max-width: 768px) {
+  .navbar-panel {
+    top: 10px;
+    left: 10px;
+    right: 10px;
+    width: calc(100% - 20px);
+    max-width: none;
+    border-radius: 12px;
+    transform: translateY(calc(-100% - 10px));
+  }
+
   .navbar-content {
     padding: 0 1rem;
+  }
+
+  @keyframes navbarSlideIn {
+    from {
+      transform: translateY(calc(-100% - 10px));
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+
+  @keyframes navbarSlideOut {
+    from {
+      transform: translateY(0);
+      opacity: 1;
+    }
+    to {
+      transform: translateY(calc(-100% - 10px));
+      opacity: 0;
+    }
   }
 
   .nav-items {
