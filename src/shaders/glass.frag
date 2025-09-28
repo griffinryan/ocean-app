@@ -110,20 +110,26 @@ void main() {
     vec2 screenUV = (v_screenPos + 1.0) * 0.5;
     screenUV.y = 1.0 - screenUV.y; // Flip Y coordinate
 
-    // Calculate position relative to panel (center-based)
+    // Calculate position relative to panel with corrected coordinate mapping
     vec2 panelCenter = (u_panelPosition + 1.0) * 0.5; // Convert from [-1,1] to [0,1]
-    vec2 panelSizeNorm = u_panelSize * 0.5; // Half-size for center-based calculation
+    vec2 panelHalfSize = u_panelSize * 0.5; // Half-size for center-based calculation
 
+    // Calculate panel UV coordinates directly
     vec2 deltaFromCenter = screenUV - panelCenter;
-    vec2 panelUV = (deltaFromCenter / panelSizeNorm) * 0.5 + 0.5; // Convert to [0,1] range
+    vec2 panelUV = deltaFromCenter / panelHalfSize + 0.5; // Direct mapping to [0,1] range
 
-    // Only render within panel bounds with some tolerance
-    if (panelUV.x < -0.1 || panelUV.x > 1.1 || panelUV.y < -0.1 || panelUV.y > 1.1) {
+    // Strict boundary enforcement - only render within exact panel bounds
+    if (panelUV.x < 0.0 || panelUV.x > 1.0 || panelUV.y < 0.0 || panelUV.y > 1.0) {
         discard;
     }
 
-    // Clamp panelUV to valid range for distortion calculations
-    panelUV = clamp(panelUV, vec2(0.0), vec2(1.0));
+    // Add soft edge fade for smoother transitions at boundaries
+    float edgeFade = 1.0;
+    float fadeWidth = 0.02; // 2% fade at edges
+    edgeFade *= smoothstep(0.0, fadeWidth, panelUV.x);
+    edgeFade *= smoothstep(0.0, fadeWidth, panelUV.y);
+    edgeFade *= smoothstep(0.0, fadeWidth, 1.0 - panelUV.x);
+    edgeFade *= smoothstep(0.0, fadeWidth, 1.0 - panelUV.y);
 
     // Calculate liquid glass surface normal with flowing animation
     vec3 glassNormal = calculateLiquidGlassNormal(panelUV, v_time);
@@ -262,8 +268,11 @@ void main() {
     float crystalPattern = sin(panelUV.x * 30.0) * sin(panelUV.y * 30.0) * 0.1;
     finalColor += vec3(crystalPattern * 0.15);
 
-    // Ensure minimum visibility
-    alpha = max(alpha, 0.3);
+    // Apply edge fade to final alpha for smooth boundaries
+    alpha *= edgeFade;
+
+    // Ensure minimum visibility only within bounds
+    alpha = max(alpha, 0.2 * edgeFade);
 
     fragColor = vec4(finalColor, alpha);
 }

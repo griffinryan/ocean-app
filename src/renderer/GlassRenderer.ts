@@ -352,26 +352,40 @@ export class GlassRenderer {
     const canvas = this.gl.canvas as HTMLCanvasElement;
     const canvasRect = canvas.getBoundingClientRect();
 
+    // Ensure canvas has valid dimensions
+    if (canvasRect.width === 0 || canvasRect.height === 0) {
+      console.warn('GlassRenderer: Canvas has invalid dimensions, skipping panel position update');
+      return;
+    }
+
     // Update landing panel position
     const landingElement = document.getElementById('landing-panel');
     if (landingElement && !landingElement.classList.contains('hidden')) {
       const rect = landingElement.getBoundingClientRect();
-      const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
-      this.updatePanel('landing', {
-        position: normalizedPos.position,
-        size: normalizedPos.size
-      });
+
+      // Only update if element is visible and has valid dimensions
+      if (rect.width > 0 && rect.height > 0) {
+        const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
+        this.updatePanel('landing', {
+          position: normalizedPos.position,
+          size: normalizedPos.size
+        });
+      }
     }
 
     // Update app panel position
     const appElement = document.getElementById('app-panel');
     if (appElement && !appElement.classList.contains('hidden')) {
       const rect = appElement.getBoundingClientRect();
-      const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
-      this.updatePanel('app', {
-        position: normalizedPos.position,
-        size: normalizedPos.size
-      });
+
+      // Only update if element is visible and has valid dimensions
+      if (rect.width > 0 && rect.height > 0) {
+        const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
+        this.updatePanel('app', {
+          position: normalizedPos.position,
+          size: normalizedPos.size
+        });
+      }
     }
   }
 
@@ -379,7 +393,13 @@ export class GlassRenderer {
    * Convert HTML element rect to normalized WebGL coordinates
    */
   private htmlRectToNormalized(elementRect: DOMRect, canvasRect: DOMRect): { position: [number, number], size: [number, number] } {
-    // Calculate center position in normalized coordinates
+    // Ensure we have valid rectangles
+    if (elementRect.width === 0 || elementRect.height === 0 || canvasRect.width === 0 || canvasRect.height === 0) {
+      console.warn('GlassRenderer: Invalid rectangle dimensions detected');
+      return { position: [0, 0], size: [0, 0] };
+    }
+
+    // Calculate center position in normalized coordinates (0 to 1)
     const centerX = ((elementRect.left + elementRect.width / 2) - canvasRect.left) / canvasRect.width;
     const centerY = ((elementRect.top + elementRect.height / 2) - canvasRect.top) / canvasRect.height;
 
@@ -387,9 +407,16 @@ export class GlassRenderer {
     const glX = centerX * 2.0 - 1.0;
     const glY = (1.0 - centerY) * 2.0 - 1.0; // Flip Y and convert to [-1,1]
 
-    // Calculate size in normalized coordinates
-    const width = elementRect.width / canvasRect.width * 2.0; // Convert to [-1,1] range
-    const height = elementRect.height / canvasRect.height * 2.0;
+    // Calculate size in normalized coordinates (as fraction of screen size * 2 for [-1,1] range)
+    const width = (elementRect.width / canvasRect.width) * 2.0;
+    const height = (elementRect.height / canvasRect.height) * 2.0;
+
+    // Debug logging (can be removed in production)
+    console.debug(`GlassRenderer Panel Mapping:
+      Element: ${elementRect.width}x${elementRect.height} at (${elementRect.left}, ${elementRect.top})
+      Canvas: ${canvasRect.width}x${canvasRect.height}
+      WebGL Center: (${glX.toFixed(3)}, ${glY.toFixed(3)})
+      WebGL Size: (${width.toFixed(3)}, ${height.toFixed(3)})`);
 
     return {
       position: [glX, glY],
