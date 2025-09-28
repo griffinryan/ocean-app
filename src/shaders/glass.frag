@@ -108,7 +108,7 @@ vec3 calculateRefraction(vec3 incident, vec3 normal, float eta) {
 void main() {
     // Convert screen position to UV coordinates
     vec2 screenUV = (v_screenPos + 1.0) * 0.5;
-    screenUV.y = 1.0 - screenUV.y; // Flip Y coordinate
+    // Y coordinate is already properly flipped in GlassRenderer, no need to flip again
 
     // Calculate position relative to panel with corrected coordinate mapping
     vec2 panelCenter = (u_panelPosition + 1.0) * 0.5; // Convert from [-1,1] to [0,1]
