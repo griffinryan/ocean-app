@@ -2,17 +2,17 @@
 
 /* CSS Custom Properties for theming */
 :root {
-  /* Glass Material Properties */
-  --glass-opacity: 0.15;
+  /* Glass Material Properties - Restored elegance with subtle improvements */
+  --glass-opacity: 0.18;
   --glass-blur: 20px;
-  --glass-border-opacity: 0.3;
+  --glass-border-opacity: 0.25;
   --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.37);
 
-  /* Colors */
-  --glass-tint: rgba(255, 255, 255, 0.1);
-  --glass-border: rgba(255, 255, 255, 0.18);
-  --text-primary: rgba(255, 255, 255, 0.95);
-  --text-secondary: rgba(255, 255, 255, 0.7);
+  /* Colors - Balanced for glass visibility */
+  --glass-tint: rgba(255, 255, 255, 0.12);
+  --glass-border: rgba(255, 255, 255, 0.2);
+  --text-primary: rgba(255, 255, 255, 0.98);
+  --text-secondary: rgba(255, 255, 255, 0.85);
 
   /* Typography */
   --font-primary: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
@@ -20,6 +20,12 @@
   --font-weight-normal: 400;
   --font-weight-medium: 500;
   --font-weight-semibold: 600;
+
+  /* Text Vibrancy System - Apple HIG inspired */
+  --text-vibrancy-primary: rgba(255, 255, 255, 1.0);
+  --text-vibrancy-secondary: rgba(255, 255, 255, 0.85);
+  --text-vibrancy-tertiary: rgba(255, 255, 255, 0.7);
+  --text-vibrancy-quaternary: rgba(255, 255, 255, 0.55);
 
   /* Spacing & Sizing */
   --panel-padding: 2rem;
@@ -60,6 +66,163 @@ body {
   z-index: 1;
 }
 
+/* ===== ELEGANT TEXT BACKING SYSTEM ===== */
+
+/* CSS Variables for material thickness control */
+:root {
+  /* Material Thickness Opacity Levels */
+  --material-thin: rgba(0, 0, 0, 0.15);
+  --material-regular: rgba(0, 0, 0, 0.25);
+  --material-thick: rgba(0, 0, 0, 0.35);
+
+  /* Text backing blur and radius */
+  --text-backing-blur: 4px;
+  --text-backing-radius: 16px;
+}
+
+/* Base text island - regular material by default */
+.text-island {
+  position: relative;
+  margin-bottom: 1.5rem;
+}
+
+.text-island::before {
+  content: '';
+  position: absolute;
+  inset: -12px -16px;
+  background: radial-gradient(
+    ellipse at center,
+    var(--material-regular) 0%,
+    rgba(0, 0, 0, 0.12) 50%,
+    transparent 75%
+  );
+  border-radius: var(--text-backing-radius);
+  backdrop-filter: blur(var(--text-backing-blur));
+  -webkit-backdrop-filter: blur(var(--text-backing-blur));
+  z-index: -1;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Thin material for subtle backing */
+.text-island.thin::before {
+  background: radial-gradient(
+    ellipse at center,
+    var(--material-thin) 0%,
+    rgba(0, 0, 0, 0.08) 50%,
+    transparent 75%
+  );
+  inset: -8px -12px;
+}
+
+/* Thick material for high-contrast areas */
+.text-island.thick::before {
+  background: radial-gradient(
+    ellipse at center,
+    var(--material-thick) 0%,
+    rgba(0, 0, 0, 0.18) 50%,
+    transparent 70%
+  );
+  inset: -16px -20px;
+}
+
+/* Compact text island for inline elements */
+.text-island.compact {
+  margin-bottom: 0.75rem;
+}
+
+.text-island.compact::before {
+  inset: -6px -10px;
+  border-radius: 12px;
+}
+
+/* Hover enhancement for interactive text islands */
+.text-island.interactive:hover::before {
+  background: radial-gradient(
+    ellipse at center,
+    rgba(0, 0, 0, 0.3) 0%,
+    rgba(0, 0, 0, 0.15) 50%,
+    transparent 75%
+  );
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+/* ===== ENHANCED TEXT VIBRANCY SYSTEM ===== */
+
+/* CSS Variables for text shadow control */
+:root {
+  /* Multi-layer shadow system */
+  --shadow-sharp: 0 1px 3px rgba(0, 0, 0, 0.8);     /* Sharp close shadow */
+  --shadow-soft: 0 2px 8px rgba(0, 0, 0, 0.6);      /* Soft mid shadow */
+  --shadow-ambient: 0 4px 24px rgba(0, 0, 0, 0.4);  /* Ambient shadow */
+  --glow-subtle: 0 0 40px rgba(255, 255, 255, 0.1); /* Subtle glow */
+  --glow-strong: 0 0 20px rgba(255, 255, 255, 0.15); /* Strong glow */
+}
+
+/* Primary text - highest contrast for headings and key content */
+.text-vibrancy-primary,
+h1, h2, h3.text-vibrancy-primary {
+  color: var(--text-vibrancy-primary);
+  text-shadow:
+    var(--shadow-sharp),
+    var(--shadow-soft),
+    var(--shadow-ambient),
+    var(--glow-strong);
+  font-weight: var(--font-weight-medium);
+}
+
+/* Secondary text - for descriptions and important content */
+.text-vibrancy-secondary,
+p, .subtitle, h4 {
+  color: var(--text-vibrancy-secondary);
+  text-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.7),
+    0 2px 6px rgba(0, 0, 0, 0.5),
+    0 3px 16px rgba(0, 0, 0, 0.3),
+    var(--glow-subtle);
+}
+
+/* Tertiary text - for supporting content */
+.text-vibrancy-tertiary,
+.nav-item, small, .experience-item p {
+  color: var(--text-vibrancy-tertiary);
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.6),
+    0 2px 4px rgba(0, 0, 0, 0.4),
+    0 3px 12px rgba(0, 0, 0, 0.2);
+}
+
+/* Quaternary text - for inactive or least important content */
+.text-vibrancy-quaternary,
+.text-muted {
+  color: var(--text-vibrancy-quaternary);
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.5),
+    0 2px 6px rgba(0, 0, 0, 0.25);
+}
+
+/* Enhanced text on glass-backed islands */
+.text-island .text-vibrancy-primary,
+.text-island h1,
+.text-island h2,
+.text-island h3 {
+  text-shadow:
+    0 1px 4px rgba(0, 0, 0, 0.9),     /* Extra sharp for contrast */
+    0 2px 12px rgba(0, 0, 0, 0.7),    /* Strong mid shadow */
+    0 6px 32px rgba(0, 0, 0, 0.5),    /* Deep ambient */
+    0 0 24px rgba(255, 255, 255, 0.2); /* Strong glow */
+}
+
+.text-island .text-vibrancy-secondary,
+.text-island p,
+.text-island .subtitle {
+  text-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.8),
+    0 2px 8px rgba(0, 0, 0, 0.6),
+    0 4px 20px rgba(0, 0, 0, 0.4),
+    0 0 16px rgba(255, 255, 255, 0.12);
+}
+
 /* ===== GLASS PANEL BASE ===== */
 
 .glass-panel {
@@ -69,18 +232,18 @@ body {
   background: linear-gradient(
     135deg,
     var(--glass-tint) 0%,
-    rgba(255, 255, 255, 0.05) 100%
+    rgba(255, 255, 255, 0.08) 100%
   );
-  border: 2px solid rgba(255, 255, 255, 0.25);
+  border: 2px solid var(--glass-border);
   border-radius: var(--panel-radius);
   box-shadow:
     var(--glass-shadow),
-    /* Beveled edge effects */
-    inset 0 1px 0 rgba(255, 255, 255, 0.4),          /* Top highlight */
-    inset 1px 0 0 rgba(255, 255, 255, 0.2),          /* Left highlight */
-    inset 0 -1px 0 rgba(0, 0, 0, 0.2),               /* Bottom shadow */
-    inset -1px 0 0 rgba(0, 0, 0, 0.1),               /* Right shadow */
-    inset 0 2px 4px rgba(255, 255, 255, 0.1);
+    /* Enhanced beveled edge effects for better depth */
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),          /* Top highlight */
+    inset 1px 0 0 rgba(255, 255, 255, 0.25),         /* Left highlight */
+    inset 0 -1px 0 rgba(0, 0, 0, 0.3),               /* Bottom shadow */
+    inset -1px 0 0 rgba(0, 0, 0, 0.15),              /* Right shadow */
+    inset 0 2px 6px rgba(255, 255, 255, 0.12);
   padding: var(--panel-padding);
   z-index: 100;
 
@@ -101,14 +264,14 @@ body {
   border-radius: var(--panel-radius);
   background: linear-gradient(
     135deg,
-    rgba(255, 255, 255, 0.15) 0%,
-    rgba(255, 255, 255, 0.03) 50%,
-    rgba(255, 255, 255, 0.12) 100%
+    rgba(255, 255, 255, 0.18) 0%,
+    rgba(255, 255, 255, 0.05) 50%,
+    rgba(255, 255, 255, 0.15) 100%
   );
   box-shadow:
-    /* Enhanced beveled highlights */
-    inset 0 1px 2px rgba(255, 255, 255, 0.3),
-    inset 1px 0 1px rgba(255, 255, 255, 0.2);
+    /* Enhanced beveled highlights for better definition */
+    inset 0 1px 2px rgba(255, 255, 255, 0.35),
+    inset 1px 0 1px rgba(255, 255, 255, 0.25);
   pointer-events: none;
   z-index: -1;
 }
@@ -127,12 +290,12 @@ body {
     rgba(255, 255, 255, 0.15) 0%,
     transparent 50%
   );
-  border: 2px solid rgba(255, 255, 255, 0.3);
+  border: 2px solid rgba(255, 255, 255, 0.35);
   box-shadow:
-    /* Inner rim light */
-    0 0 8px rgba(255, 255, 255, 0.2),
-    /* Outer masking shadow */
-    0 0 0 3px rgba(255, 255, 255, 0.1);
+    /* Enhanced inner rim light */
+    0 0 10px rgba(255, 255, 255, 0.25),
+    /* Stronger outer masking shadow */
+    0 0 0 3px rgba(255, 255, 255, 0.12);
   pointer-events: none;
   z-index: 1; /* Above WebGL shader to provide masking */
 }
@@ -197,11 +360,11 @@ body {
   height: 60px;
   padding: 0;
   border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1);
   z-index: 200;
 
-  /* Enhanced glass effect for navigation - matches other panels */
+  /* Restored elegant glass effect */
   background: linear-gradient(
     135deg,
     var(--glass-tint) 0%,
@@ -233,7 +396,7 @@ body {
     var(--glass-tint) 0%,
     rgba(255, 255, 255, 0.08) 100%
   );
-  border-bottom-color: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.25);
 }
 
 .navbar-content {
@@ -286,6 +449,16 @@ body {
   transition: var(--hover-transition);
   cursor: pointer;
   overflow: hidden;
+
+  /* Micro-backing for text legibility */
+  background: linear-gradient(
+    135deg,
+    var(--material-thin) 0%,
+    rgba(0, 0, 0, 0.08) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
 }
 
 .nav-item::before {
@@ -308,6 +481,12 @@ body {
 .nav-item:hover {
   color: var(--text-primary);
   transform: translateY(-1px);
+  background: linear-gradient(
+    135deg,
+    var(--material-regular) 0%,
+    rgba(0, 0, 0, 0.12) 100%
+  );
+  border-color: rgba(255, 255, 255, 0.15);
 }
 
 .nav-item:hover::before {
@@ -386,6 +565,7 @@ body {
   margin-bottom: 1rem;
 }
 
+
 /* ===== GLASS BUTTONS ===== */
 
 .button-group {
@@ -406,8 +586,8 @@ body {
   border-radius: var(--button-radius);
   background: linear-gradient(
     135deg,
-    rgba(255, 255, 255, 0.1) 0%,
-    rgba(255, 255, 255, 0.05) 100%
+    rgba(255, 255, 255, 0.15) 0%,
+    rgba(255, 255, 255, 0.08) 100%
   );
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
@@ -429,8 +609,8 @@ body {
 .glass-button:hover {
   background: linear-gradient(
     135deg,
-    rgba(255, 255, 255, 0.15) 0%,
-    rgba(255, 255, 255, 0.08) 100%
+    rgba(255, 255, 255, 0.2) 0%,
+    rgba(255, 255, 255, 0.12) 100%
   );
   border-color: rgba(255, 255, 255, 0.3);
   transform: translateY(-1px);
@@ -443,8 +623,8 @@ body {
   transform: translateY(0);
   background: linear-gradient(
     135deg,
-    rgba(255, 255, 255, 0.08) 0%,
-    rgba(255, 255, 255, 0.03) 100%
+    rgba(255, 255, 255, 0.12) 0%,
+    rgba(255, 255, 255, 0.06) 100%
   );
 }
 
@@ -515,20 +695,37 @@ body {
 
 .project-card,
 .project-detail {
+  position: relative;
   padding: 1.5rem;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: linear-gradient(
+    135deg,
+    var(--material-regular) 0%,
+    rgba(0, 0, 0, 0.15) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 12px;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   transition: var(--hover-transition);
+
+  /* Subtle depth enhancement */
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 .project-card:hover,
 .project-detail:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.15);
+  background: linear-gradient(
+    135deg,
+    var(--material-thick) 0%,
+    rgba(0, 0, 0, 0.2) 100%
+  );
+  border-color: rgba(255, 255, 255, 0.18);
   transform: translateY(-2px);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .project-card h3,
@@ -564,11 +761,23 @@ body {
 }
 
 .experience-item {
+  position: relative;
   padding: 1rem;
-  background: rgba(255, 255, 255, 0.05);
+  background: linear-gradient(
+    135deg,
+    var(--material-regular) 0%,
+    rgba(0, 0, 0, 0.12) 100%
+  );
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
   margin-bottom: 1rem;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+
+  /* Subtle depth */
+  box-shadow:
+    0 1px 4px rgba(0, 0, 0, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 .experience-item h4 {
@@ -585,13 +794,30 @@ body {
 }
 
 .skill-tag {
+  position: relative;
   padding: 0.25rem 0.75rem;
-  background: rgba(0, 122, 255, 0.2);
-  border: 1px solid rgba(0, 122, 255, 0.3);
+  background: linear-gradient(
+    135deg,
+    rgba(0, 122, 255, 0.25) 0%,
+    rgba(0, 122, 255, 0.15) 100%
+  );
+  border: 1px solid rgba(0, 122, 255, 0.4);
   border-radius: 16px;
   font-size: 0.8rem;
   font-weight: var(--font-weight-medium);
-  color: rgba(255, 255, 255, 0.9);
+  color: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+
+  /* Enhanced visibility */
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+
+  /* Subtle text shadow for legibility */
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.6),
+    0 0 8px rgba(0, 122, 255, 0.3);
 }
 
 /* ===== ANIMATIONS ===== */

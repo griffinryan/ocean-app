@@ -337,36 +337,36 @@ export class GlassRenderer {
     this.addPanel('landing', {
       position: [0.0, 0.0],
       size: [0.4, 0.5],
-      distortionStrength: 0.4, // Enhanced distortion for better text visibility
+      distortionStrength: 0.18, // Reduced for better text legibility
       refractionIndex: 1.52
     });
 
     this.addPanel('app', {
       position: [0.0, 0.0],
       size: [0.35, 0.3],
-      distortionStrength: 0.35, // Enhanced distortion for better text visibility
+      distortionStrength: 0.16, // Reduced for better text legibility
       refractionIndex: 1.52
     });
 
     this.addPanel('portfolio', {
       position: [0.0, 0.0],
       size: [0.35, 0.3],
-      distortionStrength: 0.35, // Enhanced distortion for better text visibility
+      distortionStrength: 0.16, // Reduced for better text legibility
       refractionIndex: 1.52
     });
 
     this.addPanel('resume', {
       position: [0.0, 0.0],
       size: [0.35, 0.3],
-      distortionStrength: 0.35, // Enhanced distortion for better text visibility
+      distortionStrength: 0.16, // Reduced for better text legibility
       refractionIndex: 1.52
     });
 
-    // Navigation bar with minimal distortion for readability
+    // Navigation bar with minimal distortion for maximum readability
     this.addPanel('navbar', {
       position: [0.0, 0.9], // Top center
       size: [2.0, 0.2], // Full width, minimal height
-      distortionStrength: 0.15, // Lower distortion for text readability
+      distortionStrength: 0.08, // Minimal distortion for optimal text readability
       refractionIndex: 1.45
     });
 
