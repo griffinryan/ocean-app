@@ -113,8 +113,9 @@ vec3 sampleOceanColorWithEdgeDetection(vec2 screenPos) {
 }
 
 void main() {
-    // Sample font texture for character shape
-    float fontSample = texture(u_fontTexture, v_texCoord).r;
+    // Sample font texture for character shape - use alpha channel for text opacity
+    vec4 fontSample4 = texture(u_fontTexture, v_texCoord);
+    float fontSample = fontSample4.a;
 
     // Early discard for transparent areas
     if (fontSample < 0.1) {

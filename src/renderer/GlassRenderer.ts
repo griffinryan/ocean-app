@@ -186,26 +186,51 @@ export class GlassRenderer {
       return;
     }
 
-    // Store current viewport
+    // Save current WebGL state
+    const currentFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING);
     const viewport = gl.getParameter(gl.VIEWPORT);
+    const scissorTest = gl.getParameter(gl.SCISSOR_TEST);
+    const depthTest = gl.getParameter(gl.DEPTH_TEST);
+    const blend = gl.getParameter(gl.BLEND);
+    const cullFace = gl.getParameter(gl.CULL_FACE);
 
-    // Bind framebuffer for rendering
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.oceanFramebuffer);
+    try {
+      // Bind framebuffer for rendering
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.oceanFramebuffer);
 
-    // Set viewport to match framebuffer size
-    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+      // Set viewport to match framebuffer size
+      gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
 
-    // Clear framebuffer
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      // Ensure clean state for ocean rendering
+      if (scissorTest) gl.disable(gl.SCISSOR_TEST);
+      gl.enable(gl.DEPTH_TEST);
+      gl.enable(gl.CULL_FACE);
 
-    // Render ocean scene to framebuffer
-    renderOceanCallback();
+      // Clear framebuffer
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-    // Restore screen framebuffer
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      // Render ocean scene to framebuffer
+      renderOceanCallback();
 
-    // Restore viewport
-    gl.viewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+    } catch (error) {
+      console.error('Error during ocean scene capture:', error);
+    } finally {
+      // Restore all WebGL state
+      gl.bindFramebuffer(gl.FRAMEBUFFER, currentFramebuffer);
+      gl.viewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+
+      if (scissorTest) gl.enable(gl.SCISSOR_TEST);
+      else gl.disable(gl.SCISSOR_TEST);
+
+      if (depthTest) gl.enable(gl.DEPTH_TEST);
+      else gl.disable(gl.DEPTH_TEST);
+
+      if (blend) gl.enable(gl.BLEND);
+      else gl.disable(gl.BLEND);
+
+      if (cullFace) gl.enable(gl.CULL_FACE);
+      else gl.disable(gl.CULL_FACE);
+    }
   }
 
   /**
@@ -262,54 +287,77 @@ export class GlassRenderer {
       return;
     }
 
-    // Update panel positions before rendering
-    this.updatePanelPositions();
+    // Save current WebGL state
+    const currentDepthTest = gl.getParameter(gl.DEPTH_TEST);
+    const currentBlend = gl.getParameter(gl.BLEND);
+    const currentBlendSrc = gl.getParameter(gl.BLEND_SRC_ALPHA);
+    const currentBlendDst = gl.getParameter(gl.BLEND_DST_ALPHA);
+    const currentActiveTexture = gl.getParameter(gl.ACTIVE_TEXTURE);
+    const currentTextureBinding = gl.getParameter(gl.TEXTURE_BINDING_2D);
 
-    // Use glass shader program
-    const program = this.shaderManager.useProgram('glass');
+    try {
+      // Update panel positions before rendering
+      this.updatePanelPositions();
 
-    // Set up matrices
-    this.shaderManager.setUniformMatrix4fv(program, 'u_projectionMatrix', this.projectionMatrix.data);
-    this.shaderManager.setUniformMatrix4fv(program, 'u_viewMatrix', this.viewMatrix.data);
+      // Use glass shader program
+      const program = this.shaderManager.useProgram('glass');
 
-    // Set time uniform for animation
-    const currentTime = (performance.now() - this.startTime) / 1000.0;
-    this.shaderManager.setUniform1f(program, 'u_time', currentTime);
+      // Set up matrices
+      this.shaderManager.setUniformMatrix4fv(program, 'u_projectionMatrix', this.projectionMatrix.data);
+      this.shaderManager.setUniformMatrix4fv(program, 'u_viewMatrix', this.viewMatrix.data);
 
-    // Set resolution
-    this.shaderManager.setUniform2f(program, 'u_resolution', gl.canvas.width, gl.canvas.height);
-    this.shaderManager.setUniform1f(program, 'u_aspectRatio', gl.canvas.width / gl.canvas.height);
+      // Set time uniform for animation
+      const currentTime = (performance.now() - this.startTime) / 1000.0;
+      this.shaderManager.setUniform1f(program, 'u_time', currentTime);
 
-    // Bind ocean texture
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, this.oceanTexture);
-    this.shaderManager.setUniform1i(program, 'u_oceanTexture', 0);
+      // Set resolution
+      this.shaderManager.setUniform2f(program, 'u_resolution', gl.canvas.width, gl.canvas.height);
+      this.shaderManager.setUniform1f(program, 'u_aspectRatio', gl.canvas.width / gl.canvas.height);
 
-    // Enable blending for transparency
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      // Bind ocean texture
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, this.oceanTexture);
+      this.shaderManager.setUniform1i(program, 'u_oceanTexture', 0);
 
-    // Disable depth testing for glass panels
-    gl.disable(gl.DEPTH_TEST);
+      // Enable blending for transparency
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-    // Render each visible panel
-    this.panels.forEach((config, id) => {
-      // Check if the corresponding HTML element is visible
-      let elementId = id;
-      if (id === 'landing') elementId = 'landing-panel';
-      else if (id === 'app') elementId = 'app-panel';
-      else if (id === 'portfolio') elementId = 'portfolio-panel';
-      else if (id === 'resume') elementId = 'resume-panel';
-      else if (id === 'navbar') elementId = 'navbar';
+      // Disable depth testing for glass panels
+      gl.disable(gl.DEPTH_TEST);
 
-      const element = document.getElementById(elementId);
-      if (element && !element.classList.contains('hidden')) {
-        this.renderPanel(config, program);
-      }
-    });
+      // Render each visible panel
+      this.panels.forEach((config, id) => {
+        // Check if the corresponding HTML element is visible
+        let elementId = id;
+        if (id === 'landing') elementId = 'landing-panel';
+        else if (id === 'app') elementId = 'app-panel';
+        else if (id === 'portfolio') elementId = 'portfolio-panel';
+        else if (id === 'resume') elementId = 'resume-panel';
+        else if (id === 'navbar') elementId = 'navbar';
 
-    // Re-enable depth testing
-    gl.enable(gl.DEPTH_TEST);
+        const element = document.getElementById(elementId);
+        if (element && !element.classList.contains('hidden')) {
+          this.renderPanel(config, program);
+        }
+      });
+
+    } catch (error) {
+      console.error('Error during glass panel rendering:', error);
+    } finally {
+      // Restore WebGL state
+      if (currentDepthTest) gl.enable(gl.DEPTH_TEST);
+      else gl.disable(gl.DEPTH_TEST);
+
+      if (currentBlend) gl.enable(gl.BLEND);
+      else gl.disable(gl.BLEND);
+
+      gl.blendFunc(currentBlendSrc, currentBlendDst);
+
+      // Restore texture bindings
+      gl.activeTexture(currentActiveTexture);
+      gl.bindTexture(gl.TEXTURE_2D, currentTextureBinding);
+    }
   }
 
   /**

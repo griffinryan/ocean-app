@@ -344,40 +344,64 @@ export class OceanRenderer {
     const gl = this.gl;
 
     let oceanTexture: WebGLTexture | null = null;
+    let textureNeedsCleanup = false;
 
-    if (this.glassEnabled && this.glassRenderer) {
-      // Render ocean to texture for glass distortion
-      this.glassRenderer.captureOceanScene(() => {
+    try {
+      if (this.glassEnabled && this.glassRenderer) {
+        // Render ocean to texture for glass distortion
+        this.glassRenderer.captureOceanScene(() => {
+          gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+          this.drawOcean(elapsedTime);
+        });
+
+        // Get ocean texture for text rendering
+        oceanTexture = this.glassRenderer.getOceanTexture();
+
+        // Clear screen and render ocean without glass effects
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
         this.drawOcean(elapsedTime);
-      });
 
-      // Get ocean texture for text rendering
-      oceanTexture = this.glassRenderer.getOceanTexture();
+        // Render glass panels as overlay
+        this.glassRenderer.render();
+      } else {
+        // Normal rendering without glass effects
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        this.drawOcean(elapsedTime);
 
-      // Clear screen and render ocean without glass effects
-      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-      this.drawOcean(elapsedTime);
-
-      // Render glass panels as overlay
-      this.glassRenderer.render();
-    } else {
-      // Normal rendering without glass effects
-      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-      this.drawOcean(elapsedTime);
-
-      // For text rendering without glass, we need to copy the current framebuffer
-      // This is a fallback approach when glass renderer is not available
-      if (this.textEnabled && this.textRenderer) {
-        // Create a temporary texture from current framebuffer (simplified approach)
-        // In a production environment, you might want to use a dedicated framebuffer
-        oceanTexture = this.createTextureFromFramebuffer();
+        // For text rendering without glass, we need to copy the current framebuffer
+        // This is a fallback approach when glass renderer is not available
+        if (this.textEnabled && this.textRenderer) {
+          oceanTexture = this.createTextureFromFramebuffer();
+          textureNeedsCleanup = true; // We created this texture, so we need to clean it up
+        }
       }
-    }
 
-    // Render text overlay with inverse color mapping
-    if (this.textEnabled && this.textRenderer && oceanTexture) {
-      this.renderTextOverlay(oceanTexture, elapsedTime);
+      // Render text overlay with inverse color mapping
+      if (this.textEnabled && this.textRenderer) {
+        if (oceanTexture) {
+          this.renderTextOverlay(oceanTexture, elapsedTime);
+        } else {
+          // Fallback: render text without ocean texture (no color inversion)
+          console.warn('No ocean texture available for text color inversion, rendering with default colors');
+          this.renderTextFallback(elapsedTime);
+        }
+      }
+
+    } catch (error) {
+      console.error('Error during ocean scene rendering:', error);
+
+      // Fallback rendering - just draw ocean without effects
+      try {
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        this.drawOcean(elapsedTime);
+      } catch (fallbackError) {
+        console.error('Fallback rendering also failed:', fallbackError);
+      }
+    } finally {
+      // Clean up temporary texture if we created one
+      if (textureNeedsCleanup && oceanTexture) {
+        gl.deleteTexture(oceanTexture);
+      }
     }
   }
 
@@ -454,21 +478,45 @@ export class OceanRenderer {
   private createTextureFromFramebuffer(): WebGLTexture | null {
     const gl = this.gl;
 
-    const texture = gl.createTexture();
-    if (!texture) return null;
+    // Save current WebGL state
+    const currentTexture = gl.getParameter(gl.TEXTURE_BINDING_2D);
+    const currentActiveTexture = gl.getParameter(gl.ACTIVE_TEXTURE);
 
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.copyTexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 0, 0, this.canvas.width, this.canvas.height, 0);
+    try {
+      const texture = gl.createTexture();
+      if (!texture) return null;
 
-    // Set texture parameters
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, texture);
 
-    gl.bindTexture(gl.TEXTURE_2D, null);
+      // Check if we can read pixels from the current framebuffer
+      const pixels = new Uint8Array(4);
+      try {
+        gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      } catch (readError) {
+        console.warn('Cannot read from current framebuffer for texture fallback');
+        gl.deleteTexture(texture);
+        return null;
+      }
 
-    return texture;
+      gl.copyTexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 0, 0, this.canvas.width, this.canvas.height, 0);
+
+      // Set texture parameters
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+      return texture;
+
+    } catch (error) {
+      console.error('Error creating texture from framebuffer:', error);
+      return null;
+    } finally {
+      // Restore WebGL state
+      gl.activeTexture(currentActiveTexture);
+      gl.bindTexture(gl.TEXTURE_2D, currentTexture);
+    }
   }
 
   /**
@@ -488,6 +536,40 @@ export class OceanRenderer {
       this.canvas.width,
       this.canvas.height
     );
+  }
+
+  /**
+   * Render text overlay without ocean texture (fallback mode)
+   */
+  private renderTextFallback(elapsedTime: number): void {
+    if (!this.textRenderer) return;
+
+    // Update text element positions based on HTML elements
+    const canvasRect = this.canvas.getBoundingClientRect();
+    this.textRenderer.updateElementPositions(canvasRect);
+
+    // Create a simple black texture for fallback
+    const gl = this.gl;
+    const fallbackTexture = gl.createTexture();
+    if (fallbackTexture) {
+      const blackPixels = new Uint8Array([0, 0, 0, 255]); // Black pixel
+      gl.bindTexture(gl.TEXTURE_2D, fallbackTexture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, blackPixels);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
+      // Render text with fallback texture
+      this.textRenderer.render(
+        fallbackTexture,
+        elapsedTime,
+        this.canvas.width,
+        this.canvas.height
+      );
+
+      // Clean up fallback texture
+      gl.deleteTexture(fallbackTexture);
+      gl.bindTexture(gl.TEXTURE_2D, null);
+    }
   }
 
   /**

@@ -106,12 +106,10 @@ export class FontAtlas {
     ctx.textBaseline = 'middle';
     ctx.font = 'bold 24px -apple-system, system-ui, sans-serif';
 
-    // Clear background
-    ctx.fillStyle = 'black';
-    ctx.fillRect(0, 0, 512, 512);
-    ctx.fillStyle = 'white';
+    // Clear background to transparent
+    ctx.clearRect(0, 0, 512, 512);
 
-    // Render characters to texture
+    // Render characters to texture with white color
     const gridSize = 16;
     const charSize = 32;
 
@@ -144,6 +142,8 @@ export class FontAtlas {
     }
 
     gl.bindTexture(gl.TEXTURE_2D, this.fontTexture);
+
+    // Use RGBA format for canvas data
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
 
     // Set texture parameters for SDF rendering
