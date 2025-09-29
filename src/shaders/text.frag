@@ -8,16 +8,14 @@ in float v_time;
 
 uniform float u_aspectRatio;
 uniform vec2 u_resolution;
-uniform sampler2D u_sceneTexture;   // Combined ocean + glass scene
 uniform sampler2D u_textTexture;    // Text mask texture from Canvas
 uniform float u_adaptiveStrength;   // Strength of adaptive coloring
 
-out vec4 fragColor;
+// Single panel uniforms (since we render one panel at a time)
+uniform vec2 u_panelPosition;      // Panel center position in screen space [-1,1]
+uniform vec2 u_panelSize;          // Panel size in screen space
 
-// Panel positions and sizes for boundary checking (matching GlassRenderer approach)
-uniform vec2 u_panelPositions[5];  // Panel center positions in screen space [-1,1]
-uniform vec2 u_panelSizes[5];      // Panel sizes in screen space
-uniform int u_panelCount;
+out vec4 fragColor;
 
 // Adaptive coloring constants
 const float LUMINANCE_THRESHOLD = 0.5;
@@ -66,23 +64,21 @@ vec3 calculateAdaptiveTextColor(vec3 backgroundColor, float adaptiveStrength) {
     return mix(LIGHT_TEXT_COLOR, adaptiveColor, adaptiveStrength);
 }
 
-// Check if current fragment is within any panel boundary (from GlassRenderer)
+// Check if current fragment is within the panel boundary
 bool isWithinPanel(vec2 screenPos, out vec2 panelUV) {
-    for (int i = 0; i < u_panelCount && i < 5; i++) {
-        // Convert screen position to panel-relative coordinates
-        vec2 panelCenter = (u_panelPositions[i] + 1.0) * 0.5; // Convert from [-1,1] to [0,1]
-        vec2 panelHalfSize = u_panelSizes[i] * 0.5;
+    // Convert screen position to panel-relative coordinates
+    vec2 panelCenter = (u_panelPosition + 1.0) * 0.5; // Convert from [-1,1] to [0,1]
+    vec2 panelHalfSize = u_panelSize * 0.5;
 
-        // Calculate position relative to panel center
-        vec2 deltaFromCenter = screenPos - panelCenter;
-        vec2 localPanelUV = deltaFromCenter / panelHalfSize + 0.5;
+    // Calculate position relative to panel center
+    vec2 deltaFromCenter = screenPos - panelCenter;
+    vec2 localPanelUV = deltaFromCenter / panelHalfSize + 0.5;
 
-        // Check if within panel bounds
-        if (localPanelUV.x >= 0.0 && localPanelUV.x <= 1.0 &&
-            localPanelUV.y >= 0.0 && localPanelUV.y <= 1.0) {
-            panelUV = localPanelUV;
-            return true;
-        }
+    // Check if within panel bounds
+    if (localPanelUV.x >= 0.0 && localPanelUV.x <= 1.0 &&
+        localPanelUV.y >= 0.0 && localPanelUV.y <= 1.0) {
+        panelUV = localPanelUV;
+        return true;
     }
     return false;
 }
@@ -91,50 +87,37 @@ void main() {
     // Convert screen position to UV coordinates
     vec2 screenUV = (v_screenPos + 1.0) * 0.5;
 
-    // Check if we're within any panel boundary
+    // Check if we're within the panel boundary
     vec2 panelUV;
     if (!isWithinPanel(screenUV, panelUV)) {
-        discard; // Only render text within panels
+        discard; // Only render text within this panel
     }
 
-    // Sample the background scene (ocean + glass combined)
-    vec3 backgroundColor = texture(u_sceneTexture, screenUV).rgb;
-
-    // Sample the text mask texture using corrected UV coordinates
-    // Now that UV coordinates are flipped, v_uv should work correctly
-    float textAlpha = texture(u_textTexture, v_uv).a;
+    // Sample the text mask texture using panel-relative UV coordinates
+    // Map panel UV to texture UV (since the texture contains this panel's text)
+    float textAlpha = texture(u_textTexture, panelUV).a;
 
     // Early discard for areas with no text
     if (textAlpha < 0.01) {
         discard;
     }
 
-    // Calculate adaptive text color based on background
-    vec3 adaptiveTextColor = calculateAdaptiveTextColor(backgroundColor, u_adaptiveStrength);
+    // For now, use simple white text - we can add adaptive coloring later
+    vec3 finalTextColor = vec3(1.0, 1.0, 1.0);
 
-    // Apply Bayer dithering for stylized quantization (like ocean.frag)
+    // Apply Bayer dithering for stylized quantization to match ocean style
     float dither = bayerDither4x4(gl_FragCoord.xy);
 
-    // Quantize the adaptive color to match ocean's stylized look
-    vec3 quantizedColor = quantizeColor(adaptiveTextColor, 8);
+    // Quantize the color to match ocean's stylized look
+    vec3 quantizedColor = quantizeColor(finalTextColor, 8);
 
     // Add subtle dithering for smooth gradients
     vec2 ditherPos = gl_FragCoord.xy * 0.75;
     float animatedDither = fract(sin(dot(ditherPos, vec2(12.9898, 78.233))) * 43758.5453);
     quantizedColor += vec3((animatedDither - 0.5) * 0.02);
 
-    // Create range from black to white based on background luminance
-    float luminance = calculateLuminance(backgroundColor);
-    float colorLevel = luminance + dither * 0.3 + animatedDither * 0.2;
-
-    // Map to black-white range with dithering
-    vec3 ditherColor = vec3(clamp(colorLevel, 0.0, 1.0));
-
-    // Mix between quantized adaptive color and dithered grayscale
-    vec3 finalTextColor = mix(quantizedColor, ditherColor, 0.3);
-
-    // Simple anti-aliasing using step function (more performant than smoothstep)
-    float smoothAlpha = step(0.05, textAlpha);
+    // Simple anti-aliasing
+    float smoothAlpha = smoothstep(0.1, 0.9, textAlpha);
 
     // Add soft edge fade for panel boundaries
     float edgeFade = 1.0;
@@ -148,7 +131,7 @@ void main() {
     smoothAlpha *= edgeFade;
 
     // Ensure proper contrast
-    finalTextColor = clamp(finalTextColor, vec3(0.0), vec3(1.0));
+    quantizedColor = clamp(quantizedColor, vec3(0.0), vec3(1.0));
 
-    fragColor = vec4(finalTextColor, smoothAlpha);
+    fragColor = vec4(quantizedColor, smoothAlpha);
 }

@@ -344,61 +344,43 @@ export class OceanRenderer {
   }
 
   /**
-   * Render ocean scene with glass and text overlay pipeline
+   * Render ocean scene with optimized glass and text overlay pipeline
    */
   private renderOceanScene(elapsedTime: number): void {
     const gl = this.gl;
 
     if (this.textEnabled && this.textRenderer) {
-      // Full pipeline: Ocean -> Glass -> Text
+      // Optimized pipeline: Single pass for each component
 
       if (this.glassEnabled && this.glassRenderer) {
-        // 1. Render ocean to texture for glass distortion
+        // 1. Capture ocean for glass distortion
         this.glassRenderer.captureOceanScene(() => {
           gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
           this.drawOcean(elapsedTime);
         });
 
-        // 2. Render combined ocean + glass scene to texture for text background analysis
-        this.textRenderer.captureScene(() => {
-          gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-          this.drawOcean(elapsedTime);
-          this.glassRenderer!.render();
-        });
-
-        // 3. Final render: Ocean + Glass + Text
+        // 2. Render final composition to screen
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
         this.drawOcean(elapsedTime);
         this.glassRenderer.render();
+
+        // 3. Text renders clean on top (no distortion)
         this.textRenderer.render();
       } else {
         // Ocean + Text pipeline (no glass)
-
-        // 1. Render ocean to texture for text background analysis
-        this.textRenderer.captureScene(() => {
-          gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-          this.drawOcean(elapsedTime);
-        });
-
-        // 2. Final render: Ocean + Text
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
         this.drawOcean(elapsedTime);
         this.textRenderer.render();
       }
     } else if (this.glassEnabled && this.glassRenderer) {
       // Glass pipeline only (no text)
-
-      // Render ocean to texture for glass distortion
       this.glassRenderer.captureOceanScene(() => {
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
         this.drawOcean(elapsedTime);
       });
 
-      // Clear screen and render ocean without glass effects
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
       this.drawOcean(elapsedTime);
-
-      // Render glass panels as overlay
       this.glassRenderer.render();
     } else {
       // Basic ocean rendering only
