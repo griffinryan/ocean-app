@@ -7,6 +7,7 @@ import { GeometryBuilder, BufferManager, GeometryData } from './Geometry';
 import { Mat4 } from '../utils/math';
 import { VesselSystem, VesselConfig } from './VesselSystem';
 import { GlassRenderer } from './GlassRenderer';
+import { TextMaskRenderer } from './TextMaskRenderer';
 
 export interface RenderConfig {
   canvas: HTMLCanvasElement;
@@ -49,6 +50,13 @@ export class OceanRenderer {
   // Glass panel renderer
   private glassRenderer: GlassRenderer | null = null;
   private glassEnabled: boolean = false;
+
+  // Text mask renderer for adaptive text
+  private textMaskRenderer: TextMaskRenderer | null = null;
+  private textMaskEnabled: boolean = false;
+
+  // REMOVED: Brightness sampling callback (replaced by TextMaskRenderer)
+  // private brightnessCallback: (() => void) | null = null;
 
   // Pre-cached DOM elements
   private cachedElements = {
@@ -105,6 +113,9 @@ export class OceanRenderer {
 
     // Initialize glass renderer
     this.initializeGlassRenderer();
+
+    // Initialize text mask renderer
+    this.initializeTextMaskRenderer();
   }
 
   /**
@@ -176,6 +187,11 @@ export class OceanRenderer {
       if (this.glassRenderer) {
         this.glassRenderer.resizeFramebuffer(canvasWidth, canvasHeight);
       }
+
+      // Resize text mask renderer if enabled
+      if (this.textMaskRenderer) {
+        this.textMaskRenderer.handleResize();
+      }
     }
   }
 
@@ -240,13 +256,29 @@ export class OceanRenderer {
   }
 
   /**
-   * Initialize ocean shader program and glass shaders
+   * Initialize text mask renderer system
+   */
+  private initializeTextMaskRenderer(): void {
+    try {
+      this.textMaskRenderer = new TextMaskRenderer(this.gl, this.shaderManager);
+      this.textMaskRenderer.registerDefaultTextRegions();
+      console.log('Text mask renderer initialized successfully!');
+    } catch (error) {
+      console.error('Failed to initialize text mask renderer:', error);
+      this.textMaskRenderer = null;
+    }
+  }
+
+  /**
+   * Initialize ocean shader program, glass shaders, and text mask shaders
    */
   async initializeShaders(
     oceanVertexSource: string,
     oceanFragmentSource: string,
     glassVertexSource?: string,
-    glassFragmentSource?: string
+    glassFragmentSource?: string,
+    textMaskVertexSource?: string,
+    textMaskFragmentSource?: string
   ): Promise<void> {
     // Define uniforms and attributes for ocean shader
     const uniforms = [
@@ -300,6 +332,18 @@ export class OceanRenderer {
         this.glassEnabled = false;
       }
     }
+
+    // Initialize text mask shaders if provided
+    if (textMaskVertexSource && textMaskFragmentSource && this.textMaskRenderer) {
+      try {
+        await this.textMaskRenderer.initializeShaders(textMaskVertexSource, textMaskFragmentSource);
+        this.textMaskEnabled = true;
+        console.log('Text mask shaders initialized successfully!');
+      } catch (error) {
+        console.error('Failed to initialize text mask shaders:', error);
+        this.textMaskEnabled = false;
+      }
+    }
   }
 
   /**
@@ -319,12 +363,46 @@ export class OceanRenderer {
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
       this.drawOcean(elapsedTime);
 
+      // REMOVED: Legacy brightness callback (replaced by TextMaskRenderer)
+      // if (this.brightnessCallback) {
+      //   this.brightnessCallback();
+      // }
+
+      // Render text masks after ocean renders but before glass panels
+      if (this.textMaskEnabled && this.textMaskRenderer) {
+        const oceanTexture = this.glassRenderer.getOceanTexture();
+        if (oceanTexture) {
+          this.textMaskRenderer.renderTextMasks(oceanTexture);
+        }
+      }
+
       // Render glass panels as overlay
       this.glassRenderer.render();
     } else {
       // Normal rendering without glass effects
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
       this.drawOcean(elapsedTime);
+
+      // REMOVED: Legacy brightness callback (replaced by TextMaskRenderer)
+      // if (this.brightnessCallback) {
+      //   this.brightnessCallback();
+      // }
+
+      // Render text masks (fallback mode - read from main framebuffer)
+      if (this.textMaskEnabled && this.textMaskRenderer) {
+        // For now, if glass renderer is available, use its texture capture capability
+        // Otherwise, we could implement a simple framebuffer capture here
+        if (this.glassRenderer) {
+          this.glassRenderer.captureOceanScene(() => {
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+            this.drawOcean(elapsedTime);
+          });
+          const oceanTexture = this.glassRenderer.getOceanTexture();
+          if (oceanTexture) {
+            this.textMaskRenderer.renderTextMasks(oceanTexture);
+          }
+        }
+      }
     }
   }
 
@@ -531,6 +609,44 @@ export class OceanRenderer {
   }
 
   /**
+   * Enable/disable text mask rendering
+   */
+  setTextMaskEnabled(enabled: boolean): void {
+    this.textMaskEnabled = enabled && this.textMaskRenderer !== null;
+  }
+
+  /**
+   * Get text mask renderer instance for external control
+   */
+  getTextMaskRenderer(): TextMaskRenderer | null {
+    return this.textMaskRenderer;
+  }
+
+  /**
+   * Get WebGL context for external components (like BrightnessAnalyzer)
+   */
+  getWebGLContext(): WebGL2RenderingContext | null {
+    return this.gl;
+  }
+
+  /**
+   * Get canvas element for external components
+   */
+  getCanvas(): HTMLCanvasElement {
+    return this.canvas;
+  }
+
+  /*
+   * REMOVED: Legacy brightness callback system (replaced by TextMaskRenderer)
+   * The new shader-based text mask system doesn't require callbacks
+   */
+  /*
+  public setBrightnessCallback(callback: (() => void) | null): void {
+    this.brightnessCallback = callback;
+  }
+  */
+
+  /**
    * Initialize cached DOM elements for performance
    */
   private initializeCachedElements(): void {
@@ -554,6 +670,12 @@ export class OceanRenderer {
     if (this.glassRenderer) {
       this.glassRenderer.dispose();
       this.glassRenderer = null;
+    }
+
+    // Clean up text mask renderer
+    if (this.textMaskRenderer) {
+      this.textMaskRenderer.dispose();
+      this.textMaskRenderer = null;
     }
   }
 }

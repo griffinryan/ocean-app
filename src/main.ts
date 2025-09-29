@@ -6,18 +6,24 @@ import { OceanRenderer } from './renderer/OceanRenderer';
 import { PanelManager } from './components/Panel';
 import { Router } from './components/Router';
 import { NavigationManager } from './components/Navigation';
+// import { BrightnessAnalyzer } from './renderer/BrightnessAnalyzer'; // REMOVED: Legacy adaptive text system
+// import { AdaptiveTextRenderer } from './renderer/AdaptiveTextRenderer'; // REMOVED: Legacy adaptive text system
 
 // Import shaders as strings
 import oceanVertexShader from './shaders/ocean.vert';
 import oceanFragmentShader from './shaders/ocean.frag';
 import glassVertexShader from './shaders/glass.vert';
 import glassFragmentShader from './shaders/glass.frag';
+import textMaskVertexShader from './shaders/text-mask.vert';
+import textMaskFragmentShader from './shaders/text-mask.frag';
 
 class OceanApp {
   public renderer: OceanRenderer | null = null;
   public panelManager: PanelManager | null = null;
   public router: Router | null = null;
   public navigationManager: NavigationManager | null = null;
+  // public brightnessAnalyzer: BrightnessAnalyzer | null = null; // REMOVED: Legacy adaptive text system
+  // public adaptiveTextRenderer: AdaptiveTextRenderer | null = null; // REMOVED: Legacy adaptive text system
 
   async init(): Promise<void> {
     try {
@@ -39,13 +45,21 @@ class OceanApp {
         alpha: false
       });
 
-      // Initialize shaders (ocean and glass)
+      // Initialize shaders (ocean, glass, and text mask)
       await this.renderer.initializeShaders(
         oceanVertexShader,
         oceanFragmentShader,
         glassVertexShader,
-        glassFragmentShader
+        glassFragmentShader,
+        textMaskVertexShader,
+        textMaskFragmentShader
       );
+
+      // Initialize new text mask system
+      this.initializeTextMaskSystem();
+
+      // Legacy adaptive text system has been removed in favor of shader-based text masking
+      // this.initializeAdaptiveTextSystem(); // REMOVED
 
       // Start rendering
       this.renderer.start();
@@ -108,6 +122,106 @@ class OceanApp {
   }
 
   /**
+   * Initialize text mask system for shader-based adaptive text
+   */
+  private initializeTextMaskSystem(): void {
+    if (!this.renderer) {
+      console.warn('Cannot initialize text mask system: renderer not available');
+      return;
+    }
+
+    try {
+      const textMaskRenderer = this.renderer.getTextMaskRenderer();
+      if (!textMaskRenderer) {
+        console.warn('Text mask renderer not available');
+        return;
+      }
+
+      // Enable text mask rendering
+      this.renderer.setTextMaskEnabled(true);
+
+      // Get the mask canvas and attach it to the DOM
+      const maskCanvas = textMaskRenderer.getMaskCanvas();
+      if (maskCanvas) {
+        // Find the canvas container and add the mask canvas
+        const canvasContainer = document.body; // or find a more specific container
+        canvasContainer.appendChild(maskCanvas);
+
+        // Position the mask canvas to overlay the main canvas
+        const mainCanvas = this.renderer.getCanvas();
+        if (mainCanvas) {
+          const mainCanvasRect = mainCanvas.getBoundingClientRect();
+          maskCanvas.style.position = 'fixed';
+          maskCanvas.style.left = mainCanvasRect.left + 'px';
+          maskCanvas.style.top = mainCanvasRect.top + 'px';
+          maskCanvas.style.width = mainCanvasRect.width + 'px';
+          maskCanvas.style.height = mainCanvasRect.height + 'px';
+          maskCanvas.style.pointerEvents = 'none';
+          maskCanvas.style.zIndex = '1000';
+
+          // Set appropriate blend mode for text masking
+          maskCanvas.style.mixBlendMode = 'multiply';
+        }
+      }
+
+      console.log('Text mask system initialized successfully!');
+    } catch (error) {
+      console.error('Failed to initialize text mask system:', error);
+    }
+  }
+
+  /*
+   * REMOVED: Legacy adaptive text system replaced by shader-based TextMaskRenderer
+   * This method has been disabled as the new system provides better performance
+   * and more granular text adaptation using WebGL shaders
+   */
+  /*
+  private initializeAdaptiveTextSystem(): void {
+    if (!this.renderer) {
+      console.warn('Cannot initialize adaptive text system: renderer not available');
+      return;
+    }
+
+    try {
+      // Create brightness analyzer
+      const gl = this.renderer.getWebGLContext();
+      if (!gl) {
+        console.warn('Cannot initialize adaptive text system: WebGL context not available');
+        return;
+      }
+
+      this.brightnessAnalyzer = new BrightnessAnalyzer(gl);
+
+      // Create adaptive text renderer
+      this.adaptiveTextRenderer = new AdaptiveTextRenderer(this.brightnessAnalyzer);
+
+      // Register common text elements for adaptive color management
+      this.adaptiveTextRenderer.registerCommonElements();
+
+      // Enable debug mode for initial testing
+      this.brightnessAnalyzer.setDebugMode(true);
+      this.adaptiveTextRenderer.setDebugMode(true);
+
+      // Integrate with render pipeline instead of independent loop
+      this.adaptiveTextRenderer.enableRendererIntegration();
+
+      // Register brightness callback with renderer
+      this.renderer.setBrightnessCallback(() => {
+        if (this.adaptiveTextRenderer) {
+          this.adaptiveTextRenderer.updateFromRenderer();
+        }
+      });
+
+      console.log('Adaptive text system initialized successfully!');
+    } catch (error) {
+      console.error('Failed to initialize adaptive text system:', error);
+      this.brightnessAnalyzer = null;
+      this.adaptiveTextRenderer = null;
+    }
+  }
+  */
+
+  /**
    * Connect UI components to the WebGL renderer
    */
   private connectUIToRenderer(): void {
@@ -127,6 +241,10 @@ class OceanApp {
     } else {
       console.warn('Glass renderer not available, falling back to CSS-only effects');
     }
+
+    // REMOVED: Legacy adaptive text system
+    // Text mask system is now automatically connected via shaders
+    console.log('New shader-based text mask system active');
   }
 
   /**
@@ -190,6 +308,36 @@ class OceanApp {
             this.updateGlassInfo(!isEnabled);
           }
           break;
+        /* REMOVED: Legacy adaptive text controls
+        case 't':
+        case 'T':
+          // Toggle adaptive text system
+          event.preventDefault();
+          event.stopPropagation();
+          if (this.adaptiveTextRenderer) {
+            const stats = this.adaptiveTextRenderer.getStats();
+            if (stats.isEnabled) {
+              this.adaptiveTextRenderer.stop();
+            } else {
+              this.adaptiveTextRenderer.start();
+            }
+            this.updateAdaptiveTextInfo(!stats.isEnabled);
+          }
+          break;
+        case 'b':
+        case 'B':
+          // Toggle adaptive text debug mode
+          event.preventDefault();
+          event.stopPropagation();
+          if (this.adaptiveTextRenderer && this.brightnessAnalyzer) {
+            const stats = this.adaptiveTextRenderer.getStats();
+            const newDebugMode = !stats.debugMode;
+            this.adaptiveTextRenderer.setDebugMode(newDebugMode);
+            this.brightnessAnalyzer.setDebugMode(newDebugMode);
+            this.updateTextDebugInfo(newDebugMode);
+          }
+          break;
+        */
         case '1':
         case '2':
         case '3':
@@ -215,6 +363,8 @@ class OceanApp {
     console.log('  0-4 - Select debug mode directly');
     console.log('  V - Toggle vessel wake system');
     console.log('  G - Toggle glass panel rendering');
+    console.log('  T - Toggle adaptive text system');
+    console.log('  B - Toggle adaptive text debug mode');
     console.log('  Space - Reserved for future controls');
   }
 
@@ -277,6 +427,51 @@ class OceanApp {
     }
   }
 
+  /*
+   * REMOVED: Legacy adaptive text info display
+   * The new shader-based system doesn't need manual toggling
+   */
+  /*
+  private updateAdaptiveTextInfo(enabled: boolean): void {
+    const infoElement = document.getElementById('info');
+    if (infoElement && this.adaptiveTextRenderer) {
+      // Update the existing info or add adaptive text info
+      let adaptiveElement = document.getElementById('adaptive-text-info');
+      if (!adaptiveElement) {
+        adaptiveElement = document.createElement('div');
+        adaptiveElement.id = 'adaptive-text-info';
+        infoElement.appendChild(adaptiveElement);
+      }
+
+      const stats = this.adaptiveTextRenderer.getStats();
+      adaptiveElement.innerHTML = `<br>Adaptive Text: ${enabled ? 'ON' : 'OFF'}<br>Text Elements: ${stats.registeredElements}`;
+    }
+  }
+  */
+
+  /**
+   * Update debug system info display
+   */
+  /*
+   * REMOVED: Legacy text debug info method
+   */
+  /*
+  private updateTextDebugInfo(enabled: boolean): void {
+    const infoElement = document.getElementById('info');
+    if (infoElement) {
+      // Update the existing info or add debug info
+      let debugElement = document.getElementById('debug-text-info');
+      if (!debugElement) {
+        debugElement = document.createElement('div');
+        debugElement.id = 'debug-text-info';
+        infoElement.appendChild(debugElement);
+      }
+
+      debugElement.innerHTML = `<br>Text Debug: ${enabled ? 'ON' : 'OFF'}`;
+    }
+  }
+  */
+
   /**
    * Show error message to user
    */
@@ -313,6 +508,20 @@ class OceanApp {
    * Clean up when page unloads
    */
   dispose(): void {
+    // REMOVED: Legacy adaptive text system cleanup
+    // The new text mask system is cleaned up with the renderer
+    /*
+    if (this.adaptiveTextRenderer) {
+      this.adaptiveTextRenderer.dispose();
+      this.adaptiveTextRenderer = null;
+    }
+
+    if (this.brightnessAnalyzer) {
+      this.brightnessAnalyzer.dispose();
+      this.brightnessAnalyzer = null;
+    }
+    */
+
     if (this.renderer) {
       this.renderer.dispose();
       this.renderer = null;

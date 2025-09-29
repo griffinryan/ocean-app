@@ -556,6 +556,12 @@ void main() {
         float edgeHighlight = step(0.8, fract(gl_FragCoord.x * 0.25) + fract(gl_FragCoord.y * 0.25));
         baseColor += vec3(edgeHighlight * 0.2);
 
+        // Ensure glass areas have good brightness variation for text legibility
+        float glassLuminance = dot(baseColor, vec3(0.2126, 0.7152, 0.0722));
+        if (glassLuminance < 0.1) {
+            baseColor = mix(baseColor, vec3(0.15, 0.25, 0.4), 0.4); // Brighten very dark glass areas
+        }
+
     } else {
         // Standard ocean rendering
         baseColor = mix(DEEP_WATER, SHALLOW_WATER, smoothstep(-0.3, 0.3, height));
@@ -607,13 +613,23 @@ void main() {
     }
 
     // Apply stylistic quantization only to non-glass areas
+    // Note: Reduced quantization for better brightness sampling accuracy
     if (glassIntensity < 0.1) {
-        baseColor = quantizeColor(baseColor, 8);
+        baseColor = quantizeColor(baseColor, 12); // Increased from 8 to 12 for smoother brightness gradients
 
         // Add subtle dithering for better gradients
         vec2 ditherPos = gl_FragCoord.xy * 0.75;
         float dither = fract(sin(dot(ditherPos, vec2(12.9898, 78.233))) * 43758.5453);
-        baseColor += vec3((dither - 0.5) * 0.02);
+        baseColor += vec3((dither - 0.5) * 0.015); // Reduced dither intensity for brightness consistency
+    }
+
+    // Ensure minimum contrast for text legibility sampling
+    // Clamp brightness to avoid pure black/white that could cause text legibility issues
+    float luminance = dot(baseColor, vec3(0.2126, 0.7152, 0.0722));
+    if (luminance < 0.05) {
+        baseColor = mix(baseColor, vec3(0.05, 0.1, 0.2), 0.3); // Lift shadows slightly
+    } else if (luminance > 0.95) {
+        baseColor = mix(baseColor, vec3(0.9, 0.95, 1.0), 0.2); // Reduce extreme highlights
     }
 
     // Optional debug grid (only in debug mode 0)

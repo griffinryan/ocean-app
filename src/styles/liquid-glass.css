@@ -14,6 +14,14 @@
   --text-primary: rgba(255, 255, 255, 0.95);
   --text-secondary: rgba(255, 255, 255, 0.7);
 
+  /* Adaptive Text System */
+  --adaptive-text-color: rgba(255, 255, 255, 0.95);
+  --adaptive-text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --adaptive-transition-duration: 200ms;
+  --adaptive-light-text: rgba(240, 245, 255, 0.95);
+  --adaptive-dark-text: rgba(20, 30, 50, 0.9);
+  --adaptive-ease: cubic-bezier(0.4, 0, 0.2, 1);
+
   /* Typography */
   --font-primary: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
   --font-weight-light: 200;
@@ -748,6 +756,122 @@ body {
   }
 }
 
+/* ===== ADAPTIVE TEXT SYSTEM ===== */
+
+/* High specificity base adaptive text styling */
+.adaptive-text,
+.adaptive-text * {
+  color: var(--adaptive-text-color, rgba(255, 255, 255, 0.95)) !important;
+  text-shadow: var(--adaptive-text-shadow, 0 1px 2px rgba(0, 0, 0, 0.2)) !important;
+  transition:
+    color var(--adaptive-transition-duration, 200ms) var(--adaptive-ease),
+    text-shadow var(--adaptive-transition-duration, 200ms) var(--adaptive-ease) !important;
+}
+
+/* Maximum specificity for glass panel text elements */
+.glass-panel.adaptive-text h1,
+.glass-panel.adaptive-text h2,
+.glass-panel.adaptive-text h3,
+.glass-panel.adaptive-text h4,
+.glass-panel.adaptive-text h5,
+.glass-panel.adaptive-text h6,
+.glass-panel.adaptive-text p,
+.glass-panel.adaptive-text span,
+.glass-panel.adaptive-text a,
+.glass-panel.adaptive-text .nav-label,
+.glass-panel.adaptive-text .brand-text,
+.glass-panel.adaptive-text .subtitle,
+.glass-panel.adaptive-text .glass-button {
+  color: var(--adaptive-text-color, rgba(255, 255, 255, 0.95)) !important;
+  text-shadow: var(--adaptive-text-shadow, 0 1px 2px rgba(0, 0, 0, 0.2)) !important;
+  transition:
+    color var(--adaptive-transition-duration, 200ms) var(--adaptive-ease),
+    text-shadow var(--adaptive-transition-duration, 200ms) var(--adaptive-ease) !important;
+}
+
+/* Extra specificity for navigation elements */
+nav.glass-panel.adaptive-text .nav-item,
+nav.glass-panel.adaptive-text .nav-item span,
+nav.glass-panel.adaptive-text .brand-text {
+  color: var(--adaptive-text-color, rgba(255, 255, 255, 0.95)) !important;
+  text-shadow: var(--adaptive-text-shadow, 0 1px 2px rgba(0, 0, 0, 0.2)) !important;
+}
+
+/* Specific targeting for each panel type */
+#landing-panel.adaptive-text h1,
+#landing-panel.adaptive-text p,
+#app-panel.adaptive-text h2,
+#app-panel.adaptive-text p,
+#portfolio-panel.adaptive-text h2,
+#portfolio-panel.adaptive-text p,
+#resume-panel.adaptive-text h2,
+#resume-panel.adaptive-text p,
+#navbar.adaptive-text span,
+#navbar.adaptive-text a {
+  color: var(--adaptive-text-color, rgba(255, 255, 255, 0.95)) !important;
+  text-shadow: var(--adaptive-text-shadow, 0 1px 2px rgba(0, 0, 0, 0.2)) !important;
+}
+
+/* Override background-clip text effects when adaptive text is active */
+.glass-panel.adaptive-text h1,
+.glass-panel.adaptive-text .brand-text {
+  background: none !important;
+  -webkit-background-clip: unset !important;
+  -webkit-text-fill-color: var(--adaptive-text-color, rgba(255, 255, 255, 0.95)) !important;
+  background-clip: unset !important;
+}
+
+/* Enhanced contrast mode for extreme brightness differences */
+.adaptive-text.high-contrast,
+.adaptive-text.high-contrast * {
+  font-weight: var(--font-weight-medium) !important;
+  text-shadow:
+    var(--adaptive-text-shadow, 0 1px 2px rgba(0, 0, 0, 0.2)),
+    0 0 4px rgba(0, 0, 0, 0.3),
+    0 0 8px rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Preserve hover states while using adaptive colors */
+.adaptive-text.nav-item:hover,
+.adaptive-text.glass-button:hover,
+.glass-panel.adaptive-text .nav-item:hover,
+.glass-panel.adaptive-text .glass-button:hover {
+  color: var(--adaptive-text-color, rgba(255, 255, 255, 0.95)) !important;
+  opacity: 0.9;
+}
+
+/* Debug mode visual indicators */
+.adaptive-text-debug {
+  position: relative;
+}
+
+.adaptive-text-debug::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  border: 2px dashed rgba(255, 0, 0, 0.5);
+  pointer-events: none;
+  z-index: 1000;
+}
+
+/* Fallback styles for browsers without CSS variable support */
+@supports not (color: var(--adaptive-text-color)) {
+  .adaptive-text,
+  .adaptive-text *,
+  .glass-panel.adaptive-text h1,
+  .glass-panel.adaptive-text h2,
+  .glass-panel.adaptive-text h3,
+  .glass-panel.adaptive-text p,
+  .glass-panel.adaptive-text span,
+  .glass-panel.adaptive-text a {
+    color: rgba(255, 255, 255, 0.95) !important;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2) !important;
+  }
+}
+
 /* ===== WEBGL DISTORTION ENHANCEMENT ===== */
 /* These styles will be enhanced with WebGL distortion effects */
 
@@ -776,5 +900,119 @@ body {
 @supports not (backdrop-filter: blur(1px)) {
   .glass-panel {
     background: rgba(0, 0, 0, 0.4);
+  }
+}
+
+/* ===== SHADER-BASED TEXT MASK SYSTEM ===== */
+/* CSS for the new WebGL-based adaptive text rendering */
+
+/* Canvas overlay for text masks */
+.text-mask-canvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 1000;
+
+  /* Use multiply blend mode for text masking */
+  mix-blend-mode: multiply;
+
+  /* Ensure proper compositing */
+  will-change: transform;
+  transform: translateZ(0);
+}
+
+/* Text elements that will be masked by the shader system */
+.text-mask-enabled {
+  /* Remove legacy adaptive text styles when shader system is active */
+  color: inherit !important;
+  text-shadow: none !important;
+
+  /* Enable GPU acceleration for smoother compositing */
+  will-change: transform, opacity;
+  transform: translateZ(0);
+
+  /* Ensure proper layering */
+  position: relative;
+  z-index: 999;
+}
+
+/* Specific text mask styles for different blend modes */
+.text-mask-canvas.blend-multiply {
+  mix-blend-mode: multiply;
+}
+
+.text-mask-canvas.blend-overlay {
+  mix-blend-mode: overlay;
+}
+
+.text-mask-canvas.blend-screen {
+  mix-blend-mode: screen;
+}
+
+.text-mask-canvas.blend-color-dodge {
+  mix-blend-mode: color-dodge;
+}
+
+/* Debug mode for text mask system */
+.text-mask-debug .text-mask-canvas {
+  border: 2px solid rgba(255, 0, 0, 0.5);
+  background: rgba(255, 0, 0, 0.1);
+}
+
+.text-mask-debug .text-mask-enabled {
+  outline: 1px dashed rgba(0, 255, 0, 0.7);
+  background: rgba(0, 255, 0, 0.05);
+}
+
+/* Performance optimizations for text mask rendering */
+.text-mask-optimized {
+  /* Promote to composite layer for better performance */
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  perspective: 1000;
+
+  /* Optimize text rendering */
+  text-rendering: optimizeSpeed;
+  font-smooth: never;
+  -webkit-font-smoothing: subpixel-antialiased;
+  -moz-osx-font-smoothing: auto;
+}
+
+/* Responsive text mask canvas */
+@media (max-width: 768px) {
+  .text-mask-canvas {
+    /* Ensure proper scaling on mobile */
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+  }
+}
+
+/* High DPI display optimizations */
+@media (min-resolution: 2dppx) {
+  .text-mask-canvas {
+    /* Optimize for retina displays */
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+  }
+}
+
+/* Animation support for text mask transitions */
+.text-mask-transition {
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.text-mask-transition.fade-in {
+  animation: textMaskFadeIn 0.5s ease-out;
+}
+
+@keyframes textMaskFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
