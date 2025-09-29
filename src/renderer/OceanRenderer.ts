@@ -350,7 +350,7 @@ export class OceanRenderer {
     const gl = this.gl;
 
     if (this.textEnabled && this.textRenderer) {
-      // Full pipeline: Ocean -> Glass -> Text
+      // Full pipeline: Ocean -> Glass -> Text Color Analysis
 
       if (this.glassEnabled && this.glassRenderer) {
         // 1. Render ocean to texture for glass distortion
@@ -366,11 +366,11 @@ export class OceanRenderer {
           this.glassRenderer!.render();
         });
 
-        // 3. Final render: Ocean + Glass + Text
+        // 3. Final render: Ocean + Glass + WebGL Text Overlay (per-pixel adaptive)
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
         this.drawOcean(elapsedTime);
         this.glassRenderer.render();
-        this.textRenderer.render();
+        this.textRenderer.render(); // RESTORED: Per-pixel adaptive text rendering
       } else {
         // Ocean + Text pipeline (no glass)
 
@@ -380,10 +380,10 @@ export class OceanRenderer {
           this.drawOcean(elapsedTime);
         });
 
-        // 2. Final render: Ocean + Text
+        // 2. Final render: Ocean + WebGL Text Overlay (per-pixel adaptive)
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
         this.drawOcean(elapsedTime);
-        this.textRenderer.render();
+        this.textRenderer.render(); // RESTORED: Per-pixel adaptive text rendering
       }
     } else if (this.glassEnabled && this.glassRenderer) {
       // Glass pipeline only (no text)
@@ -487,7 +487,7 @@ export class OceanRenderer {
     // Update vessel system
     this.vesselSystem.update(currentTime, deltaTime);
 
-    // Render ocean scene with integrated glass distortion
+    // Render ocean scene with integrated glass distortion and per-pixel adaptive text
     this.renderOceanScene(elapsedTime);
 
     // Update FPS counter

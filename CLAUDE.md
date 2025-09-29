@@ -49,6 +49,14 @@ This is a WebGL2-based ocean simulation and rendering application built with Typ
 - Maps HTML element positions to WebGL coordinates for precise boundary control
 - Supports multiple panels with individual distortion settings
 
+**Text Color Analyzer (`src/renderer/TextRenderer.ts`)**
+- Background-aware adaptive text coloring system
+- Analyzes ocean+glass scene colors via WebGL framebuffer readback
+- Dynamically sets CSS custom properties for text colors
+- Throttled GPU readback (150ms intervals) for performance
+- Falls back to CSS `mix-blend-mode: difference` if custom properties unsupported
+- No WebGL text rendering - uses native CSS text with adaptive colors
+
 **Math Utilities (`src/utils/math.ts`)**
 - Contains matrix math classes (`Mat4`, `Vec3`) for 3D transformations
 - Provides helper functions for WebGL matrix operations
@@ -107,3 +115,57 @@ Wave height is calculated by summing multiple sine wave functions, creating real
 - **Coordinate Mapping**: HTML DOM coordinates automatically converted to WebGL space
 - **Performance**: Uses framebuffer capture for ocean distortion with single full-screen quad render
 - **Responsiveness**: Real-time position updates via `ResizeObserver` and `getBoundingClientRect()`
+
+## Adaptive Text Coloring System
+
+### Architecture
+
+The text coloring system uses WebGL to analyze background colors and CSS to render text:
+
+1. **Scene Capture**: Ocean+glass scene rendered to framebuffer texture
+2. **Color Analysis**: GPU readback samples pixels at text element positions
+3. **Color Calculation**: Luminance threshold determines black vs. white text
+4. **CSS Injection**: Colors applied via `--adaptive-text-color` custom property
+5. **Fallback**: CSS `mix-blend-mode: difference` for older browsers
+
+### How It Works
+
+```typescript
+// TextRenderer analyzes background
+const bgColor = analyzeBackgroundColor(element); // GPU readback
+const textColor = calculateAdaptiveColor(bgColor); // luminance > 0.5 ? black : white
+
+// Apply to CSS
+element.style.setProperty('--adaptive-text-color', textColor);
+```
+
+CSS receives the color:
+```css
+.glass-panel h1 {
+  color: var(--adaptive-text-color, rgba(255, 255, 255, 0.95));
+  transition: color 0.2s ease-out;
+}
+```
+
+### Performance Optimizations
+
+- **Throttling**: Color updates every 150ms (not every frame)
+- **Sampling**: 5x5 pixel grid averaged per element
+- **Viewport Culling**: Hidden elements skipped
+- **Caching**: Scene capture throttled to 60fps max
+
+### Adding New Text Elements
+
+To track new text elements for adaptive coloring:
+
+```typescript
+textRenderer.addTextElement('my-element-id', {
+  position: [0, 0],
+  size: [1, 0.2],
+  selector: '#my-element',  // CSS selector
+  color: 'white',            // Fallback
+  panelId: 'my-panel'
+});
+```
+
+Or add to `setupDefaultTextElements()` in `TextRenderer.ts`.

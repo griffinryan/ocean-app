@@ -1,6 +1,6 @@
 /**
- * Text Renderer with Adaptive Color and WebGL Overlay Effects
- * Renders text elements with background-aware color adaptation
+ * Text Renderer with Per-Pixel Adaptive Coloring
+ * Analyzes ocean+glass background and renders text with WebGL shader for per-pixel color adaptation
  */
 
 import { ShaderManager, ShaderProgram } from './ShaderManager';
@@ -10,14 +10,14 @@ import { Mat4 } from '../utils/math';
 export interface TextElementConfig {
   position: [number, number]; // Screen position in normalized coordinates
   size: [number, number];     // Size in normalized coordinates
-  content: string;            // Text content
-  fontSize: number;           // Font size in pixels
-  fontFamily: string;         // Font family
-  fontWeight: string;         // Font weight (normal, bold, etc.)
-  color: string;              // Fallback color for CSS compatibility
+  selector: string;            // CSS selector for the element
+  fontSize: number;            // Font size in pixels
+  fontFamily: string;          // Font family
+  fontWeight: string;          // Font weight
   textAlign: 'left' | 'center' | 'right'; // Text alignment
-  lineHeight: number;         // Line height multiplier
-  panelId: string;            // ID of the panel this text belongs to
+  lineHeight: number;          // Line height multiplier
+  color: string;               // Fallback color for CSS compatibility
+  panelId: string;             // ID of the panel this text belongs to
   panelRelativePosition: [number, number]; // Position relative to panel [0,1]
 }
 
@@ -35,7 +35,7 @@ export class TextRenderer {
   private sceneTexture: WebGLTexture | null = null;
   private sceneDepthBuffer: WebGLRenderbuffer | null = null;
 
-  // Canvas for text generation
+  // Canvas for text generation (RESTORED)
   private textCanvas!: HTMLCanvasElement;
   private textContext!: CanvasRenderingContext2D;
   private textTexture: WebGLTexture | null = null;
@@ -44,26 +44,26 @@ export class TextRenderer {
   private projectionMatrix: Mat4;
   private viewMatrix: Mat4;
 
-  // Text element configurations organized by panel
+  // Text element configurations
   private textElements: Map<string, TextElementConfig> = new Map();
-  private panelTextElements: Map<string, TextElementConfig[]> = new Map();
-
-  // Animation and state
-  private startTime: number;
-  private needsTextureUpdate: boolean = false;
 
   // Scene texture caching for performance
   private sceneTextureDirty: boolean = true;
   private lastCaptureTime: number = 0;
   private captureThrottleMs: number = 16; // Max 60fps captures
 
+  // Text texture update flag
+  private needsTextureUpdate: boolean = false;
+
   // Resize observer for responsive text positioning
   private resizeObserver: ResizeObserver | null = null;
 
-  constructor(gl: WebGL2RenderingContext, shaderManager: ShaderManager) {
+  // Font loading state
+  private fontsLoaded: boolean = false;
+
+  constructor(gl: WebGL2RenderingContext, _shaderManager: ShaderManager) {
     this.gl = gl;
-    this.shaderManager = shaderManager;
-    this.startTime = performance.now();
+    this.shaderManager = _shaderManager;
 
     // Initialize matrices
     this.projectionMatrix = new Mat4();
@@ -77,11 +77,14 @@ export class TextRenderer {
     this.projectionMatrix.identity();
     this.viewMatrix.identity();
 
-    // Initialize text canvas
+    // Initialize text canvas for rasterization
     this.initializeTextCanvas();
 
     // Initialize framebuffer for scene capture
     this.initializeFramebuffer();
+
+    // Wait for fonts to load
+    this.waitForFonts();
   }
 
   /**
@@ -89,8 +92,11 @@ export class TextRenderer {
    */
   private initializeTextCanvas(): void {
     this.textCanvas = document.createElement('canvas');
-    this.textCanvas.width = 1024;
-    this.textCanvas.height = 1024;
+
+    // Use higher resolution for better quality
+    const dpr = window.devicePixelRatio || 1;
+    this.textCanvas.width = Math.floor(2048 * dpr);
+    this.textCanvas.height = Math.floor(2048 * dpr);
 
     const context = this.textCanvas.getContext('2d');
     if (!context) {
@@ -99,11 +105,31 @@ export class TextRenderer {
 
     this.textContext = context;
 
+    // Scale context for DPR
+    this.textContext.scale(dpr, dpr);
+
     // Set up high-quality text rendering
     this.textContext.textBaseline = 'top';
     this.textContext.fillStyle = 'white';
     this.textContext.imageSmoothingEnabled = true;
     this.textContext.imageSmoothingQuality = 'high';
+
+    console.log(`TextRenderer: Canvas initialized at ${this.textCanvas.width}x${this.textCanvas.height} (DPR: ${dpr})`);
+  }
+
+  /**
+   * Wait for fonts to load before rendering text
+   */
+  private async waitForFonts(): Promise<void> {
+    try {
+      await document.fonts.ready;
+      this.fontsLoaded = true;
+      this.needsTextureUpdate = true;
+      console.log('TextRenderer: Fonts loaded, ready to render');
+    } catch (error) {
+      console.warn('TextRenderer: Font loading check failed:', error);
+      this.fontsLoaded = true; // Continue anyway
+    }
   }
 
   /**
@@ -141,7 +167,7 @@ export class TextRenderer {
   }
 
   /**
-   * Initialize text shaders
+   * Initialize text shaders (RESTORED)
    */
   async initializeShaders(vertexShader: string, fragmentShader: string): Promise<void> {
     try {
@@ -235,7 +261,6 @@ export class TextRenderer {
 
   /**
    * Capture current scene (ocean + glass) to texture for text background analysis
-   * Now with caching to improve performance
    */
   public captureScene(renderSceneCallback: () => void): void {
     const gl = this.gl;
@@ -284,7 +309,94 @@ export class TextRenderer {
   }
 
   /**
-   * Get panel information for shader uniforms (matching GlassRenderer approach)
+   * Render individual text element to canvas
+   */
+  private renderTextToCanvas(element: HTMLElement, config: TextElementConfig): void {
+    const ctx = this.textContext;
+
+    // Get computed styles from HTML element for pixel-perfect matching
+    const styles = getComputedStyle(element);
+    const fontSize = parseFloat(styles.fontSize);
+    const fontFamily = styles.fontFamily;
+    const fontWeight = styles.fontWeight;
+
+    // Set font properties
+    const fontString = `${fontWeight} ${fontSize}px ${fontFamily}`;
+    ctx.font = fontString;
+    ctx.textAlign = config.textAlign;
+    ctx.fillStyle = 'white'; // Always white on canvas, shader will handle color adaptation
+
+    // Calculate canvas coordinates (accounting for DPR scaling already applied)
+    const canvasWidth = 2048; // Logical size (before DPR scaling)
+    const canvasHeight = 2048;
+    const canvasX = config.panelRelativePosition[0] * canvasWidth;
+    const canvasY = config.panelRelativePosition[1] * canvasHeight;
+
+    // Get text content from HTML element
+    const text = element.textContent || '';
+
+    // Handle multi-line text with proper line height
+    const lines = text.split('\n');
+    const lineHeight = fontSize * config.lineHeight;
+
+    // Calculate adjusted Y position for text alignment
+    let adjustedY = canvasY;
+
+    // Adjust Y position based on text alignment
+    if (config.textAlign === 'center') {
+      // Center text vertically around the specified position
+      adjustedY = canvasY - (lines.length * lineHeight) / 2;
+    }
+
+    // Render each line
+    lines.forEach((line, index) => {
+      const y = adjustedY + (index * lineHeight);
+
+      // Ensure text stays within canvas bounds
+      if (y > 0 && y < canvasHeight) {
+        ctx.fillText(line, canvasX, y);
+      }
+    });
+  }
+
+  /**
+   * Generate text texture from all current text elements
+   */
+  private updateTextTexture(): void {
+    if (!this.needsTextureUpdate || this.textElements.size === 0 || !this.fontsLoaded) {
+      return;
+    }
+
+    const gl = this.gl;
+    const ctx = this.textContext;
+
+    // Clear canvas
+    ctx.clearRect(0, 0, 2048, 2048); // Use logical size
+
+    // Render each text element to canvas
+    this.textElements.forEach((config) => {
+      const element = document.querySelector(config.selector) as HTMLElement;
+      if (element && !element.classList.contains('hidden') && !element.closest('.hidden')) {
+        this.renderTextToCanvas(element, config);
+      }
+    });
+
+    // Update WebGL texture
+    if (this.textTexture) {
+      gl.bindTexture(gl.TEXTURE_2D, this.textTexture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.textCanvas);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.bindTexture(gl.TEXTURE_2D, null);
+    }
+
+    this.needsTextureUpdate = false;
+  }
+
+  /**
+   * Get panel information for shader uniforms
    */
   private getPanelInfo(): { positions: Float32Array, sizes: Float32Array, count: number } {
     const canvas = this.gl.canvas as HTMLCanvasElement;
@@ -315,6 +427,68 @@ export class TextRenderer {
   }
 
   /**
+   * Render all text elements with per-pixel adaptive coloring (RESTORED)
+   */
+  public render(): void {
+    const gl = this.gl;
+
+    if (!this.textProgram || !this.sceneTexture || this.textElements.size === 0) {
+      return;
+    }
+
+    // Update text texture if needed
+    this.updateTextTexture();
+
+    // Use text shader program
+    const program = this.shaderManager.useProgram('text');
+
+    // Set up matrices
+    this.shaderManager.setUniformMatrix4fv(program, 'u_projectionMatrix', this.projectionMatrix.data);
+    this.shaderManager.setUniformMatrix4fv(program, 'u_viewMatrix', this.viewMatrix.data);
+
+    // Set time uniform for animation
+    const currentTime = performance.now() / 1000.0;
+    this.shaderManager.setUniform1f(program, 'u_time', currentTime);
+
+    // Set resolution
+    this.shaderManager.setUniform2f(program, 'u_resolution', gl.canvas.width, gl.canvas.height);
+    this.shaderManager.setUniform1f(program, 'u_aspectRatio', gl.canvas.width / gl.canvas.height);
+
+    // Bind scene texture (combined ocean + glass)
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.sceneTexture);
+    this.shaderManager.setUniform1i(program, 'u_sceneTexture', 0);
+
+    // Bind text texture
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, this.textTexture);
+    this.shaderManager.setUniform1i(program, 'u_textTexture', 1);
+
+    // Set adaptive strength
+    this.shaderManager.setUniform1f(program, 'u_adaptiveStrength', 1.0);
+
+    // Get panel information and set uniforms
+    const panelInfo = this.getPanelInfo();
+    this.shaderManager.setUniform2fv(program, 'u_panelPositions', panelInfo.positions);
+    this.shaderManager.setUniform2fv(program, 'u_panelSizes', panelInfo.sizes);
+    this.shaderManager.setUniform1i(program, 'u_panelCount', panelInfo.count);
+
+    // Enable blending for text overlay
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+    // Disable depth testing for text overlay
+    gl.disable(gl.DEPTH_TEST);
+
+    // Render full-screen quad with text
+    this.bufferManager.bind();
+    gl.drawElements(gl.TRIANGLES, this.quadGeometry.indexCount, gl.UNSIGNED_SHORT, 0);
+
+    // Re-enable depth testing
+    gl.enable(gl.DEPTH_TEST);
+  }
+
+  /**
    * Add a text element configuration
    */
   public addTextElement(id: string, config: TextElementConfig): void {
@@ -342,101 +516,35 @@ export class TextRenderer {
   }
 
   /**
-   * Generate text texture from all current text elements
+   * Convert HTML element rect to normalized WebGL coordinates
    */
-  private updateTextTexture(): void {
-    if (!this.needsTextureUpdate || this.textElements.size === 0) {
-      return;
+  private htmlRectToNormalized(elementRect: DOMRect, canvasRect: DOMRect): { position: [number, number], size: [number, number] } {
+    if (elementRect.width === 0 || elementRect.height === 0 || canvasRect.width === 0 || canvasRect.height === 0) {
+      return { position: [0, 0], size: [0, 0] };
     }
 
-    const gl = this.gl;
-    const ctx = this.textContext;
+    // Calculate center position in normalized coordinates (0 to 1)
+    const centerX = ((elementRect.left + elementRect.width / 2) - canvasRect.left) / canvasRect.width;
+    const centerY = ((elementRect.top + elementRect.height / 2) - canvasRect.top) / canvasRect.height;
 
-    // Clear canvas
-    ctx.clearRect(0, 0, this.textCanvas.width, this.textCanvas.height);
+    // Convert to WebGL coordinates (-1 to 1, with Y flipped)
+    const glX = centerX * 2.0 - 1.0;
+    const glY = (1.0 - centerY) * 2.0 - 1.0;
 
-    // Render each text element to canvas
-    this.textElements.forEach((config) => {
-      this.renderTextToCanvas(config, ctx);
-    });
+    // Calculate size in normalized coordinates
+    const width = (elementRect.width / canvasRect.width) * 2.0;
+    const height = (elementRect.height / canvasRect.height) * 2.0;
 
-    // Update WebGL texture
-    if (this.textTexture) {
-      gl.bindTexture(gl.TEXTURE_2D, this.textTexture);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.textCanvas);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      gl.bindTexture(gl.TEXTURE_2D, null);
-    }
-
-    this.needsTextureUpdate = false;
-  }
-
-  /**
-   * Render individual text element to canvas using panel-relative coordinates
-   */
-  private renderTextToCanvas(config: TextElementConfig, ctx: CanvasRenderingContext2D): void {
-    // Set font properties
-    const fontString = `${config.fontWeight} ${config.fontSize}px ${config.fontFamily}`;
-    ctx.font = fontString;
-    ctx.textAlign = config.textAlign;
-    ctx.fillStyle = 'white'; // Always white on canvas, shader will handle color adaptation
-
-    // Use panel-relative coordinates directly [0,1] range
-    // No coordinate flipping needed since UV coordinates are now fixed
-    const canvasX = config.panelRelativePosition[0] * this.textCanvas.width;
-    const canvasY = config.panelRelativePosition[1] * this.textCanvas.height;
-
-    // Handle multi-line text with proper line height
-    const lines = config.content.split('\n');
-    const lineHeight = config.fontSize * config.lineHeight;
-
-    // Calculate adjusted Y position for text alignment
-    let adjustedY = canvasY;
-
-    // Adjust Y position based on text alignment
-    if (config.textAlign === 'center') {
-      // Center text vertically around the specified position
-      adjustedY = canvasY - (lines.length * lineHeight) / 2;
-    }
-
-    // Render each line
-    lines.forEach((line, index) => {
-      const y = adjustedY + (index * lineHeight);
-
-      // Ensure text stays within canvas bounds
-      if (y > 0 && y < this.textCanvas.height) {
-        ctx.fillText(line, canvasX, y);
-      }
-    });
+    return {
+      position: [glX, glY],
+      size: [width, height]
+    };
   }
 
   /**
    * Set up text element tracking from HTML elements
    */
   public setupDefaultTextElements(): void {
-    // Scan and setup text elements from the HTML
-    this.scanAndSetupTextElements();
-
-    // Set up mutation observer for dynamic content changes
-    this.setupMutationObserver();
-
-    // Set up resize observer for responsive positioning
-    this.setupResizeObserver();
-
-    // Update positions immediately
-    this.updateTextPositions();
-
-    // Mark scene as dirty when text elements change
-    this.markSceneDirty();
-  }
-
-  /**
-   * Scan HTML and automatically setup text elements
-   */
-  private scanAndSetupTextElements(): void {
     // Define text elements to track with their selectors and panel associations
     const textElementSelectors = [
       {
@@ -521,9 +629,6 @@ export class TextRenderer {
       }
     ];
 
-    // Clear existing panel text elements
-    this.panelTextElements.clear();
-
     // Setup each text element
     textElementSelectors.forEach(config => {
       const element = document.querySelector(config.selector);
@@ -531,57 +636,40 @@ export class TextRenderer {
         const textConfig: TextElementConfig = {
           position: [0.0, 0.0], // Will be updated by updateTextPositions
           size: [1.0, 0.2], // Will be updated by updateTextPositions
-          content: element.textContent.trim(),
+          selector: config.selector,
           fontSize: config.fontSize,
           fontFamily: getComputedStyle(element).fontFamily || '-apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif',
           fontWeight: config.fontWeight,
-          color: getComputedStyle(element).color || 'white',
           textAlign: config.textAlign,
           lineHeight: config.lineHeight,
+          color: getComputedStyle(element).color || 'white',
           panelId: config.panelId,
           panelRelativePosition: [config.panelRelativePosition[0], config.panelRelativePosition[1]]
         };
 
-        // Add to main text elements map
         this.addTextElement(config.id, textConfig);
-
-        // Add to panel-organized map
-        if (!this.panelTextElements.has(config.panelId)) {
-          this.panelTextElements.set(config.panelId, []);
-        }
-        this.panelTextElements.get(config.panelId)!.push(textConfig);
       }
     });
+
+    // Set up resize observer for responsive positioning
+    this.setupResizeObserver();
+
+    // Set up mutation observer for content changes
+    this.setupMutationObserver();
+
+    console.log(`TextRenderer: Tracking ${this.textElements.size} text elements for per-pixel adaptive coloring`);
   }
 
   /**
    * Set up mutation observer to track content changes
    */
   private setupMutationObserver(): void {
-    const observer = new MutationObserver((mutations) => {
-      let needsUpdate = false;
-
-      mutations.forEach((mutation) => {
-        if (mutation.type === 'childList' || mutation.type === 'characterData') {
-          needsUpdate = true;
-        }
-      });
-
-      if (needsUpdate) {
-        // Rescan text elements after DOM changes
-        this.scanAndSetupTextElements();
-        this.needsTextureUpdate = true;
-      }
+    const observer = new MutationObserver(() => {
+      this.needsTextureUpdate = true;
     });
 
     // Observe changes in text content
-    const observeTargets = [
-      '#landing-panel',
-      '#app-panel',
-      '#portfolio-panel',
-      '#resume-panel',
-      '#navbar'
-    ];
+    const observeTargets = ['#landing-panel', '#app-panel', '#portfolio-panel', '#resume-panel', '#navbar'];
 
     observeTargets.forEach(selector => {
       const element = document.querySelector(selector);
@@ -600,7 +688,6 @@ export class TextRenderer {
    */
   private setupResizeObserver(): void {
     this.resizeObserver = new ResizeObserver(() => {
-      // Update text positions when elements resize
       this.updateTextPositions();
     });
 
@@ -608,13 +695,7 @@ export class TextRenderer {
     const canvas = this.gl.canvas as HTMLCanvasElement;
     this.resizeObserver.observe(canvas);
 
-    const observeTargets = [
-      '#landing-panel',
-      '#app-panel',
-      '#portfolio-panel',
-      '#resume-panel',
-      '#navbar'
-    ];
+    const observeTargets = ['#landing-panel', '#app-panel', '#portfolio-panel', '#resume-panel', '#navbar'];
 
     observeTargets.forEach(selector => {
       const element = document.querySelector(selector);
@@ -631,169 +712,25 @@ export class TextRenderer {
     const canvas = this.gl.canvas as HTMLCanvasElement;
     const canvasRect = canvas.getBoundingClientRect();
 
-    // Ensure canvas has valid dimensions
     if (canvasRect.width === 0 || canvasRect.height === 0) {
-      console.warn('TextRenderer: Canvas has invalid dimensions, skipping text position update');
       return;
     }
 
-    // Define element mappings for position updates
-    const elementMappings = [
-      { selector: '#landing-panel h1', id: 'landing-title' },
-      { selector: '#landing-panel .subtitle', id: 'landing-subtitle' },
-      { selector: '#app-panel h2', id: 'app-title' },
-      { selector: '#app-panel p', id: 'app-description' },
-      { selector: '#portfolio-panel h2', id: 'portfolio-title' },
-      { selector: '#resume-panel h2', id: 'resume-title' },
-      { selector: '.brand-text', id: 'nav-brand' },
-      { selector: '.nav-label', id: 'nav-labels' }
-    ];
-
-    // Update positions for each mapped element
-    elementMappings.forEach(mapping => {
-      const element = document.querySelector(mapping.selector);
+    // Update positions for each tracked element
+    this.textElements.forEach((config) => {
+      const element = document.querySelector(config.selector);
       if (element && !element.closest('.hidden')) {
         const rect = element.getBoundingClientRect();
 
-        // Only update if element is visible and has valid dimensions
         if (rect.width > 0 && rect.height > 0) {
           const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
-
-          // Check if we have this text element tracked
-          if (this.textElements.has(mapping.id)) {
-            this.updateTextElement(mapping.id, {
-              position: normalizedPos.position,
-              size: normalizedPos.size,
-              content: element.textContent?.trim() || ''
-            });
-          }
+          this.updateTextElement(config.selector, {
+            position: normalizedPos.position,
+            size: normalizedPos.size
+          });
         }
       }
     });
-
-    // Handle special case for navigation labels (multiple elements)
-    const navLabels = document.querySelectorAll('.nav-label');
-    if (navLabels.length > 0) {
-      navLabels.forEach((label, index) => {
-        const rect = label.getBoundingClientRect();
-        if (rect.width > 0 && rect.height > 0 && !label.closest('.hidden')) {
-          const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
-          const id = `nav-label-${index}`;
-
-          this.updateTextElement(id, {
-            position: normalizedPos.position,
-            size: normalizedPos.size,
-            content: label.textContent?.trim() || ''
-          });
-        }
-      });
-    }
-  }
-
-  /**
-   * Convert HTML element rect to normalized WebGL coordinates
-   * (Exact copy from GlassRenderer for consistent positioning)
-   */
-  private htmlRectToNormalized(elementRect: DOMRect, canvasRect: DOMRect): { position: [number, number], size: [number, number] } {
-    // Ensure we have valid rectangles
-    if (elementRect.width === 0 || elementRect.height === 0 || canvasRect.width === 0 || canvasRect.height === 0) {
-      console.warn('TextRenderer: Invalid rectangle dimensions detected');
-      return { position: [0, 0], size: [0, 0] };
-    }
-
-    // Calculate center position in normalized coordinates (0 to 1)
-    const centerX = ((elementRect.left + elementRect.width / 2) - canvasRect.left) / canvasRect.width;
-    const centerY = ((elementRect.top + elementRect.height / 2) - canvasRect.top) / canvasRect.height;
-
-    // Convert to WebGL coordinates (-1 to 1, with Y flipped)
-    const glX = centerX * 2.0 - 1.0;
-    const glY = (1.0 - centerY) * 2.0 - 1.0; // Flip Y and convert to [-1,1]
-
-    // Calculate size in normalized coordinates (as fraction of screen size * 2 for [-1,1] range)
-    const width = (elementRect.width / canvasRect.width) * 2.0;
-    const height = (elementRect.height / canvasRect.height) * 2.0;
-
-    // Debug logging for positioning verification (remove after testing)
-    console.debug(`TextRenderer Panel Mapping:
-      Element: ${elementRect.width}x${elementRect.height} at (${elementRect.left}, ${elementRect.top})
-      Canvas: ${canvasRect.width}x${canvasRect.height}
-      WebGL Center: (${glX.toFixed(3)}, ${glY.toFixed(3)})
-      WebGL Size: (${width.toFixed(3)}, ${height.toFixed(3)})`);
-
-    return {
-      position: [glX, glY],
-      size: [width, height]
-    };
-  }
-
-  /**
-   * Render all text elements with adaptive coloring
-   */
-  public render(): void {
-    const gl = this.gl;
-
-    if (!this.textProgram || !this.sceneTexture || this.textElements.size === 0) {
-      return;
-    }
-
-    // Update text texture if needed
-    this.updateTextTexture();
-
-    // Only update text positions if text texture was updated (positions likely changed)
-    // This reduces expensive position calculations every frame
-    if (this.needsTextureUpdate) {
-      this.updateTextPositions();
-      this.markSceneDirty();
-    }
-
-    // Use text shader program
-    const program = this.shaderManager.useProgram('text');
-
-    // Set up matrices
-    this.shaderManager.setUniformMatrix4fv(program, 'u_projectionMatrix', this.projectionMatrix.data);
-    this.shaderManager.setUniformMatrix4fv(program, 'u_viewMatrix', this.viewMatrix.data);
-
-    // Set time uniform for animation
-    const currentTime = (performance.now() - this.startTime) / 1000.0;
-    this.shaderManager.setUniform1f(program, 'u_time', currentTime);
-
-    // Set resolution
-    this.shaderManager.setUniform2f(program, 'u_resolution', gl.canvas.width, gl.canvas.height);
-    this.shaderManager.setUniform1f(program, 'u_aspectRatio', gl.canvas.width / gl.canvas.height);
-
-    // Bind scene texture (combined ocean + glass)
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, this.sceneTexture);
-    this.shaderManager.setUniform1i(program, 'u_sceneTexture', 0);
-
-    // Bind text texture
-    gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, this.textTexture);
-    this.shaderManager.setUniform1i(program, 'u_textTexture', 1);
-
-    // Set adaptive strength
-    this.shaderManager.setUniform1f(program, 'u_adaptiveStrength', 1.0);
-
-    // Get panel information and set uniforms
-    const panelInfo = this.getPanelInfo();
-    this.shaderManager.setUniform2fv(program, 'u_panelPositions', panelInfo.positions);
-    this.shaderManager.setUniform2fv(program, 'u_panelSizes', panelInfo.sizes);
-    this.shaderManager.setUniform1i(program, 'u_panelCount', panelInfo.count);
-
-    // Enable blending for text overlay
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-
-    // Disable depth testing for text overlay
-    gl.disable(gl.DEPTH_TEST);
-
-    // Batched rendering: render all text elements in single pass
-    // Since all text is in one texture, we only need one draw call for the full-screen quad
-    this.bufferManager.bind();
-    gl.drawElements(gl.TRIANGLES, this.quadGeometry.indexCount, gl.UNSIGNED_SHORT, 0);
-
-    // Re-enable depth testing
-    gl.enable(gl.DEPTH_TEST);
   }
 
   /**
@@ -830,14 +767,14 @@ export class TextRenderer {
       this.textTexture = null;
     }
 
-    // Clean up geometry
-    this.bufferManager.dispose();
-
     // Clean up resize observer
     if (this.resizeObserver) {
       this.resizeObserver.disconnect();
       this.resizeObserver = null;
     }
+
+    // Clean up geometry
+    this.bufferManager.dispose();
 
     // Clear text elements
     this.textElements.clear();

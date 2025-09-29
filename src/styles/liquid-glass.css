@@ -772,6 +772,28 @@ body {
     inset 0 1px 1px rgba(255, 255, 255, 0.1);
 }
 
+/* ===== ADAPTIVE TEXT COLOR SYSTEM (WebGL Per-Pixel Rendering) ===== */
+
+/* Hide HTML text visually - WebGL renders the visible version with per-pixel adaptive colors */
+.glass-panel h1,
+.glass-panel h2,
+.glass-panel h3,
+.glass-panel h4,
+.glass-panel p,
+.glass-panel .subtitle,
+.nav-label,
+.brand-text {
+  /* Hide text visually but keep in DOM for SEO/accessibility */
+  color: transparent !important;
+
+  /* Prevent any text-related visual effects */
+  text-shadow: none !important;
+  -webkit-text-fill-color: transparent !important;
+
+  /* Keep layout and positioning intact */
+  /* Text still occupies space and can be selected/copied */
+}
+
 /* Fallback for browsers without backdrop-filter support */
 @supports not (backdrop-filter: blur(1px)) {
   .glass-panel {
