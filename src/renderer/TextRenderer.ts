@@ -19,6 +19,18 @@ export interface TextElementConfig {
   lineHeight: number;         // Line height multiplier
   panelId: string;            // ID of the panel this text belongs to
   panelRelativePosition: [number, number]; // Position relative to panel [0,1]
+  // Enhanced font metrics for proper alignment
+  fontMetrics?: {
+    ascent: number;
+    descent: number;
+    leading: number;
+    actualBoundingBoxAscent: number;
+    actualBoundingBoxDescent: number;
+  };
+  // Multi-line support
+  maxWidth?: number;          // Maximum width for word wrapping
+  verticalAlign: 'top' | 'middle' | 'bottom'; // Vertical text alignment
+  letterSpacing: number;      // Letter spacing in pixels
 }
 
 export class TextRenderer {
@@ -85,12 +97,17 @@ export class TextRenderer {
   }
 
   /**
-   * Initialize HTML canvas for text generation
+   * Initialize HTML canvas for text generation with retina support
    */
   private initializeTextCanvas(): void {
     this.textCanvas = document.createElement('canvas');
-    this.textCanvas.width = 1024;
-    this.textCanvas.height = 1024;
+
+    // Use 2x resolution for retina displays and crisp text
+    const pixelRatio = window.devicePixelRatio || 1;
+    const canvasSize = 2048; // Increased for better text quality
+
+    this.textCanvas.width = canvasSize * pixelRatio;
+    this.textCanvas.height = canvasSize * pixelRatio;
 
     const context = this.textCanvas.getContext('2d');
     if (!context) {
@@ -99,11 +116,19 @@ export class TextRenderer {
 
     this.textContext = context;
 
+    // Scale context to handle device pixel ratio
+    this.textContext.scale(pixelRatio, pixelRatio);
+
     // Set up high-quality text rendering
-    this.textContext.textBaseline = 'top';
+    this.textContext.textBaseline = 'alphabetic';
     this.textContext.fillStyle = 'white';
     this.textContext.imageSmoothingEnabled = true;
     this.textContext.imageSmoothingQuality = 'high';
+
+    // Enable subpixel text rendering for crisp edges (if supported)
+    if ('textRenderingOptimization' in this.textContext) {
+      (this.textContext as any).textRenderingOptimization = 'optimizeQuality';
+    }
   }
 
   /**
@@ -284,6 +309,160 @@ export class TextRenderer {
   }
 
   /**
+   * Extract font metrics from DOM element and CSS computed styles
+   */
+  private extractFontMetrics(element: Element): {
+    fontSize: number;
+    fontFamily: string;
+    fontWeight: string;
+    lineHeight: number;
+    letterSpacing: number;
+    color: string;
+    fontMetrics: {
+      ascent: number;
+      descent: number;
+      leading: number;
+      actualBoundingBoxAscent: number;
+      actualBoundingBoxDescent: number;
+    };
+  } {
+    const computedStyle = getComputedStyle(element);
+
+    // Extract numeric font size
+    const fontSizeStr = computedStyle.fontSize;
+    const fontSize = parseFloat(fontSizeStr);
+
+    // Extract font family, defaulting to system font stack
+    const fontFamily = computedStyle.fontFamily || '-apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif';
+
+    // Extract font weight
+    const fontWeight = computedStyle.fontWeight || '400';
+
+    // Extract line height, handle 'normal' case
+    const lineHeightStr = computedStyle.lineHeight;
+    let lineHeight = 1.2; // Default line height
+    if (lineHeightStr !== 'normal') {
+      const lineHeightValue = parseFloat(lineHeightStr);
+      if (!isNaN(lineHeightValue)) {
+        // If it's a unitless number, use directly; if pixels, divide by font size
+        lineHeight = lineHeightStr.includes('px') ? lineHeightValue / fontSize : lineHeightValue;
+      }
+    }
+
+    // Extract letter spacing
+    const letterSpacingStr = computedStyle.letterSpacing;
+    const letterSpacing = letterSpacingStr === 'normal' ? 0 : parseFloat(letterSpacingStr) || 0;
+
+    // Extract color
+    const color = computedStyle.color || 'rgba(255, 255, 255, 0.95)';
+
+    // Measure font metrics using canvas
+    const tempCanvas = document.createElement('canvas');
+    const tempCtx = tempCanvas.getContext('2d')!;
+    const fontString = `${fontWeight} ${fontSize}px ${fontFamily}`;
+    tempCtx.font = fontString;
+
+    // Measure baseline metrics using standard test text
+    const testText = 'Hgypq|';
+    const metrics = tempCtx.measureText(testText);
+
+    return {
+      fontSize,
+      fontFamily,
+      fontWeight,
+      lineHeight,
+      letterSpacing,
+      color,
+      fontMetrics: {
+        ascent: metrics.fontBoundingBoxAscent || fontSize * 0.8,
+        descent: metrics.fontBoundingBoxDescent || fontSize * 0.2,
+        leading: fontSize * (lineHeight - 1),
+        actualBoundingBoxAscent: metrics.actualBoundingBoxAscent || fontSize * 0.75,
+        actualBoundingBoxDescent: metrics.actualBoundingBoxDescent || fontSize * 0.25,
+      }
+    };
+  }
+
+  /**
+   * Extract text content with support for multi-line elements and HTML structures
+   */
+  private extractTextContent(element: Element, config: any): string {
+    let textContent = '';
+
+    if (config.detectBr) {
+      // Handle <br> tags as line breaks
+      let htmlContent = element.innerHTML;
+      textContent = htmlContent
+        .replace(/<br\s*\/?>/gi, '\n')    // Replace <br> with \n
+        .replace(/<[^>]*>/g, '')          // Remove other HTML tags
+        .replace(/&nbsp;/g, ' ')          // Replace &nbsp; with space
+        .replace(/&amp;/g, '&')           // Replace &amp; with &
+        .replace(/&lt;/g, '<')            // Replace &lt; with <
+        .replace(/&gt;/g, '>')            // Replace &gt; with >
+        .trim();
+    } else if (config.multiElement) {
+      // Handle multiple child elements (like paragraphs with multiple sentences)
+      const childElements = Array.from(element.querySelectorAll('*')).filter(child =>
+        child.textContent && child.textContent.trim().length > 0
+      );
+
+      if (childElements.length > 0) {
+        textContent = childElements.map(child => child.textContent?.trim() || '').join('\n');
+      } else {
+        textContent = element.textContent?.trim() || '';
+      }
+    } else {
+      // Standard text extraction
+      textContent = element.textContent?.trim() || '';
+    }
+
+    // Clean up excessive whitespace
+    textContent = textContent.replace(/\s+/g, ' ').replace(/\n\s*\n/g, '\n');
+
+    return textContent;
+  }
+
+  /**
+   * Break text into lines with word wrapping
+   */
+  private wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
+    if (!maxWidth || maxWidth <= 0) {
+      return text.split('\n');
+    }
+
+    const lines: string[] = [];
+    const paragraphs = text.split('\n');
+
+    for (const paragraph of paragraphs) {
+      if (paragraph.trim() === '') {
+        lines.push('');
+        continue;
+      }
+
+      const words = paragraph.split(' ');
+      let currentLine = '';
+
+      for (const word of words) {
+        const testLine = currentLine + (currentLine ? ' ' : '') + word;
+        const metrics = ctx.measureText(testLine);
+
+        if (metrics.width > maxWidth && currentLine !== '') {
+          lines.push(currentLine);
+          currentLine = word;
+        } else {
+          currentLine = testLine;
+        }
+      }
+
+      if (currentLine) {
+        lines.push(currentLine);
+      }
+    }
+
+    return lines;
+  }
+
+  /**
    * Get panel information for shader uniforms (matching GlassRenderer approach)
    */
   private getPanelInfo(): { positions: Float32Array, sizes: Float32Array, count: number } {
@@ -375,40 +554,83 @@ export class TextRenderer {
   }
 
   /**
-   * Render individual text element to canvas using panel-relative coordinates
+   * Render individual text element to canvas using enhanced font metrics and multi-line support
    */
   private renderTextToCanvas(config: TextElementConfig, ctx: CanvasRenderingContext2D): void {
-    // Set font properties
+    // Set font properties with letter spacing
     const fontString = `${config.fontWeight} ${config.fontSize}px ${config.fontFamily}`;
     ctx.font = fontString;
     ctx.textAlign = config.textAlign;
     ctx.fillStyle = 'white'; // Always white on canvas, shader will handle color adaptation
+    ctx.letterSpacing = `${config.letterSpacing}px`;
 
-    // Use panel-relative coordinates directly [0,1] range
-    // No coordinate flipping needed since UV coordinates are now fixed
-    const canvasX = config.panelRelativePosition[0] * this.textCanvas.width;
-    const canvasY = config.panelRelativePosition[1] * this.textCanvas.height;
+    // Use canvas size constant
+    const canvasSize = 2048;
 
-    // Handle multi-line text with proper line height
-    const lines = config.content.split('\n');
-    const lineHeight = config.fontSize * config.lineHeight;
+    // Use panel-relative coordinates, accounting for pixel ratio scaling
+    const canvasX = config.panelRelativePosition[0] * canvasSize;
+    const canvasY = config.panelRelativePosition[1] * canvasSize;
 
-    // Calculate adjusted Y position for text alignment
-    let adjustedY = canvasY;
+    // Get maximum width for word wrapping if specified
+    const maxWidth = config.maxWidth ? config.maxWidth * canvasSize : 0;
 
-    // Adjust Y position based on text alignment
-    if (config.textAlign === 'center') {
-      // Center text vertically around the specified position
-      adjustedY = canvasY - (lines.length * lineHeight) / 2;
+    // Break text into lines with word wrapping
+    const lines = this.wrapText(ctx, config.content, maxWidth);
+
+    // Calculate line height using font metrics
+    const fontMetrics = config.fontMetrics;
+    const lineHeight = fontMetrics
+      ? fontMetrics.ascent + fontMetrics.descent + fontMetrics.leading
+      : config.fontSize * config.lineHeight;
+
+    // Calculate total text block height for vertical alignment
+    const totalTextHeight = lines.length * lineHeight;
+    let baselineY = canvasY;
+
+    // Adjust vertical position based on alignment
+    switch (config.verticalAlign) {
+      case 'top':
+        baselineY = canvasY + (fontMetrics?.ascent || config.fontSize * 0.8);
+        break;
+      case 'middle':
+        baselineY = canvasY - totalTextHeight / 2 + (fontMetrics?.ascent || config.fontSize * 0.8);
+        break;
+      case 'bottom':
+        baselineY = canvasY - totalTextHeight + (fontMetrics?.ascent || config.fontSize * 0.8);
+        break;
     }
 
-    // Render each line
+    // Render each line with proper baseline positioning
     lines.forEach((line, index) => {
-      const y = adjustedY + (index * lineHeight);
+      if (line.trim() === '') return; // Skip empty lines
 
-      // Ensure text stays within canvas bounds
-      if (y > 0 && y < this.textCanvas.height) {
-        ctx.fillText(line, canvasX, y);
+      const y = baselineY + (index * lineHeight);
+
+      // Ensure text stays within canvas bounds with some padding
+      const padding = config.fontSize;
+      if (y > padding && y < (canvasSize - padding)) {
+        // Apply text alignment adjustments for X position
+        let adjustedX = canvasX;
+
+        if (config.textAlign === 'center') {
+          // For centered text, use the panel center position directly
+          adjustedX = canvasX;
+        } else if (config.textAlign === 'right') {
+          // For right-aligned text, measure the line and adjust
+          const lineMetrics = ctx.measureText(line);
+          adjustedX = canvasX - lineMetrics.width;
+        }
+
+        // Render the line
+        ctx.fillText(line, adjustedX, y);
+
+        // Optional: Add subtle shadow for better readability (commented out for performance)
+        // ctx.save();
+        // ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        // ctx.fillText(line, adjustedX + 1, y + 1);
+        // ctx.restore();
+        // ctx.fillStyle = 'white';
+        // ctx.fillText(line, adjustedX, y);
       }
     });
   }
@@ -437,7 +659,7 @@ export class TextRenderer {
    * Scan HTML and automatically setup text elements
    */
   private scanAndSetupTextElements(): void {
-    // Define text elements to track with their selectors and panel associations
+    // Define text elements to track with enhanced multi-line and content detection
     const textElementSelectors = [
       {
         selector: '#landing-panel h1',
@@ -447,7 +669,10 @@ export class TextRenderer {
         fontWeight: '200',
         textAlign: 'center' as const,
         lineHeight: 1.2,
-        panelRelativePosition: [0.5, 0.3] // Center horizontally, upper third
+        panelRelativePosition: [0.5, 0.3], // Center horizontally, upper third
+        maxWidth: 0.9, // Allow 90% panel width for multi-line
+        verticalAlign: 'middle' as const,
+        detectBr: true // Handle <br> tags as line breaks
       },
       {
         selector: '#landing-panel .subtitle',
@@ -457,7 +682,9 @@ export class TextRenderer {
         fontWeight: '400',
         textAlign: 'center' as const,
         lineHeight: 1.2,
-        panelRelativePosition: [0.5, 0.7] // Center horizontally, lower third
+        panelRelativePosition: [0.5, 0.7], // Center horizontally, lower third
+        maxWidth: 0.85,
+        verticalAlign: 'middle' as const
       },
       {
         selector: '#app-panel h2',
@@ -467,7 +694,9 @@ export class TextRenderer {
         fontWeight: '500',
         textAlign: 'left' as const,
         lineHeight: 1.3,
-        panelRelativePosition: [0.1, 0.2] // Left margin, top
+        panelRelativePosition: [0.1, 0.15], // Left margin, top (adjusted for multi-line)
+        maxWidth: 0.8,
+        verticalAlign: 'top' as const
       },
       {
         selector: '#app-panel p',
@@ -477,7 +706,10 @@ export class TextRenderer {
         fontWeight: '400',
         textAlign: 'left' as const,
         lineHeight: 1.5,
-        panelRelativePosition: [0.1, 0.6] // Left margin, middle
+        panelRelativePosition: [0.1, 0.4], // Left margin, middle (adjusted for longer text)
+        maxWidth: 0.85,
+        verticalAlign: 'top' as const,
+        multiElement: true // Can contain multiple child elements
       },
       {
         selector: '#portfolio-panel h2',
@@ -487,7 +719,22 @@ export class TextRenderer {
         fontWeight: '500',
         textAlign: 'left' as const,
         lineHeight: 1.3,
-        panelRelativePosition: [0.1, 0.2] // Left margin, top
+        panelRelativePosition: [0.1, 0.15],
+        maxWidth: 0.8,
+        verticalAlign: 'top' as const
+      },
+      {
+        selector: '#portfolio-panel p',
+        id: 'portfolio-description',
+        panelId: 'portfolio-panel',
+        fontSize: 18,
+        fontWeight: '400',
+        textAlign: 'left' as const,
+        lineHeight: 1.5,
+        panelRelativePosition: [0.1, 0.35],
+        maxWidth: 0.85,
+        verticalAlign: 'top' as const,
+        multiElement: true
       },
       {
         selector: '#resume-panel h2',
@@ -497,7 +744,9 @@ export class TextRenderer {
         fontWeight: '500',
         textAlign: 'left' as const,
         lineHeight: 1.3,
-        panelRelativePosition: [0.1, 0.2] // Left margin, top
+        panelRelativePosition: [0.1, 0.15],
+        maxWidth: 0.8,
+        verticalAlign: 'top' as const
       },
       {
         selector: '.brand-text',
@@ -507,7 +756,9 @@ export class TextRenderer {
         fontWeight: '600',
         textAlign: 'left' as const,
         lineHeight: 1.0,
-        panelRelativePosition: [0.05, 0.5] // Left edge, center
+        panelRelativePosition: [0.05, 0.5], // Left edge, center
+        maxWidth: 0.3,
+        verticalAlign: 'middle' as const
       },
       {
         selector: '.nav-label',
@@ -517,39 +768,54 @@ export class TextRenderer {
         fontWeight: '500',
         textAlign: 'center' as const,
         lineHeight: 1.0,
-        panelRelativePosition: [0.5, 0.5] // Will be updated for each label
+        panelRelativePosition: [0.5, 0.5], // Will be updated for each label
+        maxWidth: 0.2,
+        verticalAlign: 'middle' as const
       }
     ];
 
     // Clear existing panel text elements
     this.panelTextElements.clear();
 
-    // Setup each text element
+    // Setup each text element with enhanced font metrics and multi-line support
     textElementSelectors.forEach(config => {
       const element = document.querySelector(config.selector);
-      if (element && element.textContent) {
-        const textConfig: TextElementConfig = {
-          position: [0.0, 0.0], // Will be updated by updateTextPositions
-          size: [1.0, 0.2], // Will be updated by updateTextPositions
-          content: element.textContent.trim(),
-          fontSize: config.fontSize,
-          fontFamily: getComputedStyle(element).fontFamily || '-apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif',
-          fontWeight: config.fontWeight,
-          color: getComputedStyle(element).color || 'white',
-          textAlign: config.textAlign,
-          lineHeight: config.lineHeight,
-          panelId: config.panelId,
-          panelRelativePosition: [config.panelRelativePosition[0], config.panelRelativePosition[1]]
-        };
+      if (element) {
+        // Extract text content using enhanced detection
+        const textContent = this.extractTextContent(element, config);
 
-        // Add to main text elements map
-        this.addTextElement(config.id, textConfig);
+        if (textContent) {
+          // Extract CSS font properties and metrics
+          const extractedMetrics = this.extractFontMetrics(element);
 
-        // Add to panel-organized map
-        if (!this.panelTextElements.has(config.panelId)) {
-          this.panelTextElements.set(config.panelId, []);
+          const textConfig: TextElementConfig = {
+            position: [0.0, 0.0], // Will be updated by updateTextPositions
+            size: [1.0, 0.2], // Will be updated by updateTextPositions
+            content: textContent,
+            fontSize: extractedMetrics.fontSize,
+            fontFamily: extractedMetrics.fontFamily,
+            fontWeight: extractedMetrics.fontWeight,
+            color: extractedMetrics.color,
+            textAlign: config.textAlign,
+            lineHeight: extractedMetrics.lineHeight,
+            panelId: config.panelId,
+            panelRelativePosition: [config.panelRelativePosition[0], config.panelRelativePosition[1]],
+            // Enhanced properties from config
+            fontMetrics: extractedMetrics.fontMetrics,
+            maxWidth: config.maxWidth || 0.8, // Use config-specific max width
+            verticalAlign: (config as any).verticalAlign || (config.textAlign === 'center' ? 'middle' : 'top'),
+            letterSpacing: extractedMetrics.letterSpacing
+          };
+
+          // Add to main text elements map
+          this.addTextElement(config.id, textConfig);
+
+          // Add to panel-organized map
+          if (!this.panelTextElements.has(config.panelId)) {
+            this.panelTextElements.set(config.panelId, []);
+          }
+          this.panelTextElements.get(config.panelId)!.push(textConfig);
         }
-        this.panelTextElements.get(config.panelId)!.push(textConfig);
       }
     });
   }
@@ -657,12 +923,22 @@ export class TextRenderer {
 
         // Only update if element is visible and has valid dimensions
         if (rect.width > 0 && rect.height > 0) {
-          const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
+          const currentConfig = this.textElements.get(mapping.id);
+          const normalizedPos = this.htmlRectToNormalized(rect, canvasRect, currentConfig);
 
           // Check if we have this text element tracked
-          if (this.textElements.has(mapping.id)) {
+          if (currentConfig) {
+            // Get precise positioning offsets
+            const positionOffsets = this.getTextPositionOffsets(element, currentConfig);
+
+            // Apply subpixel positioning adjustments
+            const adjustedPosition: [number, number] = [
+              normalizedPos.position[0] + positionOffsets.x * normalizedPos.size[0],
+              normalizedPos.position[1] + positionOffsets.y * normalizedPos.size[1]
+            ];
+
             this.updateTextElement(mapping.id, {
-              position: normalizedPos.position,
+              position: adjustedPosition,
               size: normalizedPos.size,
               content: element.textContent?.trim() || ''
             });
@@ -677,24 +953,35 @@ export class TextRenderer {
       navLabels.forEach((label, index) => {
         const rect = label.getBoundingClientRect();
         if (rect.width > 0 && rect.height > 0 && !label.closest('.hidden')) {
-          const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
           const id = `nav-label-${index}`;
+          const currentConfig = this.textElements.get(id);
+          const normalizedPos = this.htmlRectToNormalized(rect, canvasRect, currentConfig);
 
-          this.updateTextElement(id, {
-            position: normalizedPos.position,
-            size: normalizedPos.size,
-            content: label.textContent?.trim() || ''
-          });
+          if (currentConfig) {
+            // Get precise positioning offsets
+            const positionOffsets = this.getTextPositionOffsets(label, currentConfig);
+
+            // Apply subpixel positioning adjustments
+            const adjustedPosition: [number, number] = [
+              normalizedPos.position[0] + positionOffsets.x * normalizedPos.size[0],
+              normalizedPos.position[1] + positionOffsets.y * normalizedPos.size[1]
+            ];
+
+            this.updateTextElement(id, {
+              position: adjustedPosition,
+              size: normalizedPos.size,
+              content: label.textContent?.trim() || ''
+            });
+          }
         }
       });
     }
   }
 
   /**
-   * Convert HTML element rect to normalized WebGL coordinates
-   * (Exact copy from GlassRenderer for consistent positioning)
+   * Convert HTML element rect to normalized WebGL coordinates with text baseline adjustments
    */
-  private htmlRectToNormalized(elementRect: DOMRect, canvasRect: DOMRect): { position: [number, number], size: [number, number] } {
+  private htmlRectToNormalized(elementRect: DOMRect, canvasRect: DOMRect, textConfig?: TextElementConfig): { position: [number, number], size: [number, number] } {
     // Ensure we have valid rectangles
     if (elementRect.width === 0 || elementRect.height === 0 || canvasRect.width === 0 || canvasRect.height === 0) {
       console.warn('TextRenderer: Invalid rectangle dimensions detected');
@@ -702,8 +989,21 @@ export class TextRenderer {
     }
 
     // Calculate center position in normalized coordinates (0 to 1)
-    const centerX = ((elementRect.left + elementRect.width / 2) - canvasRect.left) / canvasRect.width;
-    const centerY = ((elementRect.top + elementRect.height / 2) - canvasRect.top) / canvasRect.height;
+    let centerX = ((elementRect.left + elementRect.width / 2) - canvasRect.left) / canvasRect.width;
+    let centerY = ((elementRect.top + elementRect.height / 2) - canvasRect.top) / canvasRect.height;
+
+    // Adjust for text baseline if font metrics are available
+    if (textConfig?.fontMetrics) {
+      const fontMetrics = textConfig.fontMetrics;
+
+      // Calculate the visual center of the text (accounting for baseline)
+      const textVisualHeight = fontMetrics.ascent + fontMetrics.descent;
+      const baselineOffset = fontMetrics.ascent / 2 - textVisualHeight / 2;
+
+      // Adjust Y position to align with visual center rather than DOM center
+      const baselineAdjustment = (baselineOffset / canvasRect.height);
+      centerY += baselineAdjustment;
+    }
 
     // Convert to WebGL coordinates (-1 to 1, with Y flipped)
     const glX = centerX * 2.0 - 1.0;
@@ -713,17 +1013,45 @@ export class TextRenderer {
     const width = (elementRect.width / canvasRect.width) * 2.0;
     const height = (elementRect.height / canvasRect.height) * 2.0;
 
-    // Debug logging for positioning verification (remove after testing)
-    console.debug(`TextRenderer Panel Mapping:
-      Element: ${elementRect.width}x${elementRect.height} at (${elementRect.left}, ${elementRect.top})
-      Canvas: ${canvasRect.width}x${canvasRect.height}
-      WebGL Center: (${glX.toFixed(3)}, ${glY.toFixed(3)})
-      WebGL Size: (${width.toFixed(3)}, ${height.toFixed(3)})`);
-
     return {
       position: [glX, glY],
       size: [width, height]
     };
+  }
+
+  /**
+   * Get precise text positioning offsets for subpixel accuracy
+   */
+  private getTextPositionOffsets(element: Element, textConfig: TextElementConfig): { x: number, y: number } {
+    const computedStyle = getComputedStyle(element);
+
+    // Get text alignment and positioning details
+    const textAlign = computedStyle.textAlign || 'left';
+
+    // Calculate horizontal offset based on text alignment
+    let xOffset = 0;
+    switch (textAlign) {
+      case 'center':
+        xOffset = 0; // Already centered
+        break;
+      case 'right':
+        xOffset = 0.5; // Move to right edge
+        break;
+      case 'left':
+      default:
+        xOffset = -0.5; // Move to left edge
+        break;
+    }
+
+    // Calculate vertical offset for precise baseline alignment
+    let yOffset = 0;
+    if (textConfig.fontMetrics) {
+      const fontMetrics = textConfig.fontMetrics;
+      // Offset to align with CSS text baseline
+      yOffset = fontMetrics.actualBoundingBoxDescent / textConfig.fontSize;
+    }
+
+    return { x: xOffset, y: yOffset };
   }
 
   /**
