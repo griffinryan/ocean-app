@@ -8,17 +8,9 @@ import { GeometryBuilder, BufferManager, GeometryData } from './Geometry';
 import { Mat4 } from '../utils/math';
 
 export interface TextElementConfig {
-  position: [number, number]; // Screen position in normalized coordinates
-  size: [number, number];     // Size in normalized coordinates
   selector: string;            // CSS selector for the element
-  fontSize: number;            // Font size in pixels
-  fontFamily: string;          // Font family
-  fontWeight: string;          // Font weight
-  textAlign: 'left' | 'center' | 'right'; // Text alignment
-  lineHeight: number;          // Line height multiplier
-  color: string;               // Fallback color for CSS compatibility
   panelId: string;             // ID of the panel this text belongs to
-  panelRelativePosition: [number, number]; // Position relative to panel [0,1]
+  // Note: position, size, and styling are all computed dynamically from the DOM element
 }
 
 export class TextRenderer {
@@ -89,24 +81,24 @@ export class TextRenderer {
 
   /**
    * Initialize HTML canvas for text generation
+   * Canvas will be sized to match WebGL canvas dimensions
    */
   private initializeTextCanvas(): void {
     this.textCanvas = document.createElement('canvas');
 
-    // Use higher resolution for better quality
-    const dpr = window.devicePixelRatio || 1;
-    this.textCanvas.width = Math.floor(2048 * dpr);
-    this.textCanvas.height = Math.floor(2048 * dpr);
+    // Initial size - will be updated in resize
+    this.textCanvas.width = 1920;
+    this.textCanvas.height = 1080;
 
-    const context = this.textCanvas.getContext('2d');
+    const context = this.textCanvas.getContext('2d', {
+      alpha: true,
+      desynchronized: true
+    });
     if (!context) {
       throw new Error('Failed to get 2D context for text canvas');
     }
 
     this.textContext = context;
-
-    // Scale context for DPR
-    this.textContext.scale(dpr, dpr);
 
     // Set up high-quality text rendering
     this.textContext.textBaseline = 'top';
@@ -114,7 +106,7 @@ export class TextRenderer {
     this.textContext.imageSmoothingEnabled = true;
     this.textContext.imageSmoothingQuality = 'high';
 
-    console.log(`TextRenderer: Canvas initialized at ${this.textCanvas.width}x${this.textCanvas.height} (DPR: ${dpr})`);
+    console.log(`TextRenderer: Canvas initialized at ${this.textCanvas.width}x${this.textCanvas.height}`);
   }
 
   /**
@@ -225,6 +217,16 @@ export class TextRenderer {
       return;
     }
 
+    // Resize text canvas to match WebGL canvas
+    this.textCanvas.width = width;
+    this.textCanvas.height = height;
+
+    // Re-apply text rendering settings after resize
+    this.textContext.textBaseline = 'top';
+    this.textContext.fillStyle = 'white';
+    this.textContext.imageSmoothingEnabled = true;
+    this.textContext.imageSmoothingQuality = 'high';
+
     // Bind framebuffer
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFramebuffer);
 
@@ -257,6 +259,7 @@ export class TextRenderer {
 
     // Mark scene as dirty after resize
     this.markSceneDirty();
+    this.needsTextureUpdate = true;
   }
 
   /**
@@ -309,52 +312,73 @@ export class TextRenderer {
   }
 
   /**
-   * Render individual text element to canvas
+   * Render individual text element to canvas using actual screen coordinates
    */
-  private renderTextToCanvas(element: HTMLElement, config: TextElementConfig): void {
+  private renderTextToCanvas(element: HTMLElement, _config: TextElementConfig): void {
     const ctx = this.textContext;
+    const glCanvas = this.gl.canvas as HTMLCanvasElement;
+    const canvasRect = glCanvas.getBoundingClientRect();
+    const elementRect = element.getBoundingClientRect();
+
+    // Skip if element or canvas has no size
+    if (elementRect.width === 0 || elementRect.height === 0 || canvasRect.width === 0 || canvasRect.height === 0) {
+      return;
+    }
 
     // Get computed styles from HTML element for pixel-perfect matching
     const styles = getComputedStyle(element);
     const fontSize = parseFloat(styles.fontSize);
     const fontFamily = styles.fontFamily;
     const fontWeight = styles.fontWeight;
+    const textAlign = styles.textAlign as CanvasTextAlign;
+    const lineHeight = parseFloat(styles.lineHeight) || fontSize * 1.2;
 
     // Set font properties
     const fontString = `${fontWeight} ${fontSize}px ${fontFamily}`;
     ctx.font = fontString;
-    ctx.textAlign = config.textAlign;
+    ctx.textAlign = textAlign;
     ctx.fillStyle = 'white'; // Always white on canvas, shader will handle color adaptation
 
-    // Calculate canvas coordinates (accounting for DPR scaling already applied)
-    const canvasWidth = 2048; // Logical size (before DPR scaling)
-    const canvasHeight = 2048;
-    const canvasX = config.panelRelativePosition[0] * canvasWidth;
-    const canvasY = config.panelRelativePosition[1] * canvasHeight;
+    // Calculate position in canvas pixel coordinates
+    // Convert from screen coordinates to canvas texture coordinates
+    const relativeX = elementRect.left - canvasRect.left;
+    const relativeY = elementRect.top - canvasRect.top;
 
-    // Get text content from HTML element
-    const text = element.textContent || '';
+    // Scale to canvas texture size (which now matches WebGL canvas size)
+    const scaleX = this.textCanvas.width / canvasRect.width;
+    const scaleY = this.textCanvas.height / canvasRect.height;
 
-    // Handle multi-line text with proper line height
+    const canvasX = relativeX * scaleX;
+    const canvasY = relativeY * scaleY;
+    const scaledFontSize = fontSize * scaleY;
+    const scaledLineHeight = lineHeight * scaleY;
+
+    // Update font with scaled size
+    ctx.font = `${fontWeight} ${scaledFontSize}px ${fontFamily}`;
+
+    // Get text content - use innerText to preserve line breaks from <br> tags
+    const text = element.innerText || element.textContent || '';
+
+    // Handle multi-line text
     const lines = text.split('\n');
-    const lineHeight = fontSize * config.lineHeight;
 
-    // Calculate adjusted Y position for text alignment
-    let adjustedY = canvasY;
+    // Adjust X position based on text alignment
+    let adjustedX = canvasX;
+    const elementWidthInCanvas = elementRect.width * scaleX;
 
-    // Adjust Y position based on text alignment
-    if (config.textAlign === 'center') {
-      // Center text vertically around the specified position
-      adjustedY = canvasY - (lines.length * lineHeight) / 2;
+    if (textAlign === 'center') {
+      adjustedX = canvasX + elementWidthInCanvas / 2;
+    } else if (textAlign === 'right') {
+      adjustedX = canvasX + elementWidthInCanvas;
     }
 
     // Render each line
     lines.forEach((line, index) => {
-      const y = adjustedY + (index * lineHeight);
+      const y = canvasY + (index * scaledLineHeight);
 
       // Ensure text stays within canvas bounds
-      if (y > 0 && y < canvasHeight) {
-        ctx.fillText(line, canvasX, y);
+      if (y >= 0 && y < this.textCanvas.height && line.trim().length > 0) {
+        ctx.fillText(line, adjustedX, y);
       }
     });
   }
@@ -371,12 +395,13 @@ export class TextRenderer {
     const ctx = this.textContext;
 
     // Clear canvas
-    ctx.clearRect(0, 0, 2048, 2048); // Use logical size
+    ctx.clearRect(0, 0, this.textCanvas.width, this.textCanvas.height);
 
-    // Render each text element to canvas
+    // Render each text element to canvas (including hidden ones for smooth transitions)
     this.textElements.forEach((config) => {
       const element = document.querySelector(config.selector) as HTMLElement;
-      if (element && !element.classList.contains('hidden') && !element.closest('.hidden')) {
+      if (element) {
+        // Render text even if parent panel is hidden - WebGL shader will handle visibility
         this.renderTextToCanvas(element, config);
       }
     });
@@ -516,6 +541,13 @@ export class TextRenderer {
   }
 
   /**
+   * Force text texture update on next render
+   */
+  public forceTextureUpdate(): void {
+    this.needsTextureUpdate = true;
+  }
+
+  /**
    * Convert HTML element rect to normalized WebGL coordinates
    */
   private htmlRectToNormalized(elementRect: DOMRect, canvasRect: DOMRect): { position: [number, number], size: [number, number] } {
@@ -547,104 +579,22 @@ export class TextRenderer {
   public setupDefaultTextElements(): void {
     // Define text elements to track with their selectors and panel associations
     const textElementSelectors = [
-      {
-        selector: '#landing-panel h1',
-        id: 'landing-title',
-        panelId: 'landing-panel',
-        fontSize: 48,
-        fontWeight: '200',
-        textAlign: 'center' as const,
-        lineHeight: 1.2,
-        panelRelativePosition: [0.5, 0.3] // Center horizontally, upper third
-      },
-      {
-        selector: '#landing-panel .subtitle',
-        id: 'landing-subtitle',
-        panelId: 'landing-panel',
-        fontSize: 22,
-        fontWeight: '400',
-        textAlign: 'center' as const,
-        lineHeight: 1.2,
-        panelRelativePosition: [0.5, 0.7] // Center horizontally, lower third
-      },
-      {
-        selector: '#app-panel h2',
-        id: 'app-title',
-        panelId: 'app-panel',
-        fontSize: 36,
-        fontWeight: '500',
-        textAlign: 'left' as const,
-        lineHeight: 1.3,
-        panelRelativePosition: [0.1, 0.2] // Left margin, top
-      },
-      {
-        selector: '#app-panel p',
-        id: 'app-description',
-        panelId: 'app-panel',
-        fontSize: 18,
-        fontWeight: '400',
-        textAlign: 'left' as const,
-        lineHeight: 1.5,
-        panelRelativePosition: [0.1, 0.6] // Left margin, middle
-      },
-      {
-        selector: '#portfolio-panel h2',
-        id: 'portfolio-title',
-        panelId: 'portfolio-panel',
-        fontSize: 36,
-        fontWeight: '500',
-        textAlign: 'left' as const,
-        lineHeight: 1.3,
-        panelRelativePosition: [0.1, 0.2] // Left margin, top
-      },
-      {
-        selector: '#resume-panel h2',
-        id: 'resume-title',
-        panelId: 'resume-panel',
-        fontSize: 36,
-        fontWeight: '500',
-        textAlign: 'left' as const,
-        lineHeight: 1.3,
-        panelRelativePosition: [0.1, 0.2] // Left margin, top
-      },
-      {
-        selector: '.brand-text',
-        id: 'nav-brand',
-        panelId: 'navbar',
-        fontSize: 24,
-        fontWeight: '600',
-        textAlign: 'left' as const,
-        lineHeight: 1.0,
-        panelRelativePosition: [0.05, 0.5] // Left edge, center
-      },
-      {
-        selector: '.nav-label',
-        id: 'nav-labels',
-        panelId: 'navbar',
-        fontSize: 16,
-        fontWeight: '500',
-        textAlign: 'center' as const,
-        lineHeight: 1.0,
-        panelRelativePosition: [0.5, 0.5] // Will be updated for each label
-      }
+      { selector: '#landing-panel h1', id: 'landing-title', panelId: 'landing-panel' },
+      { selector: '#landing-panel .subtitle', id: 'landing-subtitle', panelId: 'landing-panel' },
+      { selector: '#app-panel h2', id: 'app-title', panelId: 'app-panel' },
+      { selector: '#app-panel p', id: 'app-description', panelId: 'app-panel' },
+      { selector: '#portfolio-panel h2', id: 'portfolio-title', panelId: 'portfolio-panel' },
+      { selector: '#resume-panel h2', id: 'resume-title', panelId: 'resume-panel' },
+      { selector: '.brand-text', id: 'nav-brand', panelId: 'navbar' }
     ];
 
     // Setup each text element
     textElementSelectors.forEach(config => {
       const element = document.querySelector(config.selector);
-      if (element && element.textContent) {
+      if (element) {
         const textConfig: TextElementConfig = {
-          position: [0.0, 0.0], // Will be updated by updateTextPositions
-          size: [1.0, 0.2], // Will be updated by updateTextPositions
           selector: config.selector,
-          fontSize: config.fontSize,
-          fontFamily: getComputedStyle(element).fontFamily || '-apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif',
-          fontWeight: config.fontWeight,
-          textAlign: config.textAlign,
-          lineHeight: config.lineHeight,
-          color: getComputedStyle(element).color || 'white',
-          panelId: config.panelId,
-          panelRelativePosition: [config.panelRelativePosition[0], config.panelRelativePosition[1]]
+          panelId: config.panelId
         };
 
         this.addTextElement(config.id, textConfig);
@@ -707,30 +657,11 @@ export class TextRenderer {
 
   /**
    * Update text element positions based on HTML element positions
+   * With new coordinate system, positions are calculated on-the-fly during rendering
    */
   public updateTextPositions(): void {
-    const canvas = this.gl.canvas as HTMLCanvasElement;
-    const canvasRect = canvas.getBoundingClientRect();
-
-    if (canvasRect.width === 0 || canvasRect.height === 0) {
-      return;
-    }
-
-    // Update positions for each tracked element
-    this.textElements.forEach((config) => {
-      const element = document.querySelector(config.selector);
-      if (element && !element.closest('.hidden')) {
-        const rect = element.getBoundingClientRect();
-
-        if (rect.width > 0 && rect.height > 0) {
-          const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
-          this.updateTextElement(config.selector, {
-            position: normalizedPos.position,
-            size: normalizedPos.size
-          });
-        }
-      }
-    });
+    // Mark texture as needing update when positions change
+    this.needsTextureUpdate = true;
   }
 
   /**

@@ -88,7 +88,7 @@ bool isWithinPanel(vec2 screenPos, out vec2 panelUV) {
 }
 
 void main() {
-    // Convert screen position to UV coordinates
+    // Convert screen position to UV coordinates [0,1]
     vec2 screenUV = (v_screenPos + 1.0) * 0.5;
 
     // Check if we're within any panel boundary
@@ -100,9 +100,9 @@ void main() {
     // Sample the background scene (ocean + glass combined)
     vec3 backgroundColor = texture(u_sceneTexture, screenUV).rgb;
 
-    // Sample the text mask texture using corrected UV coordinates
-    // Now that UV coordinates are flipped, v_uv should work correctly
-    float textAlpha = texture(u_textTexture, v_uv).a;
+    // Sample the text texture directly using screen UV coordinates
+    // Text canvas now matches screen canvas dimensions, so screenUV maps directly
+    float textAlpha = texture(u_textTexture, screenUV).a;
 
     // Early discard for areas with no text
     if (textAlpha < 0.01) {
@@ -133,8 +133,8 @@ void main() {
     // Mix between quantized adaptive color and dithered grayscale
     vec3 finalTextColor = mix(quantizedColor, ditherColor, 0.3);
 
-    // Simple anti-aliasing using step function (more performant than smoothstep)
-    float smoothAlpha = step(0.05, textAlpha);
+    // Smooth anti-aliasing for text edges
+    float smoothAlpha = smoothstep(0.3, 0.7, textAlpha);
 
     // Add soft edge fade for panel boundaries
     float edgeFade = 1.0;
