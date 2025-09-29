@@ -7,6 +7,7 @@ import { GeometryBuilder, BufferManager, GeometryData } from './Geometry';
 import { Mat4 } from '../utils/math';
 import { VesselSystem, VesselConfig } from './VesselSystem';
 import { GlassRenderer } from './GlassRenderer';
+import { TextRenderer } from './TextRenderer';
 
 export interface RenderConfig {
   canvas: HTMLCanvasElement;
@@ -49,6 +50,10 @@ export class OceanRenderer {
   // Glass panel renderer
   private glassRenderer: GlassRenderer | null = null;
   private glassEnabled: boolean = false;
+
+  // Text renderer for adaptive text overlay
+  private textRenderer: TextRenderer | null = null;
+  private textEnabled: boolean = false;
 
   // Pre-cached DOM elements
   private cachedElements = {
@@ -105,6 +110,9 @@ export class OceanRenderer {
 
     // Initialize glass renderer
     this.initializeGlassRenderer();
+
+    // Initialize text renderer
+    this.initializeTextRenderer();
   }
 
   /**
@@ -176,6 +184,11 @@ export class OceanRenderer {
       if (this.glassRenderer) {
         this.glassRenderer.resizeFramebuffer(canvasWidth, canvasHeight);
       }
+
+      // Resize text renderer framebuffer if enabled
+      if (this.textRenderer) {
+        this.textRenderer.resizeFramebuffer(canvasWidth, canvasHeight);
+      }
     }
   }
 
@@ -240,13 +253,29 @@ export class OceanRenderer {
   }
 
   /**
-   * Initialize ocean shader program and glass shaders
+   * Initialize text renderer system
+   */
+  private initializeTextRenderer(): void {
+    try {
+      this.textRenderer = new TextRenderer(this.gl, this.shaderManager);
+      this.textRenderer.setupDefaultTextElements();
+      console.log('Text renderer initialized successfully!');
+    } catch (error) {
+      console.error('Failed to initialize text renderer:', error);
+      this.textRenderer = null;
+    }
+  }
+
+  /**
+   * Initialize ocean shader program, glass shaders, and text shaders
    */
   async initializeShaders(
     oceanVertexSource: string,
     oceanFragmentSource: string,
     glassVertexSource?: string,
-    glassFragmentSource?: string
+    glassFragmentSource?: string,
+    textVertexSource?: string,
+    textFragmentSource?: string
   ): Promise<void> {
     // Define uniforms and attributes for ocean shader
     const uniforms = [
@@ -300,15 +329,65 @@ export class OceanRenderer {
         this.glassEnabled = false;
       }
     }
+
+    // Initialize text shaders if provided
+    if (textVertexSource && textFragmentSource && this.textRenderer) {
+      try {
+        await this.textRenderer.initializeShaders(textVertexSource, textFragmentSource);
+        this.textEnabled = true;
+        console.log('Text shaders initialized successfully!');
+      } catch (error) {
+        console.error('Failed to initialize text shaders:', error);
+        this.textEnabled = false;
+      }
+    }
   }
 
   /**
-   * Render ocean scene with glass overlay pipeline
+   * Render ocean scene with glass and text overlay pipeline
    */
   private renderOceanScene(elapsedTime: number): void {
     const gl = this.gl;
 
-    if (this.glassEnabled && this.glassRenderer) {
+    if (this.textEnabled && this.textRenderer) {
+      // Full pipeline: Ocean -> Glass -> Text
+
+      if (this.glassEnabled && this.glassRenderer) {
+        // 1. Render ocean to texture for glass distortion
+        this.glassRenderer.captureOceanScene(() => {
+          gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+          this.drawOcean(elapsedTime);
+        });
+
+        // 2. Render combined ocean + glass scene to texture for text background analysis
+        this.textRenderer.captureScene(() => {
+          gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+          this.drawOcean(elapsedTime);
+          this.glassRenderer!.render();
+        });
+
+        // 3. Final render: Ocean + Glass + Text
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        this.drawOcean(elapsedTime);
+        this.glassRenderer.render();
+        this.textRenderer.render();
+      } else {
+        // Ocean + Text pipeline (no glass)
+
+        // 1. Render ocean to texture for text background analysis
+        this.textRenderer.captureScene(() => {
+          gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+          this.drawOcean(elapsedTime);
+        });
+
+        // 2. Final render: Ocean + Text
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        this.drawOcean(elapsedTime);
+        this.textRenderer.render();
+      }
+    } else if (this.glassEnabled && this.glassRenderer) {
+      // Glass pipeline only (no text)
+
       // Render ocean to texture for glass distortion
       this.glassRenderer.captureOceanScene(() => {
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
@@ -322,7 +401,7 @@ export class OceanRenderer {
       // Render glass panels as overlay
       this.glassRenderer.render();
     } else {
-      // Normal rendering without glass effects
+      // Basic ocean rendering only
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
       this.drawOcean(elapsedTime);
     }
@@ -531,6 +610,27 @@ export class OceanRenderer {
   }
 
   /**
+   * Enable/disable text rendering
+   */
+  setTextEnabled(enabled: boolean): void {
+    this.textEnabled = enabled && this.textRenderer !== null;
+  }
+
+  /**
+   * Get text rendering state
+   */
+  getTextEnabled(): boolean {
+    return this.textEnabled;
+  }
+
+  /**
+   * Get text renderer instance for external control
+   */
+  getTextRenderer(): TextRenderer | null {
+    return this.textRenderer;
+  }
+
+  /**
    * Initialize cached DOM elements for performance
    */
   private initializeCachedElements(): void {
@@ -554,6 +654,12 @@ export class OceanRenderer {
     if (this.glassRenderer) {
       this.glassRenderer.dispose();
       this.glassRenderer = null;
+    }
+
+    // Clean up text renderer
+    if (this.textRenderer) {
+      this.textRenderer.dispose();
+      this.textRenderer = null;
     }
   }
 }

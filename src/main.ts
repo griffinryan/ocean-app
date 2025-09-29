@@ -12,6 +12,8 @@ import oceanVertexShader from './shaders/ocean.vert';
 import oceanFragmentShader from './shaders/ocean.frag';
 import glassVertexShader from './shaders/glass.vert';
 import glassFragmentShader from './shaders/glass.frag';
+import textVertexShader from './shaders/text.vert';
+import textFragmentShader from './shaders/text.frag';
 
 class OceanApp {
   public renderer: OceanRenderer | null = null;
@@ -39,12 +41,14 @@ class OceanApp {
         alpha: false
       });
 
-      // Initialize shaders (ocean and glass)
+      // Initialize shaders (ocean, glass, and text)
       await this.renderer.initializeShaders(
         oceanVertexShader,
         oceanFragmentShader,
         glassVertexShader,
-        glassFragmentShader
+        glassFragmentShader,
+        textVertexShader,
+        textFragmentShader
       );
 
       // Start rendering
@@ -127,6 +131,15 @@ class OceanApp {
     } else {
       console.warn('Glass renderer not available, falling back to CSS-only effects');
     }
+
+    // Enable text rendering if available
+    const textRenderer = this.renderer.getTextRenderer();
+    if (textRenderer) {
+      this.renderer.setTextEnabled(true);
+      console.log('UI connected to text renderer successfully!');
+    } else {
+      console.warn('Text renderer not available, falling back to CSS-only text');
+    }
   }
 
   /**
@@ -190,6 +203,17 @@ class OceanApp {
             this.updateGlassInfo(!isEnabled);
           }
           break;
+        case 't':
+        case 'T':
+          // Toggle text rendering
+          event.preventDefault();
+          event.stopPropagation();
+          if (this.renderer) {
+            const isEnabled = this.renderer.getTextEnabled();
+            this.renderer.setTextEnabled(!isEnabled);
+            this.updateTextInfo(!isEnabled);
+          }
+          break;
         case '1':
         case '2':
         case '3':
@@ -215,6 +239,7 @@ class OceanApp {
     console.log('  0-4 - Select debug mode directly');
     console.log('  V - Toggle vessel wake system');
     console.log('  G - Toggle glass panel rendering');
+    console.log('  T - Toggle text rendering');
     console.log('  Space - Reserved for future controls');
   }
 
@@ -274,6 +299,24 @@ class OceanApp {
       }
 
       glassElement.innerHTML = `<br>Glass Panels: ${enabled ? 'ON' : 'OFF'}`;
+    }
+  }
+
+  /**
+   * Update text rendering info display
+   */
+  private updateTextInfo(enabled: boolean): void {
+    const infoElement = document.getElementById('info');
+    if (infoElement && this.renderer) {
+      // Update the existing info or add text info
+      let textElement = document.getElementById('text-info');
+      if (!textElement) {
+        textElement = document.createElement('div');
+        textElement.id = 'text-info';
+        infoElement.appendChild(textElement);
+      }
+
+      textElement.innerHTML = `<br>Adaptive Text: ${enabled ? 'ON' : 'OFF'}`;
     }
   }
 
