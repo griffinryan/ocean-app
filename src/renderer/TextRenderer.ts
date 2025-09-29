@@ -315,6 +315,7 @@ export class TextRenderer {
 
   /**
    * Render individual text element to canvas using actual screen coordinates
+   * Accounts for complete CSS box model (border, padding, line-height)
    */
   private renderTextToCanvas(element: HTMLElement, _config: TextElementConfig): void {
     const ctx = this.textContext;
@@ -333,47 +334,72 @@ export class TextRenderer {
     const fontFamily = styles.fontFamily;
     const fontWeight = styles.fontWeight;
     const textAlign = styles.textAlign as CanvasTextAlign;
-    const lineHeight = parseFloat(styles.lineHeight) || fontSize * 1.2;
 
-    // Set font properties
-    const fontString = `${fontWeight} ${fontSize}px ${fontFamily}`;
-    ctx.font = fontString;
-    ctx.textAlign = textAlign;
-    ctx.fillStyle = 'white'; // Always white on canvas, shader will handle color adaptation
+    // Parse line-height (can be 'normal', number, or pixels)
+    let lineHeightPx: number;
+    const lineHeightStyle = styles.lineHeight;
+    if (lineHeightStyle === 'normal') {
+      lineHeightPx = fontSize * 1.2; // Browser default
+    } else if (lineHeightStyle.endsWith('px')) {
+      lineHeightPx = parseFloat(lineHeightStyle);
+    } else {
+      // Unitless number
+      lineHeightPx = parseFloat(lineHeightStyle) * fontSize;
+    }
+
+    // Get CSS box model dimensions
+    // These determine where text actually appears vs where border box is
+    const paddingTop = parseFloat(styles.paddingTop);
+    const paddingLeft = parseFloat(styles.paddingLeft);
+    const paddingRight = parseFloat(styles.paddingRight);
+    const borderTopWidth = parseFloat(styles.borderTopWidth);
+    const borderLeftWidth = parseFloat(styles.borderLeftWidth);
+    const borderRightWidth = parseFloat(styles.borderRightWidth);
 
     // Calculate position in canvas pixel coordinates
-    // Convert from screen coordinates to canvas texture coordinates
+    // getBoundingClientRect() returns border box edge
     const relativeX = elementRect.left - canvasRect.left;
     const relativeY = elementRect.top - canvasRect.top;
 
-    // Scale to canvas texture size (which now matches WebGL canvas size)
+    // Add border and padding to get to content area where text actually renders
+    const contentOffsetX = borderLeftWidth + paddingLeft;
+    const contentOffsetY = borderTopWidth + paddingTop;
+
+    // Calculate line-height leading (extra vertical space distributed around text)
+    // This centers text vertically within its line box
+    const leading = (lineHeightPx - fontSize) / 2;
+
+    // Scale to canvas texture size (which matches WebGL canvas pixel-for-pixel)
     const scaleX = this.textCanvas.width / canvasRect.width;
     const scaleY = this.textCanvas.height / canvasRect.height;
 
     // CRITICAL: Round to integer pixels to avoid subpixel blur
-    // Canvas2D subpixel rendering causes text to appear fuzzy
-    const canvasX = Math.round(relativeX * scaleX);
-    const canvasY = Math.round(relativeY * scaleY);
+    // Apply all offsets (border + padding + leading) before scaling
+    const canvasX = Math.round((relativeX + contentOffsetX) * scaleX);
+    const canvasY = Math.round((relativeY + contentOffsetY + leading) * scaleY);
     const scaledFontSize = Math.round(fontSize * scaleY);
-    const scaledLineHeight = Math.round(lineHeight * scaleY);
+    const scaledLineHeight = Math.round(lineHeightPx * scaleY);
 
-    // Update font with scaled size (integer pixels only)
+    // Set font properties
     ctx.font = `${fontWeight} ${scaledFontSize}px ${fontFamily}`;
+    ctx.textBaseline = 'top';  // Consistent with our Y calculation
+    ctx.textAlign = textAlign;
+    ctx.fillStyle = 'white'; // Always white on canvas, shader will handle color adaptation
 
     // Get text content - use innerText to preserve line breaks from <br> tags
     const text = element.innerText || element.textContent || '';
-
-    // Handle multi-line text
     const lines = text.split('\n');
 
-    // Adjust X position based on text alignment
-    let adjustedX = canvasX;
-    const elementWidthInCanvas = elementRect.width * scaleX;
+    // Calculate content width (excludes border and padding) for text alignment
+    const contentWidth = elementRect.width - borderLeftWidth - borderRightWidth - paddingLeft - paddingRight;
+    const contentWidthInCanvas = contentWidth * scaleX;
 
+    // Adjust X position based on text alignment within content area
+    let adjustedX = canvasX;
     if (textAlign === 'center') {
-      adjustedX = canvasX + elementWidthInCanvas / 2;
+      adjustedX = canvasX + contentWidthInCanvas / 2;
     } else if (textAlign === 'right') {
-      adjustedX = canvasX + elementWidthInCanvas;
+      adjustedX = canvasX + contentWidthInCanvas;
     }
 
     // Render each line
@@ -631,7 +657,26 @@ export class TextRenderer {
     // Set up mutation observer for content changes
     this.setupMutationObserver();
 
+    // Enable WebGL text rendering - hide CSS text to prevent double-vision
+    this.enableWebGLText();
+
     console.log(`TextRenderer: Tracking ${this.textElements.size} text elements for per-pixel adaptive coloring`);
+  }
+
+  /**
+   * Enable WebGL text rendering by hiding CSS text
+   * Keeps HTML elements in DOM for layout, accessibility, and SEO
+   */
+  private enableWebGLText(): void {
+    // Add class to all glass panels to hide their CSS text
+    document.querySelectorAll('.glass-panel').forEach(panel => {
+      panel.classList.add('webgl-text-enabled');
+    });
+
+    // Also add to body for global text elements
+    document.body.classList.add('webgl-text-enabled');
+
+    console.log('TextRenderer: WebGL text rendering enabled, CSS text hidden');
   }
 
   /**

@@ -495,6 +495,31 @@ body {
   pointer-events: none;
 }
 
+/* ===== WEBGL TEXT RENDERING ===== */
+
+/* Hide CSS text when WebGL text rendering is active */
+/* Keep HTML elements in DOM for layout, accessibility, and SEO */
+.webgl-text-enabled h1,
+.webgl-text-enabled h2,
+.webgl-text-enabled h3,
+.webgl-text-enabled h4,
+.webgl-text-enabled p,
+.webgl-text-enabled a,
+.webgl-text-enabled span,
+.webgl-text-enabled .subtitle,
+.webgl-text-enabled .glass-button,
+.webgl-text-enabled .brand-text,
+.webgl-text-enabled .nav-label,
+.webgl-text-enabled .skill-tag {
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+  text-shadow: none !important;
+  /* Remove gradient backgrounds that might show */
+  background: none !important;
+  -webkit-background-clip: unset !important;
+  background-clip: unset !important;
+}
+
 .fade-in {
   animation: fadeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1);
 }
