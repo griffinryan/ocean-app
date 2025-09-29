@@ -315,7 +315,7 @@ export class TextRenderer {
 
   /**
    * Render individual text element to canvas using direct screen-space coordinates
-   * Simplified approach: match HTML's exact visual position without reverse-engineering CSS layout
+   * Handles flexbox centering, standard flow, and all CSS layout modes
    */
   private renderTextToCanvas(element: HTMLElement, _config: TextElementConfig): void {
     const ctx = this.textContext;
@@ -347,6 +347,23 @@ export class TextRenderer {
       lineHeightPx = parseFloat(lineHeightStyle) * fontSize;
     }
 
+    // Detect flexbox layout on element itself
+    const elementDisplay = styles.display;
+    const isFlexContainer = elementDisplay === 'flex' || elementDisplay === 'inline-flex';
+    const alignItems = styles.alignItems;
+    const justifyContent = styles.justifyContent;
+
+    // Detect flexbox layout on parent
+    const parent = element.parentElement;
+    let parentIsFlexContainer = false;
+    let parentAlignItems = '';
+    if (parent) {
+      const parentStyles = getComputedStyle(parent);
+      const parentDisplay = parentStyles.display;
+      parentIsFlexContainer = parentDisplay === 'flex' || parentDisplay === 'inline-flex';
+      parentAlignItems = parentStyles.alignItems;
+    }
+
     // Element position in screen space (pixels from canvas top-left)
     // getBoundingClientRect() returns position AFTER all CSS transforms and layout
     const screenX = elementRect.left - canvasRect.left;
@@ -366,12 +383,6 @@ export class TextRenderer {
     const scaledLineHeight = Math.round(lineHeightPx * scaleY);
     const scaledWidth = Math.round(elementRect.width * scaleX);
     const scaledHeight = Math.round(elementRect.height * scaleY);
-
-    // Set font properties to match HTML exactly
-    ctx.font = `${fontWeight} ${scaledFontSize}px ${fontFamily}`;
-    ctx.textAlign = textAlign;
-    ctx.textBaseline = 'top'; // We'll calculate Y position for top baseline
-    ctx.fillStyle = 'white';
 
     // Get text content
     const text = element.innerText || element.textContent || '';
@@ -394,79 +405,62 @@ export class TextRenderer {
     // Line-height creates leading space (vertical centering within line box)
     const leading = (scaledLineHeight - scaledFontSize) / 2;
 
-    // Calculate final text baseline position
+    // Determine text position based on layout mode
     let textX = contentLeft;
     let textY = contentTop + leading;
+    let baselineMode: CanvasTextBaseline = 'top';
+    let alignMode: CanvasTextAlign = 'left';
 
-    // Apply text-align for horizontal positioning
-    if (textAlign === 'center') {
-      textX = contentLeft + contentWidth / 2;
-    } else if (textAlign === 'right') {
-      textX = contentLeft + contentWidth;
-    }
-
-    // DEBUG MODE: Draw visual guides
-    const DEBUG_MODE = true;
-    if (DEBUG_MODE) {
-      // Draw element border box (red)
-      ctx.strokeStyle = 'rgba(255, 0, 0, 0.6)';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(
-        Math.round(textureX),
-        Math.round(textureY),
-        Math.round(scaledWidth),
-        Math.round(scaledHeight)
-      );
-
-      // Draw content box (green)
-      ctx.strokeStyle = 'rgba(0, 255, 0, 0.6)';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(
-        Math.round(contentLeft),
-        Math.round(contentTop),
-        Math.round(contentWidth),
-        Math.round(scaledHeight - borderTopWidth - parseFloat(styles.borderBottomWidth) * scaleY - paddingTop - parseFloat(styles.paddingBottom) * scaleY)
-      );
-
-      // Draw text baseline position (cyan crosshair)
-      ctx.strokeStyle = 'rgba(0, 255, 255, 1.0)';
-      ctx.lineWidth = 2;
-      const crossSize = 15;
-      ctx.beginPath();
-      // Horizontal line
-      ctx.moveTo(textX - crossSize, textY);
-      ctx.lineTo(textX + crossSize, textY);
-      // Vertical line
-      ctx.moveTo(textX, textY - crossSize);
-      ctx.lineTo(textX, textY + crossSize);
-      ctx.stroke();
-
-      // Draw text alignment guide (yellow vertical line)
-      if (textAlign === 'center') {
-        ctx.strokeStyle = 'rgba(255, 255, 0, 0.5)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(textX, textureY);
-        ctx.lineTo(textX, textureY + scaledHeight);
-        ctx.stroke();
+    // CASE 1: Element itself is flex container with centering
+    if (isFlexContainer) {
+      if (alignItems === 'center') {
+        // Vertically center text in element's full height
+        textY = textureY + scaledHeight / 2;
+        baselineMode = 'middle';
       }
 
-      // Label element with its selector (small text)
-      const selector = _config.selector;
-      ctx.fillStyle = 'rgba(255, 255, 0, 0.9)';
-      ctx.font = '10px monospace';
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'top';
-      ctx.fillText(selector, textureX + 2, textureY + 2);
-
-      // Restore font for actual text rendering
-      ctx.font = `${fontWeight} ${scaledFontSize}px ${fontFamily}`;
-      ctx.textAlign = textAlign;
-      ctx.textBaseline = 'top';
+      if (justifyContent === 'center') {
+        // Horizontally center text in element's full width
+        textX = textureX + scaledWidth / 2;
+        alignMode = 'center';
+      }
     }
 
-    // Render each line of text
+    // CASE 2: Element is child of flex container with centering
+    else if (parentIsFlexContainer && parentAlignItems === 'center') {
+      // Vertically center text in element's full height
+      textY = textureY + scaledHeight / 2;
+      baselineMode = 'middle';
+
+      // For horizontal, still use element's text-align
+      if (textAlign === 'center') {
+        textX = contentLeft + contentWidth / 2;
+        alignMode = 'center';
+      } else if (textAlign === 'right') {
+        textX = contentLeft + contentWidth;
+        alignMode = 'right';
+      }
+    }
+
+    // CASE 3: Standard flow (no flex centering)
+    else {
+      // Use text-align from CSS
+      if (textAlign === 'center') {
+        textX = contentLeft + contentWidth / 2;
+        alignMode = 'center';
+      } else if (textAlign === 'right') {
+        textX = contentLeft + contentWidth;
+        alignMode = 'right';
+      }
+    }
+
+    // Set font and text properties
+    ctx.font = `${fontWeight} ${scaledFontSize}px ${fontFamily}`;
+    ctx.textBaseline = baselineMode;
+    ctx.textAlign = alignMode;
     ctx.fillStyle = 'white';
+
+    // Render each line of text
     lines.forEach((line, index) => {
       const y = textY + (index * scaledLineHeight);
 
@@ -479,6 +473,7 @@ export class TextRenderer {
 
   /**
    * Generate text texture from all current text elements
+   * Only renders text from visible panels to prevent cross-panel bleeding
    */
   private updateTextTexture(): void {
     if (!this.needsTextureUpdate || this.textElements.size === 0 || !this.fontsLoaded) {
@@ -488,14 +483,31 @@ export class TextRenderer {
     const gl = this.gl;
     const ctx = this.textContext;
 
-    // Clear canvas
+    // Clear canvas completely
     ctx.clearRect(0, 0, this.textCanvas.width, this.textCanvas.height);
 
-    // Render each text element to canvas (including hidden ones for smooth transitions)
+    // Get list of visible panels
+    const visiblePanels = new Set<string>();
+    const panelIds = ['landing-panel', 'app-panel', 'portfolio-panel', 'resume-panel', 'navbar'];
+
+    panelIds.forEach(panelId => {
+      const panelElement = document.getElementById(panelId);
+      if (panelElement && !panelElement.classList.contains('hidden')) {
+        // Add both full panel ID and short name for matching
+        visiblePanels.add(panelId);
+        visiblePanels.add(panelId.replace('-panel', '')); // e.g., 'landing-panel' → 'landing'
+      }
+    });
+
+    // Render ONLY text elements from visible panels
     this.textElements.forEach((config) => {
+      // Check if this text element's panel is visible
+      if (!visiblePanels.has(config.panelId)) {
+        return; // Skip text from hidden panels
+      }
+
       const element = document.querySelector(config.selector) as HTMLElement;
       if (element) {
-        // Render text even if parent panel is hidden - WebGL shader will handle visibility
         this.renderTextToCanvas(element, config);
       }
     });
