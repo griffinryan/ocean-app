@@ -72,6 +72,12 @@ export class GlassRenderer {
         'u_aspectRatio',
         'u_resolution',
         'u_oceanTexture',
+        // Panel arrays for full-screen rendering
+        'u_panelCount',
+        'u_panelPositions',
+        'u_panelSizes',
+        'u_distortionStrengths',
+        // Legacy single-panel uniforms (kept for compatibility)
         'u_panelPosition',
         'u_panelSize',
         'u_distortionStrength',
@@ -80,7 +86,7 @@ export class GlassRenderer {
 
       const attributes = [
         'a_position',
-        'a_uv'
+        'a_texcoord'
       ];
 
       // Create glass shader program
@@ -94,10 +100,10 @@ export class GlassRenderer {
 
       // Set up vertex attributes for glass rendering
       const positionLocation = this.glassProgram.attributeLocations.get('a_position');
-      const uvLocation = this.glassProgram.attributeLocations.get('a_uv');
+      const texcoordLocation = this.glassProgram.attributeLocations.get('a_texcoord');
 
-      if (positionLocation !== undefined && uvLocation !== undefined) {
-        this.bufferManager.setupAttributes(positionLocation, uvLocation);
+      if (positionLocation !== undefined && texcoordLocation !== undefined) {
+        this.bufferManager.setupAttributes(positionLocation, texcoordLocation);
       }
 
       console.log('Glass shaders initialized successfully!');
@@ -253,12 +259,12 @@ export class GlassRenderer {
   }
 
   /**
-   * Render all glass panels
+   * Render full scene with glass effects (NEW METHOD)
    */
-  public render(): void {
+  public renderFullScene(): void {
     const gl = this.gl;
 
-    if (!this.glassProgram || !this.oceanTexture || this.panels.size === 0) {
+    if (!this.glassProgram || !this.oceanTexture) {
       return;
     }
 
@@ -268,7 +274,7 @@ export class GlassRenderer {
     // Use glass shader program
     const program = this.shaderManager.useProgram('glass');
 
-    // Set up matrices
+    // Set up matrices (not used in screen-space rendering, but kept for compatibility)
     this.shaderManager.setUniformMatrix4fv(program, 'u_projectionMatrix', this.projectionMatrix.data);
     this.shaderManager.setUniformMatrix4fv(program, 'u_viewMatrix', this.viewMatrix.data);
 
@@ -285,11 +291,127 @@ export class GlassRenderer {
     gl.bindTexture(gl.TEXTURE_2D, this.oceanTexture);
     this.shaderManager.setUniform1i(program, 'u_oceanTexture', 0);
 
+    // Collect and send panel data to shader
+    const panelData = this.collectPanelData();
+    this.shaderManager.setUniform1i(program, 'u_panelCount', panelData.count);
+
+    // Send panel arrays if any panels exist
+    if (panelData.count > 0) {
+      this.shaderManager.setUniform2fv(program, 'u_panelPositions', panelData.positions);
+      this.shaderManager.setUniform2fv(program, 'u_panelSizes', panelData.sizes);
+      this.shaderManager.setUniform1fv(program, 'u_distortionStrengths', panelData.strengths);
+    }
+
+    // Store current WebGL state
+    const previousBlend = gl.isEnabled(gl.BLEND);
+    const previousDepthTest = gl.isEnabled(gl.DEPTH_TEST);
+
     // Enable blending for transparency
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-    // Disable depth testing for glass panels
+    // Disable depth testing for overlay rendering
+    gl.disable(gl.DEPTH_TEST);
+
+    // Render full-screen quad with all panels processed in shader
+    this.bufferManager.bind();
+    gl.drawElements(gl.TRIANGLES, this.panelGeometry.indexCount, gl.UNSIGNED_SHORT, 0);
+
+    // Restore previous WebGL state
+    if (previousDepthTest) {
+      gl.enable(gl.DEPTH_TEST);
+    } else {
+      gl.disable(gl.DEPTH_TEST);
+    }
+
+    if (!previousBlend) {
+      gl.disable(gl.BLEND);
+    }
+
+    // Unbind texture
+    gl.bindTexture(gl.TEXTURE_2D, null);
+  }
+
+  /**
+   * Collect panel data for shader uniform arrays
+   */
+  private collectPanelData(): { count: number; positions: Float32Array; sizes: Float32Array; strengths: Float32Array } {
+    const visiblePanels: { config: GlassPanelConfig; id: string }[] = [];
+
+    // Collect visible panels
+    this.panels.forEach((config, id) => {
+      let elementId = id;
+      if (id === 'landing') elementId = 'landing-panel';
+      else if (id === 'app') elementId = 'app-panel';
+      else if (id === 'portfolio') elementId = 'portfolio-panel';
+      else if (id === 'resume') elementId = 'resume-panel';
+      else if (id === 'navbar') elementId = 'navbar';
+
+      const element = document.getElementById(elementId);
+      if (element && !element.classList.contains('hidden')) {
+        visiblePanels.push({ config, id });
+      }
+    });
+
+    const count = Math.min(visiblePanels.length, 10); // Limit to 10 panels
+    const positions = new Float32Array(count * 2);
+    const sizes = new Float32Array(count * 2);
+    const strengths = new Float32Array(count);
+
+    for (let i = 0; i < count; i++) {
+      const { config } = visiblePanels[i];
+      positions[i * 2] = config.position[0];
+      positions[i * 2 + 1] = config.position[1];
+      sizes[i * 2] = config.size[0];
+      sizes[i * 2 + 1] = config.size[1];
+      strengths[i] = config.distortionStrength;
+    }
+
+    return { count, positions, sizes, strengths };
+  }
+
+  /**
+   * Render all glass panels (LEGACY METHOD - kept for compatibility)
+   */
+  public render(): void {
+    const gl = this.gl;
+
+    if (!this.glassProgram || !this.oceanTexture || this.panels.size === 0) {
+      return;
+    }
+
+    // Update panel positions before rendering
+    this.updatePanelPositions();
+
+    // Use glass shader program
+    const program = this.shaderManager.useProgram('glass');
+
+    // Set up matrices (not used in screen-space rendering, but kept for compatibility)
+    this.shaderManager.setUniformMatrix4fv(program, 'u_projectionMatrix', this.projectionMatrix.data);
+    this.shaderManager.setUniformMatrix4fv(program, 'u_viewMatrix', this.viewMatrix.data);
+
+    // Set time uniform for animation
+    const currentTime = (performance.now() - this.startTime) / 1000.0;
+    this.shaderManager.setUniform1f(program, 'u_time', currentTime);
+
+    // Set resolution
+    this.shaderManager.setUniform2f(program, 'u_resolution', gl.canvas.width, gl.canvas.height);
+    this.shaderManager.setUniform1f(program, 'u_aspectRatio', gl.canvas.width / gl.canvas.height);
+
+    // Bind ocean texture
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.oceanTexture);
+    this.shaderManager.setUniform1i(program, 'u_oceanTexture', 0);
+
+    // Store current WebGL state
+    const previousBlend = gl.isEnabled(gl.BLEND);
+    const previousDepthTest = gl.isEnabled(gl.DEPTH_TEST);
+
+    // Enable blending for transparency
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+    // Disable depth testing for glass panels (overlay rendering)
     gl.disable(gl.DEPTH_TEST);
 
     // Render each visible panel
@@ -308,8 +430,19 @@ export class GlassRenderer {
       }
     });
 
-    // Re-enable depth testing
-    gl.enable(gl.DEPTH_TEST);
+    // Restore previous WebGL state
+    if (previousDepthTest) {
+      gl.enable(gl.DEPTH_TEST);
+    } else {
+      gl.disable(gl.DEPTH_TEST);
+    }
+
+    if (!previousBlend) {
+      gl.disable(gl.BLEND);
+    }
+
+    // Unbind texture
+    gl.bindTexture(gl.TEXTURE_2D, null);
   }
 
   /**
@@ -511,6 +644,15 @@ export class GlassRenderer {
    */
   public getOceanTexture(): WebGLTexture | null {
     return this.oceanTexture;
+  }
+
+  /**
+   * Check if glass renderer is ready for rendering
+   */
+  public isReady(): boolean {
+    return this.glassProgram !== null &&
+           this.oceanTexture !== null &&
+           this.bufferManager !== null;
   }
 
   /**

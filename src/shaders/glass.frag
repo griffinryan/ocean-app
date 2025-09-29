@@ -9,6 +9,14 @@ in float v_time;
 uniform float u_aspectRatio;
 uniform vec2 u_resolution;
 uniform sampler2D u_oceanTexture; // The rendered ocean scene
+
+// Panel arrays for full-screen rendering
+uniform int u_panelCount;           // Number of active panels
+uniform vec2 u_panelPositions[10];  // Panel positions in screen space
+uniform vec2 u_panelSizes[10];      // Panel sizes in screen space
+uniform float u_distortionStrengths[10]; // Distortion strength per panel
+
+// Legacy single-panel uniforms (kept for compatibility)
 uniform vec2 u_panelPosition;     // Panel position in screen space
 uniform vec2 u_panelSize;         // Panel size in screen space
 uniform float u_distortionStrength; // How strong the distortion is
@@ -109,169 +117,11 @@ void main() {
     // Convert screen position to UV coordinates
     vec2 screenUV = (v_screenPos + 1.0) * 0.5;
 
-    // Calculate position relative to panel with corrected coordinate mapping
-    vec2 panelCenter = (u_panelPosition + 1.0) * 0.5; // Convert from [-1,1] to [0,1]
-    vec2 panelHalfSize = u_panelSize * 0.5; // Half-size for center-based calculation
+    // For initial testing: just show the ocean texture
+    vec3 oceanColor = texture(u_oceanTexture, screenUV).rgb;
 
-    // Calculate panel UV coordinates directly
-    vec2 deltaFromCenter = screenUV - panelCenter;
-    vec2 panelUV = deltaFromCenter / panelHalfSize + 0.5; // Direct mapping to [0,1] range
+    // Add a subtle tint to verify glass shader is working
+    oceanColor += vec3(0.05, 0.1, 0.15) * sin(v_time) * 0.1;
 
-    // Strict boundary enforcement - only render within exact panel bounds
-    if (panelUV.x < 0.0 || panelUV.x > 1.0 || panelUV.y < 0.0 || panelUV.y > 1.0) {
-        discard;
-    }
-
-    // Add soft edge fade for smoother transitions at boundaries
-    float edgeFade = 1.0;
-    float fadeWidth = 0.02; // 2% fade at edges
-    edgeFade *= smoothstep(0.0, fadeWidth, panelUV.x);
-    edgeFade *= smoothstep(0.0, fadeWidth, panelUV.y);
-    edgeFade *= smoothstep(0.0, fadeWidth, 1.0 - panelUV.x);
-    edgeFade *= smoothstep(0.0, fadeWidth, 1.0 - panelUV.y);
-
-    // Calculate liquid glass surface normal with flowing animation
-    vec3 glassNormal = calculateLiquidGlassNormal(panelUV, v_time);
-
-    // View direction (looking into the screen)
-    vec3 viewDir = vec3(0.0, 0.0, -1.0);
-
-    // Calculate incident angle
-    float cosTheta = dot(-viewDir, glassNormal);
-
-    // Calculate Fresnel reflectance
-    float fresnelReflection = fresnel(cosTheta, u_refractionIndex);
-
-    // Calculate refraction direction
-    vec3 refractionDir = calculateRefraction(viewDir, glassNormal, 1.0 / u_refractionIndex);
-
-    // Calculate uniform distorted UV coordinates with consistent liquid warping
-    vec2 distortedUV = screenUV;
-
-    if (length(refractionDir) > 0.0) {
-        // Apply uniform refraction offset
-        vec2 refractionOffset = refractionDir.xy * u_distortionStrength;
-
-        // Enhanced flowing liquid distortion patterns
-        vec2 liquidOffset = vec2(
-            sin(panelUV.y * 12.0 + v_time * 2.5) * 0.04,
-            cos(panelUV.x * 10.0 + v_time * 2.0) * 0.04
-        );
-
-        // Multiple ripple layers for complexity
-        float ripplePhase1 = length(panelUV - 0.5) * 15.0 - v_time * 4.0;
-        float ripplePhase2 = length(panelUV - 0.3) * 20.0 - v_time * 3.5;
-        vec2 rippleOffset = normalize(panelUV - 0.5) * (sin(ripplePhase1) * 0.025 + sin(ripplePhase2) * 0.015);
-
-        // Add noise-based distortion for more organic feel
-        vec2 noisePos = panelUV * 8.0 + v_time * 0.8;
-        vec2 noiseOffset = vec2(
-            noise(noisePos) - 0.5,
-            noise(noisePos + vec2(100.0)) - 0.5
-        ) * 0.03;
-
-        // Combine all distortion effects with enhanced strength
-        vec2 totalOffset = refractionOffset + liquidOffset + rippleOffset + noiseOffset;
-
-        // Enhanced distortion balanced with opacity
-        totalOffset *= u_distortionStrength * 2.5;
-
-        distortedUV += totalOffset;
-    }
-
-    // Ensure UV coordinates stay within bounds
-    distortedUV = clamp(distortedUV, vec2(0.001), vec2(0.999));
-
-    // Sample the ocean texture with distortion
-    vec3 oceanColor = texture(u_oceanTexture, distortedUV).rgb;
-
-    // Apply glass tinting
-    oceanColor *= GLASS_TINT;
-
-    // Uniform chromatic aberration across entire panel
-    float chromaticAberration = u_distortionStrength * 0.006;
-    float chromaticFlow = sin(v_time * 1.0) * 0.001;
-
-    vec3 chromaticColor = vec3(
-        texture(u_oceanTexture, distortedUV + vec2(chromaticAberration + chromaticFlow, 0.0)).r,
-        texture(u_oceanTexture, distortedUV).g,
-        texture(u_oceanTexture, distortedUV - vec2(chromaticAberration - chromaticFlow, 0.0)).b
-    );
-
-    // Apply uniform chromatic aberration mixing
-    oceanColor = mix(oceanColor, chromaticColor * GLASS_TINT, 0.35);
-
-    // Enhanced glass surface reflection with flow
-    vec3 reflection = vec3(0.85, 0.92, 1.0) * fresnelReflection * 0.15;
-
-    // Add flowing highlights
-    float flowHighlight = sin(panelUV.x * 8.0 + v_time * 3.0) * cos(panelUV.y * 6.0 + v_time * 2.0);
-    reflection += vec3(0.9, 0.95, 1.0) * flowHighlight * 0.03;
-
-    // Enhanced edge glow with liquid-like variation
-    float edgeGlow = 1.0 - smoothstep(0.0, 0.08, min(
-        min(panelUV.x, 1.0 - panelUV.x),
-        min(panelUV.y, 1.0 - panelUV.y)
-    ));
-
-    // Add pulsing edge effect
-    float edgePulse = 0.5 + 0.5 * sin(v_time * 4.0);
-    edgeGlow *= (0.7 + 0.3 * edgePulse);
-
-    // Stronger edge illumination with blue tint
-    vec3 edgeLight = vec3(0.8, 0.9, 1.0) * edgeGlow * 0.12;
-
-    // Add caustic light patterns for underwater glass effect
-    vec2 causticUV = panelUV * 3.0 + v_time * 0.1;
-    float caustic1 = sin(causticUV.x * 12.0) * sin(causticUV.y * 8.0);
-    float caustic2 = cos(causticUV.x * 8.0 + v_time * 2.0) * cos(causticUV.y * 10.0 + v_time * 1.5);
-    float causticPattern = (caustic1 + caustic2) * 0.5;
-    causticPattern = max(0.0, causticPattern) * 0.08;
-
-    vec3 causticLight = vec3(0.7, 0.9, 1.0) * causticPattern * fresnelReflection;
-
-    // Add surface imperfections and micro-scratches
-    float scratchPattern = noise(panelUV * 50.0 + v_time * 0.05);
-    scratchPattern = smoothstep(0.4, 0.6, scratchPattern) * 0.02;
-    vec3 scratches = vec3(1.0, 1.0, 1.0) * scratchPattern;
-
-    // Apple-style rim lighting
-    float rimIntensity = pow(1.0 - abs(dot(normalize(vec3(0, 0, 1)), glassNormal)), 2.0);
-    vec3 rimLight = vec3(0.9, 0.95, 1.0) * rimIntensity * 0.1;
-
-    // Depth-based color tinting (thicker glass appears more blue)
-    float depth = length(panelUV - 0.5) * GLASS_THICKNESS;
-    vec3 depthTint = mix(vec3(1.0), vec3(0.85, 0.92, 1.0), depth * 2.0);
-
-    // Combine all effects with proper layering
-    vec3 finalColor = oceanColor * depthTint + reflection + edgeLight + causticLight + scratches + rimLight;
-
-    // Enhanced glass opacity with much stronger visibility
-    float alpha = 0.55 + fresnelReflection * 0.15;
-
-    // Add flowing opacity variation
-    float opacityFlow = sin(panelUV.x * 5.0 + v_time * 1.8) * cos(panelUV.y * 4.0 + v_time * 1.2);
-    alpha += opacityFlow * 0.05;
-
-    // Much stronger edge opacity for clear borders
-    alpha += edgeGlow * 0.5;
-
-    // Add depth-based opacity
-    alpha += depth * 0.25;
-
-    // Add a subtle glass tint to the background
-    vec3 glassTint = vec3(0.9, 0.95, 1.0);
-    finalColor = mix(finalColor, finalColor * glassTint, 0.2);
-
-    // Add visible crystalline patterns
-    float crystalPattern = sin(panelUV.x * 30.0) * sin(panelUV.y * 30.0) * 0.1;
-    finalColor += vec3(crystalPattern * 0.15);
-
-    // Apply edge fade to final alpha for smooth boundaries
-    alpha *= edgeFade;
-
-    // Ensure minimum visibility only within bounds
-    alpha = max(alpha, 0.2 * edgeFade);
-
-    fragColor = vec4(finalColor, alpha);
+    fragColor = vec4(oceanColor, 1.0);
 }

@@ -34,10 +34,10 @@ void main() {
 
     // Convert from pixel coordinates to normalized device coordinates
     // Assuming u_textPosition and scaledPos are in pixel coordinates
-    vec2 normalizedPos = screenPos / u_resolution * 2.0 - 1.0;
+    vec2 normalizedPos = (screenPos / u_resolution) * 2.0 - 1.0;
 
-    // Correct for aspect ratio
-    normalizedPos.x *= u_aspectRatio;
+    // Flip Y coordinate for correct WebGL space
+    normalizedPos.y = -normalizedPos.y;
 
     // Apply subtle wave-based animation to text
     float waveOffset = sin(normalizedPos.x * 8.0 + u_time * 2.0) * 0.002;

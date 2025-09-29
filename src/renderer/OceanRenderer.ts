@@ -316,7 +316,7 @@ export class OceanRenderer {
     if (glassVertexSource && glassFragmentSource && this.glassRenderer) {
       try {
         await this.glassRenderer.initializeShaders(glassVertexSource, glassFragmentSource);
-        this.glassEnabled = true;
+        // Don't auto-enable, let main.ts decide
         console.log('Glass shaders initialized successfully!');
       } catch (error) {
         console.error('Failed to initialize glass shaders:', error);
@@ -345,8 +345,8 @@ export class OceanRenderer {
 
     let oceanTexture: WebGLTexture | null = null;
 
-    if (this.glassEnabled && this.glassRenderer) {
-      // Render ocean to texture for glass distortion
+    if (this.glassRenderer) {
+      // Step 1: Render ocean to framebuffer texture (ONCE)
       this.glassRenderer.captureOceanScene(() => {
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
         this.drawOcean(elapsedTime);
@@ -355,27 +355,36 @@ export class OceanRenderer {
       // Get ocean texture for text rendering
       oceanTexture = this.glassRenderer.getOceanTexture();
 
-      // Clear screen and render ocean without glass effects
+      // Step 2: Clear screen
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-      this.drawOcean(elapsedTime);
 
-      // Render glass panels as overlay
-      this.glassRenderer.render();
+      // Check if glass shader is actually ready
+      if (this.glassEnabled && this.glassRenderer.isReady()) {
+        // Glass enabled: Let glass shader render everything
+        this.glassRenderer.renderFullScene();
+
+        // Verify something was rendered
+        const error = this.gl.getError();
+        if (error !== this.gl.NO_ERROR) {
+          console.error('Glass render failed, falling back to ocean. WebGL error:', error);
+          this.drawOcean(elapsedTime);
+        }
+      } else {
+        // Glass disabled or not ready: Render ocean directly
+        this.drawOcean(elapsedTime);
+      }
     } else {
-      // Normal rendering without glass effects
+      // Fallback rendering without glass renderer
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
       this.drawOcean(elapsedTime);
 
-      // For text rendering without glass, we need to copy the current framebuffer
-      // This is a fallback approach when glass renderer is not available
+      // For text rendering without glass renderer, create a texture from framebuffer
       if (this.textEnabled && this.textRenderer) {
-        // Create a temporary texture from current framebuffer (simplified approach)
-        // In a production environment, you might want to use a dedicated framebuffer
         oceanTexture = this.createTextureFromFramebuffer();
       }
     }
 
-    // Render text overlay with inverse color mapping
+    // Step 3: Text overlay (always last)
     if (this.textEnabled && this.textRenderer && oceanTexture) {
       this.renderTextOverlay(oceanTexture, elapsedTime);
     }
@@ -455,20 +464,43 @@ export class OceanRenderer {
     const gl = this.gl;
 
     const texture = gl.createTexture();
-    if (!texture) return null;
+    if (!texture) {
+      console.error('Failed to create texture for framebuffer copy');
+      return null;
+    }
 
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.copyTexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 0, 0, this.canvas.width, this.canvas.height, 0);
+    try {
+      gl.bindTexture(gl.TEXTURE_2D, texture);
 
-    // Set texture parameters
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      // Use copyTexImage2D to copy current framebuffer content
+      gl.copyTexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 0, 0, this.canvas.width, this.canvas.height, 0);
 
-    gl.bindTexture(gl.TEXTURE_2D, null);
+      // Check for WebGL errors
+      const error = gl.getError();
+      if (error !== gl.NO_ERROR) {
+        console.error('WebGL error during framebuffer copy:', error);
+        gl.deleteTexture(texture);
+        gl.bindTexture(gl.TEXTURE_2D, null);
+        return null;
+      }
 
-    return texture;
+      // Set texture parameters for proper sampling
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+      gl.bindTexture(gl.TEXTURE_2D, null);
+
+      return texture;
+    } catch (error) {
+      console.error('Error creating texture from framebuffer:', error);
+      if (texture) {
+        gl.deleteTexture(texture);
+      }
+      gl.bindTexture(gl.TEXTURE_2D, null);
+      return null;
+    }
   }
 
   /**
@@ -608,6 +640,8 @@ export class OceanRenderer {
    */
   setGlassEnabled(enabled: boolean): void {
     this.glassEnabled = enabled && this.glassRenderer !== null;
+    console.log(`Glass rendering ${this.glassEnabled ? 'enabled' : 'disabled'}`);
+    // Don't reset WebGL state - just switch render paths
   }
 
 
