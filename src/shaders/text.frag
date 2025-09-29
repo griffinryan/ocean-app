@@ -133,8 +133,9 @@ void main() {
     // Mix between quantized adaptive color and dithered grayscale
     vec3 finalTextColor = mix(quantizedColor, ditherColor, 0.3);
 
-    // Smooth anti-aliasing for text edges
-    float smoothAlpha = smoothstep(0.3, 0.7, textAlpha);
+    // Gentle anti-aliasing for text edges
+    // Canvas2D already handles text antialiasing, just smooth the alpha slightly
+    float smoothAlpha = smoothstep(0.1, 0.5, textAlpha);
 
     // Add soft edge fade for panel boundaries
     float edgeFade = 1.0;

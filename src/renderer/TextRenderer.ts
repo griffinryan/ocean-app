@@ -103,8 +103,11 @@ export class TextRenderer {
     // Set up high-quality text rendering
     this.textContext.textBaseline = 'top';
     this.textContext.fillStyle = 'white';
-    this.textContext.imageSmoothingEnabled = true;
-    this.textContext.imageSmoothingQuality = 'high';
+
+    // IMPORTANT: Disable image smoothing for crisp text
+    // imageSmoothingEnabled is for IMAGE scaling, not text rendering
+    // Text should be rendered at native resolution without interpolation
+    this.textContext.imageSmoothingEnabled = false;
 
     console.log(`TextRenderer: Canvas initialized at ${this.textCanvas.width}x${this.textCanvas.height}`);
   }
@@ -224,8 +227,7 @@ export class TextRenderer {
     // Re-apply text rendering settings after resize
     this.textContext.textBaseline = 'top';
     this.textContext.fillStyle = 'white';
-    this.textContext.imageSmoothingEnabled = true;
-    this.textContext.imageSmoothingQuality = 'high';
+    this.textContext.imageSmoothingEnabled = false; // Crisp text, no interpolation
 
     // Bind framebuffer
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFramebuffer);
@@ -348,12 +350,14 @@ export class TextRenderer {
     const scaleX = this.textCanvas.width / canvasRect.width;
     const scaleY = this.textCanvas.height / canvasRect.height;
 
-    const canvasX = relativeX * scaleX;
-    const canvasY = relativeY * scaleY;
-    const scaledFontSize = fontSize * scaleY;
-    const scaledLineHeight = lineHeight * scaleY;
+    // CRITICAL: Round to integer pixels to avoid subpixel blur
+    // Canvas2D subpixel rendering causes text to appear fuzzy
+    const canvasX = Math.round(relativeX * scaleX);
+    const canvasY = Math.round(relativeY * scaleY);
+    const scaledFontSize = Math.round(fontSize * scaleY);
+    const scaledLineHeight = Math.round(lineHeight * scaleY);
 
-    // Update font with scaled size
+    // Update font with scaled size (integer pixels only)
     ctx.font = `${fontWeight} ${scaledFontSize}px ${fontFamily}`;
 
     // Get text content - use innerText to preserve line breaks from <br> tags
@@ -409,6 +413,11 @@ export class TextRenderer {
     // Update WebGL texture
     if (this.textTexture) {
       gl.bindTexture(gl.TEXTURE_2D, this.textTexture);
+
+      // CRITICAL: Flip Y-axis when uploading Canvas2D to WebGL texture
+      // Canvas2D has top-left origin (Y down), WebGL has bottom-left origin (Y up)
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.textCanvas);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
@@ -579,12 +588,24 @@ export class TextRenderer {
   public setupDefaultTextElements(): void {
     // Define text elements to track with their selectors and panel associations
     const textElementSelectors = [
+      // Landing Panel
       { selector: '#landing-panel h1', id: 'landing-title', panelId: 'landing-panel' },
       { selector: '#landing-panel .subtitle', id: 'landing-subtitle', panelId: 'landing-panel' },
-      { selector: '#app-panel h2', id: 'app-title', panelId: 'app-panel' },
-      { selector: '#app-panel p', id: 'app-description', panelId: 'app-panel' },
-      { selector: '#portfolio-panel h2', id: 'portfolio-title', panelId: 'portfolio-panel' },
-      { selector: '#resume-panel h2', id: 'resume-title', panelId: 'resume-panel' },
+      { selector: '#paper-btn', id: 'paper-button', panelId: 'landing-panel' },
+      { selector: '#app-btn', id: 'app-button', panelId: 'landing-panel' },
+
+      // App Panel
+      { selector: '#app-panel > h2', id: 'app-title', panelId: 'app-panel' },
+      { selector: '#app-panel > p', id: 'app-description', panelId: 'app-panel' },
+
+      // Portfolio Panel
+      { selector: '#portfolio-panel > h2', id: 'portfolio-title', panelId: 'portfolio-panel' },
+      { selector: '#portfolio-panel > p', id: 'portfolio-description', panelId: 'portfolio-panel' },
+
+      // Resume Panel
+      { selector: '#resume-panel > h2', id: 'resume-title', panelId: 'resume-panel' },
+
+      // Navigation
       { selector: '.brand-text', id: 'nav-brand', panelId: 'navbar' }
     ];
 
@@ -601,6 +622,9 @@ export class TextRenderer {
       }
     });
 
+    // Add multi-instance elements (project cards, nav items, etc.)
+    this.setupMultiInstanceElements();
+
     // Set up resize observer for responsive positioning
     this.setupResizeObserver();
 
@@ -608,6 +632,100 @@ export class TextRenderer {
     this.setupMutationObserver();
 
     console.log(`TextRenderer: Tracking ${this.textElements.size} text elements for per-pixel adaptive coloring`);
+  }
+
+  /**
+   * Setup text tracking for elements that appear multiple times
+   */
+  private setupMultiInstanceElements(): void {
+    // Project cards in app panel
+    const projectCards = document.querySelectorAll('#app-panel .project-card');
+    projectCards.forEach((card, index) => {
+      const h3 = card.querySelector('h3');
+      const p = card.querySelector('p');
+
+      if (h3) {
+        this.addTextElement(`project-card-title-${index}`, {
+          selector: `#app-panel .project-card:nth-child(${index + 1}) h3`,
+          panelId: 'app-panel'
+        });
+      }
+
+      if (p) {
+        this.addTextElement(`project-card-desc-${index}`, {
+          selector: `#app-panel .project-card:nth-child(${index + 1}) p`,
+          panelId: 'app-panel'
+        });
+      }
+    });
+
+    // Project details in portfolio panel
+    const projectDetails = document.querySelectorAll('#portfolio-panel .project-detail');
+    projectDetails.forEach((detail, index) => {
+      const h3 = detail.querySelector('h3');
+      const p = detail.querySelector('p');
+
+      if (h3) {
+        this.addTextElement(`project-detail-title-${index}`, {
+          selector: `#portfolio-panel .project-detail:nth-child(${index + 1}) h3`,
+          panelId: 'portfolio-panel'
+        });
+      }
+
+      if (p) {
+        this.addTextElement(`project-detail-desc-${index}`, {
+          selector: `#portfolio-panel .project-detail:nth-child(${index + 1}) p`,
+          panelId: 'portfolio-panel'
+        });
+      }
+    });
+
+    // Resume sections
+    const resumeSections = document.querySelectorAll('#resume-panel .resume-section');
+    resumeSections.forEach((section, index) => {
+      const h3 = section.querySelector('h3');
+      const h4 = section.querySelector('h4');
+      const p = section.querySelector('p');
+
+      if (h3) {
+        this.addTextElement(`resume-section-title-${index}`, {
+          selector: `#resume-panel .resume-section:nth-child(${index + 1}) h3`,
+          panelId: 'resume-panel'
+        });
+      }
+
+      if (h4) {
+        this.addTextElement(`resume-section-subtitle-${index}`, {
+          selector: `#resume-panel .resume-section:nth-child(${index + 1}) h4`,
+          panelId: 'resume-panel'
+        });
+      }
+
+      if (p) {
+        this.addTextElement(`resume-section-desc-${index}`, {
+          selector: `#resume-panel .resume-section:nth-child(${index + 1}) p`,
+          panelId: 'resume-panel'
+        });
+      }
+    });
+
+    // Skill tags
+    const skillTags = document.querySelectorAll('#resume-panel .skill-tag');
+    skillTags.forEach((_tag, index) => {
+      this.addTextElement(`skill-tag-${index}`, {
+        selector: `#resume-panel .skill-tag:nth-child(${index + 1})`,
+        panelId: 'resume-panel'
+      });
+    });
+
+    // Navigation items
+    const navItems = document.querySelectorAll('.nav-item .nav-label');
+    navItems.forEach((_item, index) => {
+      this.addTextElement(`nav-label-${index}`, {
+        selector: `.nav-item:nth-child(${index + 1}) .nav-label`,
+        panelId: 'navbar'
+      });
+    });
   }
 
   /**
