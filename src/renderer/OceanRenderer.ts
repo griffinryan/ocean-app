@@ -343,41 +343,31 @@ export class OceanRenderer {
   private renderOceanScene(elapsedTime: number): void {
     const gl = this.gl;
 
-    let oceanTexture: WebGLTexture | null = null;
+    // PASS 1: Ocean Base Layer
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    this.drawOcean(elapsedTime);
 
+    // PASS 2: Glass Overlay (if enabled)
     if (this.glassEnabled && this.glassRenderer) {
-      // Render ocean to texture for glass distortion
-      this.glassRenderer.captureOceanScene(() => {
-        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-        this.drawOcean(elapsedTime);
-      });
+      // Copy current screen (ocean) for distortion sampling
+      this.glassRenderer.copyScreenToTexture();
 
-      // Get ocean texture for text rendering
-      oceanTexture = this.glassRenderer.getOceanTexture();
-
-      // Clear screen and render ocean without glass effects
-      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-      this.drawOcean(elapsedTime);
-
-      // Render glass panels as overlay
+      // Render glass with alpha blending onto existing ocean
       this.glassRenderer.render();
-    } else {
-      // Normal rendering without glass effects
-      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-      this.drawOcean(elapsedTime);
-
-      // For text rendering without glass, we need to copy the current framebuffer
-      // This is a fallback approach when glass renderer is not available
-      if (this.textEnabled && this.textRenderer) {
-        // Create a temporary texture from current framebuffer (simplified approach)
-        // In a production environment, you might want to use a dedicated framebuffer
-        oceanTexture = this.createTextureFromFramebuffer();
-      }
     }
 
-    // Render text overlay with inverse color mapping
-    if (this.textEnabled && this.textRenderer && oceanTexture) {
-      this.renderTextOverlay(oceanTexture, elapsedTime);
+    // PASS 3: Text Overlay (if enabled)
+    if (this.textEnabled && this.textRenderer) {
+      // Create texture from current composite (ocean + glass if enabled)
+      const compositeTexture = this.captureCurrentScreen();
+
+      if (compositeTexture) {
+        // Render text with inverse color mapping based on composite
+        this.renderTextOverlay(compositeTexture, elapsedTime);
+
+        // Clean up temporary texture
+        gl.deleteTexture(compositeTexture);
+      }
     }
   }
 
@@ -449,18 +439,23 @@ export class OceanRenderer {
   }
 
   /**
-   * Create texture from current framebuffer (fallback for text rendering)
+   * Capture current screen content to texture for text rendering
    */
-  private createTextureFromFramebuffer(): WebGLTexture | null {
+  private captureCurrentScreen(): WebGLTexture | null {
     const gl = this.gl;
 
     const texture = gl.createTexture();
     if (!texture) return null;
 
     gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.copyTexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 0, 0, this.canvas.width, this.canvas.height, 0);
+    gl.copyTexImage2D(
+      gl.TEXTURE_2D, 0, gl.RGBA,
+      0, 0,
+      this.canvas.width, this.canvas.height,
+      0
+    );
 
-    // Set texture parameters
+    // Set texture parameters for optimal sampling
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
