@@ -12,6 +12,8 @@ import oceanVertexShader from './shaders/ocean.vert';
 import oceanFragmentShader from './shaders/ocean.frag';
 import glassVertexShader from './shaders/glass.vert';
 import glassFragmentShader from './shaders/glass.frag';
+import textVertexShader from './shaders/text.vert';
+import textFragmentShader from './shaders/text.frag';
 
 class OceanApp {
   public renderer: OceanRenderer | null = null;
@@ -39,12 +41,14 @@ class OceanApp {
         alpha: false
       });
 
-      // Initialize shaders (ocean and glass)
+      // Initialize shaders (ocean, glass, and text)
       await this.renderer.initializeShaders(
         oceanVertexShader,
         oceanFragmentShader,
         glassVertexShader,
-        glassFragmentShader
+        glassFragmentShader,
+        textVertexShader,
+        textFragmentShader
       );
 
       // Start rendering
@@ -127,6 +131,45 @@ class OceanApp {
     } else {
       console.warn('Glass renderer not available, falling back to CSS-only effects');
     }
+
+    // Enable text rendering with inverse color mapping if available
+    const textRenderer = this.renderer.getTextRenderer();
+    if (textRenderer) {
+      this.renderer.setTextEnabled(true);
+
+      // Add all text elements from HTML
+      this.setupTextElements();
+
+      console.log('UI connected to text renderer successfully!');
+    } else {
+      console.warn('Text renderer not available, falling back to CSS-only text');
+    }
+  }
+
+  /**
+   * Set up text elements for WebGL text rendering
+   */
+  private setupTextElements(): void {
+    if (!this.renderer) return;
+
+    // Add text elements for each panel
+    const textElements = [
+      { id: 'landing-text', elementId: 'landing-panel', fontSize: 48 },
+      { id: 'app-text', elementId: 'app-panel', fontSize: 32 },
+      { id: 'portfolio-text', elementId: 'portfolio-panel', fontSize: 32 },
+      { id: 'resume-text', elementId: 'resume-panel', fontSize: 32 },
+      { id: 'navbar-text', elementId: 'navbar', fontSize: 24 }
+    ];
+
+    for (const { id, elementId, fontSize } of textElements) {
+      const element = document.getElementById(elementId);
+      if (element) {
+        this.renderer.addTextElement(id, element, fontSize);
+        console.log(`Added text element: ${id} (${elementId})`);
+      } else {
+        console.warn(`Text element not found: ${elementId}`);
+      }
+    }
   }
 
   /**
@@ -190,6 +233,17 @@ class OceanApp {
             this.updateGlassInfo(!isEnabled);
           }
           break;
+        case 't':
+        case 'T':
+          // Toggle text rendering
+          event.preventDefault();
+          event.stopPropagation();
+          if (this.renderer) {
+            const isEnabled = this.renderer.getTextEnabled();
+            this.renderer.setTextEnabled(!isEnabled);
+            this.updateTextInfo(!isEnabled);
+          }
+          break;
         case '1':
         case '2':
         case '3':
@@ -215,6 +269,7 @@ class OceanApp {
     console.log('  0-4 - Select debug mode directly');
     console.log('  V - Toggle vessel wake system');
     console.log('  G - Toggle glass panel rendering');
+    console.log('  T - Toggle text rendering');
     console.log('  Space - Reserved for future controls');
   }
 
@@ -274,6 +329,25 @@ class OceanApp {
       }
 
       glassElement.innerHTML = `<br>Glass Panels: ${enabled ? 'ON' : 'OFF'}`;
+    }
+  }
+
+  /**
+   * Update text system info display
+   */
+  private updateTextInfo(enabled: boolean): void {
+    const infoElement = document.getElementById('info');
+    if (infoElement && this.renderer) {
+      // Update the existing info or add text info
+      let textElement = document.getElementById('text-info');
+      if (!textElement) {
+        textElement = document.createElement('div');
+        textElement.id = 'text-info';
+        infoElement.appendChild(textElement);
+      }
+
+      const stats = this.renderer.getTextStats();
+      textElement.innerHTML = `<br>Text Rendering: ${enabled ? 'ON' : 'OFF'}<br>Text Elements: ${stats.visibleElements}/${stats.totalElements}`;
     }
   }
 
