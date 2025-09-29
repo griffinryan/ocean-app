@@ -49,6 +49,11 @@ export class TextRenderer {
   private startTime: number;
   private needsTextureUpdate: boolean = false;
 
+  // Scene texture caching for performance
+  private sceneTextureDirty: boolean = true;
+  private lastCaptureTime: number = 0;
+  private captureThrottleMs: number = 16; // Max 60fps captures
+
   // Resize observer for responsive text positioning
   private resizeObserver: ResizeObserver | null = null;
 
@@ -146,8 +151,6 @@ export class TextRenderer {
         'u_resolution',
         'u_sceneTexture',
         'u_textTexture',
-        'u_textPosition',
-        'u_textSize',
         'u_adaptiveStrength'
       ];
 
@@ -219,15 +222,25 @@ export class TextRenderer {
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.bindTexture(gl.TEXTURE_2D, null);
     gl.bindRenderbuffer(gl.RENDERBUFFER, null);
+
+    // Mark scene as dirty after resize
+    this.markSceneDirty();
   }
 
   /**
    * Capture current scene (ocean + glass) to texture for text background analysis
+   * Now with caching to improve performance
    */
   public captureScene(renderSceneCallback: () => void): void {
     const gl = this.gl;
+    const currentTime = performance.now();
 
     if (!this.sceneFramebuffer || !this.sceneTexture) {
+      return;
+    }
+
+    // Skip capture if scene isn't dirty and we're within throttle window
+    if (!this.sceneTextureDirty && (currentTime - this.lastCaptureTime) < this.captureThrottleMs) {
       return;
     }
 
@@ -251,6 +264,17 @@ export class TextRenderer {
 
     // Restore viewport
     gl.viewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+
+    // Update cache state
+    this.sceneTextureDirty = false;
+    this.lastCaptureTime = currentTime;
+  }
+
+  /**
+   * Mark scene texture as dirty to force recapture on next render
+   */
+  public markSceneDirty(): void {
+    this.sceneTextureDirty = true;
   }
 
   /**
@@ -323,9 +347,10 @@ export class TextRenderer {
     ctx.textAlign = config.textAlign;
     ctx.fillStyle = 'white'; // Always white on canvas, shader will handle color adaptation
 
-    // Calculate position in canvas coordinates
-    const canvasX = (config.position[0] + 1) * 0.5 * this.textCanvas.width;
-    const canvasY = (1 - (config.position[1] + 1) * 0.5) * this.textCanvas.height;
+    // Calculate position in canvas coordinates (fixed coordinate transformation)
+    // Convert from WebGL coordinates [-1,1] to canvas coordinates [0, canvas.width/height]
+    const canvasX = (config.position[0] + 1.0) * 0.5 * this.textCanvas.width;
+    const canvasY = (1.0 - (config.position[1] + 1.0) * 0.5) * this.textCanvas.height;
 
     // Handle multi-line text
     const lines = config.content.split('\n');
@@ -352,6 +377,9 @@ export class TextRenderer {
 
     // Update positions immediately
     this.updateTextPositions();
+
+    // Mark scene as dirty when text elements change
+    this.markSceneDirty();
   }
 
   /**
@@ -583,7 +611,7 @@ export class TextRenderer {
 
   /**
    * Convert HTML element rect to normalized WebGL coordinates
-   * (Reusing the same approach as GlassRenderer)
+   * (Exact copy from GlassRenderer for consistent positioning)
    */
   private htmlRectToNormalized(elementRect: DOMRect, canvasRect: DOMRect): { position: [number, number], size: [number, number] } {
     // Ensure we have valid rectangles
@@ -604,6 +632,13 @@ export class TextRenderer {
     const width = (elementRect.width / canvasRect.width) * 2.0;
     const height = (elementRect.height / canvasRect.height) * 2.0;
 
+    // Debug logging for positioning verification (remove after testing)
+    console.debug(`TextRenderer Panel Mapping:
+      Element: ${elementRect.width}x${elementRect.height} at (${elementRect.left}, ${elementRect.top})
+      Canvas: ${canvasRect.width}x${canvasRect.height}
+      WebGL Center: (${glX.toFixed(3)}, ${glY.toFixed(3)})
+      WebGL Size: (${width.toFixed(3)}, ${height.toFixed(3)})`);
+
     return {
       position: [glX, glY],
       size: [width, height]
@@ -623,8 +658,12 @@ export class TextRenderer {
     // Update text texture if needed
     this.updateTextTexture();
 
-    // Update text positions before rendering
-    this.updateTextPositions();
+    // Only update text positions if text texture was updated (positions likely changed)
+    // This reduces expensive position calculations every frame
+    if (this.needsTextureUpdate) {
+      this.updateTextPositions();
+      this.markSceneDirty();
+    }
 
     // Use text shader program
     const program = this.shaderManager.useProgram('text');
@@ -661,28 +700,13 @@ export class TextRenderer {
     // Disable depth testing for text overlay
     gl.disable(gl.DEPTH_TEST);
 
-    // Render each visible text element
-    this.textElements.forEach((config) => {
-      this.renderTextElement(config, program);
-    });
+    // Batched rendering: render all text elements in single pass
+    // Since all text is in one texture, we only need one draw call for the full-screen quad
+    this.bufferManager.bind();
+    gl.drawElements(gl.TRIANGLES, this.quadGeometry.indexCount, gl.UNSIGNED_SHORT, 0);
 
     // Re-enable depth testing
     gl.enable(gl.DEPTH_TEST);
-  }
-
-  /**
-   * Render a single text element
-   */
-  private renderTextElement(config: TextElementConfig, program: ShaderProgram): void {
-    const gl = this.gl;
-
-    // Set text-specific uniforms
-    this.shaderManager.setUniform2f(program, 'u_textPosition', config.position[0], config.position[1]);
-    this.shaderManager.setUniform2f(program, 'u_textSize', config.size[0], config.size[1]);
-
-    // Bind geometry and render
-    this.bufferManager.bind();
-    gl.drawElements(gl.TRIANGLES, this.quadGeometry.indexCount, gl.UNSIGNED_SHORT, 0);
   }
 
   /**
