@@ -674,6 +674,34 @@ export class OceanRenderer {
   }
 
   /**
+   * Activate WebGL text rendering (hides HTML text)
+   */
+  activateWebGLText(debug: boolean = false): void {
+    if (this.textRenderer) {
+      this.textRenderer.activateWebGLText(debug);
+    }
+  }
+
+  /**
+   * Deactivate WebGL text rendering (shows HTML text)
+   */
+  deactivateWebGLText(): void {
+    if (this.textRenderer) {
+      this.textRenderer.deactivateWebGLText();
+    }
+  }
+
+  /**
+   * Toggle WebGL text rendering
+   */
+  toggleWebGLText(debug: boolean = false): boolean {
+    if (this.textRenderer) {
+      return this.textRenderer.toggleWebGLText(debug);
+    }
+    return false;
+  }
+
+  /**
    * Set text element visibility
    */
   setTextElementVisible(id: string, visible: boolean): void {

@@ -5,6 +5,7 @@
 
 import { ShaderManager, ShaderProgram } from './ShaderManager';
 import { FontAtlas, TextMeshData } from '../utils/FontAtlas';
+import { Mat4 } from '../utils/math';
 
 export interface TextElement {
   id: string;                    // Unique identifier
@@ -37,6 +38,10 @@ export class TextRenderer {
   // Text elements tracking
   private textElements: Map<string, TextElement> = new Map();
 
+  // Matrices for 2D text positioning
+  private projectionMatrix: Mat4 = new Mat4();
+  private viewMatrix: Mat4 = new Mat4();
+
   // Configuration
   private config: TextRenderConfig = {
     enableWaveSync: true,
@@ -56,6 +61,9 @@ export class TextRenderer {
     this.shaderManager = shaderManager;
     this.fontAtlas = new FontAtlas(gl);
 
+    // Initialize view matrix as identity
+    this.viewMatrix.identity();
+
     // Set up resize observer for tracking HTML element changes
     this.resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
@@ -66,6 +74,15 @@ export class TextRenderer {
         }
       }
     });
+  }
+
+  /**
+   * Update projection matrix for current canvas dimensions
+   */
+  public updateProjectionMatrix(canvasWidth: number, canvasHeight: number): void {
+    // Create orthographic projection matrix for 2D screen-space rendering
+    // Left: 0, Right: canvasWidth, Bottom: canvasHeight, Top: 0 (Y-flipped for screen coords)
+    this.projectionMatrix.ortho(0, canvasWidth, canvasHeight, 0, -1, 1);
   }
 
   /**
@@ -304,11 +321,18 @@ export class TextRenderer {
 
       // Update position if element is visible
       if (textElement.visible && canvasRect.width > 0 && canvasRect.height > 0) {
-        // Calculate position relative to canvas
+        // Calculate position relative to canvas in screen coordinates
+        // Use element's top-left corner as the text origin
         const x = elementRect.left - canvasRect.left;
         const y = elementRect.top - canvasRect.top;
 
-        textElement.position = [x, y];
+        // Get computed styles for proper text positioning
+        const computedStyle = window.getComputedStyle(textElement.element);
+        const paddingLeft = parseFloat(computedStyle.paddingLeft) || 0;
+        const paddingTop = parseFloat(computedStyle.paddingTop) || 0;
+
+        // Position text at the content area (inside padding)
+        textElement.position = [x + paddingLeft, y + paddingTop];
 
         // Check if text content has changed
         const currentText = this.extractTextContent(textElement.element);
@@ -338,6 +362,13 @@ export class TextRenderer {
 
     // Use text shader program
     const program = this.shaderManager.useProgram('text');
+
+    // Update projection matrix for current canvas dimensions
+    this.updateProjectionMatrix(canvasWidth, canvasHeight);
+
+    // Set matrix uniforms
+    this.shaderManager.setUniformMatrix4fv(program, 'u_projectionMatrix', this.projectionMatrix.data);
+    this.shaderManager.setUniformMatrix4fv(program, 'u_viewMatrix', this.viewMatrix.data);
 
     // Set global uniforms
     this.shaderManager.setUniform1f(program, 'u_time', time);
@@ -404,29 +435,56 @@ export class TextRenderer {
 
     if (!textElement.meshData || !textElement.buffers) return;
 
-    // Set text-specific uniforms
-    this.shaderManager.setUniform2f(program, 'u_textPosition', textElement.position[0], textElement.position[1]);
-    this.shaderManager.setUniform2f(program, 'u_textScale', 1.0, 1.0);
-    this.shaderManager.setUniform1f(program, 'u_fontSize', textElement.fontSize);
+    // Set up scissor test to clip text to element bounds
+    const elementRect = textElement.element.getBoundingClientRect();
+    const canvasRect = (this.gl.canvas instanceof HTMLCanvasElement)
+      ? this.gl.canvas.getBoundingClientRect()
+      : { left: 0, top: 0, width: this.gl.canvas.width, height: this.gl.canvas.height, bottom: this.gl.canvas.height, right: this.gl.canvas.width };
 
-    // Bind vertex buffer and set up attributes
-    gl.bindBuffer(gl.ARRAY_BUFFER, textElement.buffers.vertex);
+    // Calculate scissor rectangle in WebGL coordinates (bottom-left origin)
+    const scissorX = Math.max(0, elementRect.left - canvasRect.left);
+    const scissorY = Math.max(0, canvasRect.height - (elementRect.bottom - canvasRect.top));
+    const scissorWidth = Math.min(elementRect.width, canvasRect.width - scissorX);
+    const scissorHeight = Math.min(elementRect.height, canvasRect.height - scissorY);
 
-    // Position attribute (x, y)
-    gl.enableVertexAttribArray(positionLocation);
-    gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 16, 0); // 4 floats * 4 bytes, offset 0
+    // Only render if scissor area is valid
+    if (scissorWidth > 0 && scissorHeight > 0) {
+      // Enable scissor test for clipping
+      gl.enable(gl.SCISSOR_TEST);
+      gl.scissor(
+        Math.floor(scissorX * devicePixelRatio),
+        Math.floor(scissorY * devicePixelRatio),
+        Math.floor(scissorWidth * devicePixelRatio),
+        Math.floor(scissorHeight * devicePixelRatio)
+      );
 
-    // Texture coordinate attribute (u, v)
-    gl.enableVertexAttribArray(texCoordLocation);
-    gl.vertexAttribPointer(texCoordLocation, 2, gl.FLOAT, false, 16, 8); // 4 floats * 4 bytes, offset 8
+      // Set text-specific uniforms
+      this.shaderManager.setUniform2f(program, 'u_textPosition', textElement.position[0], textElement.position[1]);
+      this.shaderManager.setUniform2f(program, 'u_textScale', 1.0, 1.0);
+      this.shaderManager.setUniform1f(program, 'u_fontSize', textElement.fontSize);
 
-    // Bind index buffer and render
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, textElement.buffers.index);
-    gl.drawElements(gl.TRIANGLES, textElement.meshData.indexCount, gl.UNSIGNED_SHORT, 0);
+      // Bind vertex buffer and set up attributes
+      gl.bindBuffer(gl.ARRAY_BUFFER, textElement.buffers.vertex);
 
-    // Clean up
-    gl.disableVertexAttribArray(positionLocation);
-    gl.disableVertexAttribArray(texCoordLocation);
+      // Position attribute (x, y)
+      gl.enableVertexAttribArray(positionLocation);
+      gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 16, 0); // 4 floats * 4 bytes, offset 0
+
+      // Texture coordinate attribute (u, v)
+      gl.enableVertexAttribArray(texCoordLocation);
+      gl.vertexAttribPointer(texCoordLocation, 2, gl.FLOAT, false, 16, 8); // 4 floats * 4 bytes, offset 8
+
+      // Bind index buffer and render
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, textElement.buffers.index);
+      gl.drawElements(gl.TRIANGLES, textElement.meshData.indexCount, gl.UNSIGNED_SHORT, 0);
+
+      // Clean up
+      gl.disableVertexAttribArray(positionLocation);
+      gl.disableVertexAttribArray(texCoordLocation);
+
+      // Disable scissor test
+      gl.disable(gl.SCISSOR_TEST);
+    }
   }
 
   /**
@@ -462,6 +520,49 @@ export class TextRenderer {
     const textElement = this.textElements.get(id);
     if (textElement) {
       textElement.visible = visible;
+    }
+  }
+
+  /**
+   * Activate WebGL text rendering and hide HTML text
+   */
+  public activateWebGLText(debug: boolean = false): void {
+    for (const textElement of this.textElements.values()) {
+      // Add class to hide HTML text
+      textElement.element.classList.add('webgl-text-active');
+
+      // Add debug class if in debug mode
+      if (debug) {
+        textElement.element.classList.add('webgl-text-debug');
+      }
+    }
+  }
+
+  /**
+   * Deactivate WebGL text rendering and show HTML text
+   */
+  public deactivateWebGLText(): void {
+    for (const textElement of this.textElements.values()) {
+      // Remove classes to show HTML text
+      textElement.element.classList.remove('webgl-text-active', 'webgl-text-debug');
+    }
+  }
+
+  /**
+   * Toggle between WebGL and HTML text rendering
+   */
+  public toggleWebGLText(debug: boolean = false): boolean {
+    const firstElement = this.textElements.values().next().value;
+    if (!firstElement) return false;
+
+    const isActive = firstElement.element.classList.contains('webgl-text-active');
+
+    if (isActive) {
+      this.deactivateWebGLText();
+      return false;
+    } else {
+      this.activateWebGLText(debug);
+      return true;
     }
   }
 

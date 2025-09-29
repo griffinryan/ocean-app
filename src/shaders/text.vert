@@ -29,15 +29,14 @@ void main() {
     // Scale the text position
     vec2 scaledPos = a_position * u_textScale;
 
-    // Apply text positioning in screen space
+    // Apply text positioning in screen space (pixel coordinates)
     vec2 screenPos = u_textPosition + scaledPos;
 
-    // Convert from pixel coordinates to normalized device coordinates
-    // Assuming u_textPosition and scaledPos are in pixel coordinates
-    vec2 normalizedPos = screenPos / u_resolution * 2.0 - 1.0;
-
-    // Correct for aspect ratio
-    normalizedPos.x *= u_aspectRatio;
+    // Convert directly from pixel coordinates to normalized device coordinates
+    vec2 normalizedPos = vec2(
+        (screenPos.x / u_resolution.x) * 2.0 - 1.0,
+        1.0 - (screenPos.y / u_resolution.y) * 2.0
+    );
 
     // Apply subtle wave-based animation to text
     float waveOffset = sin(normalizedPos.x * 8.0 + u_time * 2.0) * 0.002;

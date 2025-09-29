@@ -88,6 +88,31 @@ export class Mat4 {
     return mat;
   }
 
+  ortho(left: number, right: number, bottom: number, top: number, near: number, far: number): Mat4 {
+    const lr = 1 / (left - right);
+    const bt = 1 / (bottom - top);
+    const nf = 1 / (near - far);
+
+    this.data[0] = -2 * lr;
+    this.data[1] = 0;
+    this.data[2] = 0;
+    this.data[3] = 0;
+    this.data[4] = 0;
+    this.data[5] = -2 * bt;
+    this.data[6] = 0;
+    this.data[7] = 0;
+    this.data[8] = 0;
+    this.data[9] = 0;
+    this.data[10] = 2 * nf;
+    this.data[11] = 0;
+    this.data[12] = (left + right) * lr;
+    this.data[13] = (top + bottom) * bt;
+    this.data[14] = (far + near) * nf;
+    this.data[15] = 1;
+
+    return this;
+  }
+
   static lookAt(eye: Vec3, center: Vec3, up: Vec3): Mat4 {
     const mat = new Mat4();
 

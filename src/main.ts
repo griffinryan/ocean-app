@@ -140,6 +140,15 @@ class OceanApp {
       // Add all text elements from HTML
       this.setupTextElements();
 
+      // Automatically activate WebGL text rendering after a brief delay
+      setTimeout(() => {
+        if (this.renderer) {
+          this.renderer.activateWebGLText(false);
+          this.updateTextInfo(true, false);
+          console.log('WebGL text rendering activated automatically!');
+        }
+      }, 1000);
+
       console.log('UI connected to text renderer successfully!');
     } else {
       console.warn('Text renderer not available, falling back to CSS-only text');
@@ -235,13 +244,13 @@ class OceanApp {
           break;
         case 't':
         case 'T':
-          // Toggle text rendering
+          // Toggle WebGL text rendering
           event.preventDefault();
           event.stopPropagation();
           if (this.renderer) {
-            const isEnabled = this.renderer.getTextEnabled();
-            this.renderer.setTextEnabled(!isEnabled);
-            this.updateTextInfo(!isEnabled);
+            const debug = event.shiftKey; // Hold Shift for debug mode
+            const isActive = this.renderer.toggleWebGLText(debug);
+            this.updateTextInfo(isActive, debug);
           }
           break;
         case '1':
@@ -335,7 +344,7 @@ class OceanApp {
   /**
    * Update text system info display
    */
-  private updateTextInfo(enabled: boolean): void {
+  private updateTextInfo(webglActive: boolean, debug?: boolean): void {
     const infoElement = document.getElementById('info');
     if (infoElement && this.renderer) {
       // Update the existing info or add text info
@@ -346,8 +355,14 @@ class OceanApp {
         infoElement.appendChild(textElement);
       }
 
-      const stats = this.renderer.getTextStats();
-      textElement.innerHTML = `<br>Text Rendering: ${enabled ? 'ON' : 'OFF'}<br>Text Elements: ${stats.visibleElements}/${stats.totalElements}`;
+      const textRenderer = this.renderer.getTextRenderer();
+      if (textRenderer) {
+        const stats = textRenderer.getStats();
+        const mode = webglActive ? (debug ? 'WebGL (Debug)' : 'WebGL') : 'HTML';
+        textElement.innerHTML = `<br>Text Mode: ${mode}<br>Text Elements: ${stats.visibleElements}/${stats.totalElements}`;
+      } else {
+        textElement.innerHTML = `<br>Text Mode: HTML (WebGL unavailable)<br>Text Elements: N/A`;
+      }
     }
   }
 

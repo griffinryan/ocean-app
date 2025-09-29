@@ -778,3 +778,33 @@ body {
     background: rgba(0, 0, 0, 0.4);
   }
 }
+
+/* ===== WEBGL TEXT REPLACEMENT SYSTEM ===== */
+/* Hide HTML text when WebGL text rendering is active */
+
+.webgl-text-active {
+  color: transparent !important;
+  text-shadow: none !important;
+  -webkit-text-fill-color: transparent !important;
+  text-decoration: none !important;
+}
+
+.webgl-text-active * {
+  color: transparent !important;
+  text-shadow: none !important;
+  -webkit-text-fill-color: transparent !important;
+  text-decoration: none !important;
+}
+
+/* Preserve layout and interactions */
+.webgl-text-active {
+  /* Keep all other styles intact for proper layout */
+  user-select: none;
+  pointer-events: auto; /* Keep clickable for buttons/links */
+}
+
+/* Debug mode - show both HTML and WebGL text with different colors */
+.webgl-text-debug .webgl-text-active {
+  color: rgba(255, 0, 0, 0.3) !important;
+  -webkit-text-fill-color: rgba(255, 0, 0, 0.3) !important;
+}
