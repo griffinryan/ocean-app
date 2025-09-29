@@ -8,6 +8,7 @@ import { Mat4 } from '../utils/math';
 import { VesselSystem, VesselConfig } from './VesselSystem';
 import { GlassRenderer } from './GlassRenderer';
 import { TextRenderer } from './TextRenderer';
+import { EnhancedTextRenderer } from './EnhancedTextRenderer';
 
 export interface RenderConfig {
   canvas: HTMLCanvasElement;
@@ -51,8 +52,8 @@ export class OceanRenderer {
   private glassRenderer: GlassRenderer | null = null;
   private glassEnabled: boolean = false;
 
-  // Text renderer for adaptive text overlay
-  private textRenderer: TextRenderer | null = null;
+  // Enhanced text renderer with CSS-like layout capabilities
+  private textRenderer: EnhancedTextRenderer | null = null;
   private textEnabled: boolean = false;
 
   // Pre-cached DOM elements
@@ -253,15 +254,23 @@ export class OceanRenderer {
   }
 
   /**
-   * Initialize text renderer system
+   * Initialize enhanced text renderer system with CSS-like layouts
    */
   private initializeTextRenderer(): void {
     try {
-      this.textRenderer = new TextRenderer(this.gl, this.shaderManager);
-      this.textRenderer.setupDefaultTextElements();
-      console.log('Text renderer initialized successfully!');
+      this.textRenderer = new EnhancedTextRenderer(this.gl, this.shaderManager, {
+        enableLayoutSystem: true,
+        enableDOMSync: true,
+        enableResponsive: true,
+        debugMode: false,
+        fallbackToOriginal: true
+      });
+
+      // Use enhanced setup instead of hard-coded positions
+      this.textRenderer.setupEnhancedTextElements();
+      console.log('Enhanced text renderer with CSS layouts initialized successfully!');
     } catch (error) {
-      console.error('Failed to initialize text renderer:', error);
+      console.error('Failed to initialize enhanced text renderer:', error);
       this.textRenderer = null;
     }
   }
@@ -624,9 +633,9 @@ export class OceanRenderer {
   }
 
   /**
-   * Get text renderer instance for external control
+   * Get enhanced text renderer instance for external control
    */
-  getTextRenderer(): TextRenderer | null {
+  getTextRenderer(): EnhancedTextRenderer | null {
     return this.textRenderer;
   }
 
