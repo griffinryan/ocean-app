@@ -314,8 +314,33 @@ export class TextRenderer {
   }
 
   /**
+   * Detect CSS layout mode for the element and its parent
+   */
+  private detectLayoutMode(element: HTMLElement): {
+    isFlexChild: boolean;
+    isCentered: boolean;
+    alignItems: string;
+    justifyContent: string;
+    display: string;
+  } {
+    const parent = element.parentElement;
+    if (!parent) {
+      return { isFlexChild: false, isCentered: false, alignItems: '', justifyContent: '', display: '' };
+    }
+
+    const parentStyles = getComputedStyle(parent);
+    const display = parentStyles.display;
+    const isFlexChild = display === 'flex' || display === 'inline-flex';
+    const alignItems = parentStyles.alignItems;
+    const justifyContent = parentStyles.justifyContent;
+    const isCentered = (alignItems === 'center' || justifyContent === 'center');
+
+    return { isFlexChild, isCentered, alignItems, justifyContent, display };
+  }
+
+  /**
    * Render individual text element to canvas using actual screen coordinates
-   * Accounts for complete CSS box model (border, padding, line-height)
+   * Accounts for CSS layout modes: flexbox centering, transforms, and box model
    */
   private renderTextToCanvas(element: HTMLElement, _config: TextElementConfig): void {
     const ctx = this.textContext;
@@ -347,44 +372,74 @@ export class TextRenderer {
       lineHeightPx = parseFloat(lineHeightStyle) * fontSize;
     }
 
+    // Detect layout mode (flexbox, grid, etc.)
+    const layout = this.detectLayoutMode(element);
+
     // Get CSS box model dimensions
-    // These determine where text actually appears vs where border box is
     const paddingTop = parseFloat(styles.paddingTop);
     const paddingLeft = parseFloat(styles.paddingLeft);
     const paddingRight = parseFloat(styles.paddingRight);
+    const paddingBottom = parseFloat(styles.paddingBottom);
     const borderTopWidth = parseFloat(styles.borderTopWidth);
     const borderLeftWidth = parseFloat(styles.borderLeftWidth);
     const borderRightWidth = parseFloat(styles.borderRightWidth);
+    const borderBottomWidth = parseFloat(styles.borderBottomWidth);
 
     // Calculate position in canvas pixel coordinates
     // getBoundingClientRect() returns border box edge
     const relativeX = elementRect.left - canvasRect.left;
     const relativeY = elementRect.top - canvasRect.top;
 
-    // Add border and padding to get to content area where text actually renders
-    const contentOffsetX = borderLeftWidth + paddingLeft;
-    const contentOffsetY = borderTopWidth + paddingTop;
-
-    // Calculate line-height leading (extra vertical space distributed around text)
-    // This centers text vertically within its line box
-    const leading = (lineHeightPx - fontSize) / 2;
-
     // Scale to canvas texture size (which matches WebGL canvas pixel-for-pixel)
     const scaleX = this.textCanvas.width / canvasRect.width;
     const scaleY = this.textCanvas.height / canvasRect.height;
 
-    // CRITICAL: Round to integer pixels to avoid subpixel blur
-    // Apply all offsets (border + padding + leading) before scaling
-    const canvasX = Math.round((relativeX + contentOffsetX) * scaleX);
-    const canvasY = Math.round((relativeY + contentOffsetY + leading) * scaleY);
+    // Calculate position based on layout mode
+    let canvasX: number;
+    let canvasY: number;
+
+    // FLEXBOX-AWARE POSITIONING
+    if (layout.isFlexChild && layout.alignItems === 'center') {
+      // Text is vertically centered by flexbox, not positioned at padding edge
+      // Calculate center of container
+      const containerCenterY = relativeY + elementRect.height / 2;
+      // Position text at vertical center (using 'middle' baseline)
+      canvasY = Math.round(containerCenterY * scaleY);
+
+      // For horizontal: check if horizontally centered too
+      if (layout.justifyContent === 'center' || textAlign === 'center') {
+        const containerCenterX = relativeX + elementRect.width / 2;
+        canvasX = Math.round(containerCenterX * scaleX);
+      } else {
+        // Use content area left edge (border + padding)
+        const contentOffsetX = borderLeftWidth + paddingLeft;
+        canvasX = Math.round((relativeX + contentOffsetX) * scaleX);
+      }
+    } else {
+      // Standard flow positioning (original approach)
+      const contentOffsetX = borderLeftWidth + paddingLeft;
+      const contentOffsetY = borderTopWidth + paddingTop;
+      const leading = (lineHeightPx - fontSize) / 2;
+
+      canvasX = Math.round((relativeX + contentOffsetX) * scaleX);
+      canvasY = Math.round((relativeY + contentOffsetY + leading) * scaleY);
+    }
+
     const scaledFontSize = Math.round(fontSize * scaleY);
     const scaledLineHeight = Math.round(lineHeightPx * scaleY);
 
     // Set font properties
     ctx.font = `${fontWeight} ${scaledFontSize}px ${fontFamily}`;
-    ctx.textBaseline = 'top';  // Consistent with our Y calculation
+
+    // Use 'middle' baseline for flexbox-centered text, 'top' for standard flow
+    if (layout.isFlexChild && layout.alignItems === 'center') {
+      ctx.textBaseline = 'middle';
+    } else {
+      ctx.textBaseline = 'top';
+    }
+
     ctx.textAlign = textAlign;
-    ctx.fillStyle = 'white'; // Always white on canvas, shader will handle color adaptation
+    ctx.fillStyle = 'white';
 
     // Get text content - use innerText to preserve line breaks from <br> tags
     const text = element.innerText || element.textContent || '';
@@ -396,10 +451,44 @@ export class TextRenderer {
 
     // Adjust X position based on text alignment within content area
     let adjustedX = canvasX;
-    if (textAlign === 'center') {
+    if (textAlign === 'center' && !(layout.isFlexChild && layout.justifyContent === 'center')) {
       adjustedX = canvasX + contentWidthInCanvas / 2;
     } else if (textAlign === 'right') {
       adjustedX = canvasX + contentWidthInCanvas;
+    }
+
+    // DEBUG: Draw element bounds and calculated position
+    const DEBUG_MODE = true;
+    if (DEBUG_MODE) {
+      // Draw element border box in red
+      ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(
+        Math.round(relativeX * scaleX),
+        Math.round(relativeY * scaleY),
+        Math.round(elementRect.width * scaleX),
+        Math.round(elementRect.height * scaleY)
+      );
+
+      // Draw content box in green
+      ctx.strokeStyle = 'rgba(0, 255, 0, 0.5)';
+      ctx.strokeRect(
+        Math.round((relativeX + borderLeftWidth + paddingLeft) * scaleX),
+        Math.round((relativeY + borderTopWidth + paddingTop) * scaleY),
+        Math.round(contentWidth * scaleX),
+        Math.round((elementRect.height - borderTopWidth - borderBottomWidth - paddingTop - paddingBottom) * scaleY)
+      );
+
+      // Draw crosshair at calculated text position
+      ctx.strokeStyle = 'rgba(0, 255, 255, 0.8)';
+      ctx.lineWidth = 1;
+      const crosshairSize = 10;
+      ctx.beginPath();
+      ctx.moveTo(adjustedX - crosshairSize, canvasY);
+      ctx.lineTo(adjustedX + crosshairSize, canvasY);
+      ctx.moveTo(adjustedX, canvasY - crosshairSize);
+      ctx.lineTo(adjustedX, canvasY + crosshairSize);
+      ctx.stroke();
     }
 
     // Render each line
