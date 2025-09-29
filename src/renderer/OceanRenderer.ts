@@ -9,6 +9,7 @@ import { VesselSystem, VesselConfig } from './VesselSystem';
 import { GlassRenderer } from './GlassRenderer';
 import { TextRenderer } from './TextRenderer';
 import { EnhancedTextRenderer } from './EnhancedTextRenderer';
+import { SimplifiedEnhancedTextRenderer } from './SimplifiedEnhancedTextRenderer';
 
 export interface RenderConfig {
   canvas: HTMLCanvasElement;
@@ -53,7 +54,7 @@ export class OceanRenderer {
   private glassEnabled: boolean = false;
 
   // Enhanced text renderer with CSS-like layout capabilities
-  private textRenderer: EnhancedTextRenderer | null = null;
+  private textRenderer: EnhancedTextRenderer | SimplifiedEnhancedTextRenderer | null = null;
   private textEnabled: boolean = false;
 
   // Pre-cached DOM elements
@@ -257,6 +258,7 @@ export class OceanRenderer {
    * Initialize enhanced text renderer system with CSS-like layouts
    */
   private initializeTextRenderer(): void {
+    // Try the full enhanced text renderer first
     try {
       this.textRenderer = new EnhancedTextRenderer(this.gl, this.shaderManager, {
         enableLayoutSystem: true,
@@ -269,8 +271,26 @@ export class OceanRenderer {
       // Use enhanced setup instead of hard-coded positions
       this.textRenderer.setupEnhancedTextElements();
       console.log('Enhanced text renderer with CSS layouts initialized successfully!');
+      return;
     } catch (error) {
-      console.error('Failed to initialize enhanced text renderer:', error);
+      console.warn('Full enhanced text renderer failed, trying simplified version:', error.message);
+    }
+
+    // Fallback to simplified enhanced text renderer
+    try {
+      this.textRenderer = new SimplifiedEnhancedTextRenderer(this.gl, this.shaderManager, {
+        enableDOMSync: true,
+        debugMode: false,
+        enableValidation: true,
+        validationTolerance: 2
+      });
+
+      // Use enhanced setup with DOM position extraction
+      this.textRenderer.setupEnhancedTextElements();
+      console.log('Simplified enhanced text renderer initialized successfully!');
+      return;
+    } catch (error) {
+      console.error('Failed to initialize any enhanced text renderer:', error);
       this.textRenderer = null;
     }
   }
@@ -635,7 +655,7 @@ export class OceanRenderer {
   /**
    * Get enhanced text renderer instance for external control
    */
-  getTextRenderer(): EnhancedTextRenderer | null {
+  getTextRenderer(): EnhancedTextRenderer | SimplifiedEnhancedTextRenderer | null {
     return this.textRenderer;
   }
 

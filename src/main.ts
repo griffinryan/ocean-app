@@ -57,6 +57,9 @@ class OceanApp {
       // Connect UI to glass renderer
       this.connectUIToRenderer();
 
+      // Make renderer globally accessible for testing
+      (window as any).oceanRenderer = this.renderer;
+
       console.log('Ocean Portfolio initialized successfully!');
 
       // Set up keyboard controls for debugging
@@ -380,6 +383,9 @@ class OceanApp {
 
 // Initialize the application when the page loads
 const app = new OceanApp();
+
+// Make renderer globally accessible for testing
+(window as any).oceanRenderer = null;
 
 // Handle page lifecycle
 window.addEventListener('load', () => {

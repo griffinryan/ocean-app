@@ -5,6 +5,11 @@
 
 import { DOMPositionExtractor, ExtractedPosition } from './DOMPositionExtractor';
 
+export interface WebGLPositionProvider {
+  getElementWebGLPosition(elementId: string): { x: number; y: number; width: number; height: number } | null;
+  getAllElementWebGLPositions(): Map<string, { x: number; y: number; width: number; height: number }>;
+}
+
 export interface ValidationResult {
   elementId: string;
   htmlPosition: ExtractedPosition;
@@ -35,10 +40,18 @@ export interface ValidationReport {
 export class PositionValidator {
   private domExtractor: DOMPositionExtractor;
   private tolerance: number = 2; // Pixel tolerance for "accurate" positioning
+  private webglPositionProvider: WebGLPositionProvider | null = null;
 
   constructor(canvas: HTMLCanvasElement, tolerance: number = 2) {
     this.domExtractor = new DOMPositionExtractor(canvas);
     this.tolerance = tolerance;
+  }
+
+  /**
+   * Set the WebGL position provider for accessing real layout positions
+   */
+  setWebGLPositionProvider(provider: WebGLPositionProvider): void {
+    this.webglPositionProvider = provider;
   }
 
   /**
@@ -123,22 +136,15 @@ export class PositionValidator {
   }
 
   /**
-   * Get WebGL position for an element (mock implementation)
-   * In a real implementation, this would query the layout system
+   * Get WebGL position for an element from the layout system
    */
   private getWebGLPosition(elementId: string): { x: number; y: number; width: number; height: number } | null {
-    // This is a placeholder - in the real implementation, we would:
-    // 1. Query the layout system for the element's computed position
-    // 2. Convert from layout coordinates to screen coordinates
-    // 3. Return the actual WebGL rendering position
+    if (!this.webglPositionProvider) {
+      console.warn('WebGL position provider not set - cannot validate positions');
+      return null;
+    }
 
-    // For now, return a mock position for testing
-    return {
-      x: 100,
-      y: 100,
-      width: 200,
-      height: 30
-    };
+    return this.webglPositionProvider.getElementWebGLPosition(elementId);
   }
 
   /**

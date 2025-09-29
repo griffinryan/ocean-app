@@ -9,7 +9,7 @@ import { ShaderManager } from './ShaderManager';
 import { WebGLTextLayoutSystem, createWebGLTextLayout } from './text-layout';
 import { DeclarativeLayoutBuilder, LayoutComponent } from './text-layout/DeclarativeAPI';
 import { DOMPositionExtractor, ExtractedPosition, PanelLayout } from './DOMPositionExtractor';
-import { PositionValidator, ValidationReport, createPositionValidator, logValidationReport } from './PositionValidator';
+import { PositionValidator, ValidationReport, WebGLPositionProvider, createPositionValidator, logValidationReport } from './PositionValidator';
 
 export interface EnhancedTextConfig {
   enableLayoutSystem: boolean;
@@ -21,7 +21,7 @@ export interface EnhancedTextConfig {
   validationTolerance: number;
 }
 
-export class EnhancedTextRenderer {
+export class EnhancedTextRenderer implements WebGLPositionProvider {
   private originalRenderer: TextRenderer;
   private layoutSystem: WebGLTextLayoutSystem | null = null;
   private builder: DeclarativeLayoutBuilder | null = null;
@@ -68,6 +68,7 @@ export class EnhancedTextRenderer {
     // Initialize position validator if enabled
     if (this.config.enableValidation) {
       this.positionValidator = createPositionValidator(canvas, this.config.validationTolerance);
+      this.positionValidator.setWebGLPositionProvider(this);
       this.validationEnabled = true;
     }
 
@@ -826,6 +827,7 @@ export class EnhancedTextRenderer {
   public enableValidation(tolerance: number = 2): void {
     const canvas = (this.originalRenderer as any).gl.canvas as HTMLCanvasElement;
     this.positionValidator = createPositionValidator(canvas, tolerance);
+    this.positionValidator.setWebGLPositionProvider(this);
     this.validationEnabled = true;
     this.config.enableValidation = true;
     this.config.validationTolerance = tolerance;
@@ -917,6 +919,110 @@ export class EnhancedTextRenderer {
 
     console.log('✅ Position testing complete!');
     console.groupEnd();
+  }
+
+  // ========== WebGLPositionProvider Implementation ==========
+
+  /**
+   * Get WebGL position for a specific element
+   */
+  public getElementWebGLPosition(elementId: string): { x: number; y: number; width: number; height: number } | null {
+    if (!this.layoutSystem) {
+      return null;
+    }
+
+    try {
+      // Query the layout system for the element's computed position
+      const layoutEngine = this.layoutSystem.getLayoutEngine();
+      const elementBounds = layoutEngine.getElementBounds(elementId);
+
+      if (!elementBounds) {
+        // Try alternative element IDs for common elements
+        const alternativeIds = this.getAlternativeElementIds(elementId);
+        for (const altId of alternativeIds) {
+          const altBounds = layoutEngine.getElementBounds(altId);
+          if (altBounds) {
+            return this.convertLayoutBoundsToScreenPosition(altBounds);
+          }
+        }
+        return null;
+      }
+
+      return this.convertLayoutBoundsToScreenPosition(elementBounds);
+    } catch (error) {
+      console.warn(`Failed to get WebGL position for element ${elementId}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Get all element WebGL positions
+   */
+  public getAllElementWebGLPositions(): Map<string, { x: number; y: number; width: number; height: number }> {
+    const positions = new Map<string, { x: number; y: number; width: number; height: number }>();
+
+    if (!this.layoutSystem) {
+      return positions;
+    }
+
+    try {
+      const layoutEngine = this.layoutSystem.getLayoutEngine();
+      const allElementIds = layoutEngine.getAllElementIds();
+
+      allElementIds.forEach(elementId => {
+        const position = this.getElementWebGLPosition(elementId);
+        if (position) {
+          positions.set(elementId, position);
+        }
+      });
+    } catch (error) {
+      console.warn('Failed to get all WebGL positions:', error);
+    }
+
+    return positions;
+  }
+
+  /**
+   * Convert layout bounds to screen coordinates
+   */
+  private convertLayoutBoundsToScreenPosition(bounds: any): { x: number; y: number; width: number; height: number } {
+    // The bounds from layout system should already be in screen coordinates
+    // But we might need to convert coordinate systems if needed
+    return {
+      x: bounds.x || 0,
+      y: bounds.y || 0,
+      width: bounds.width || 0,
+      height: bounds.height || 0
+    };
+  }
+
+  /**
+   * Get alternative element IDs to try if the primary ID doesn't work
+   */
+  private getAlternativeElementIds(elementId: string): string[] {
+    const alternatives: string[] = [];
+
+    // Map common element IDs to their alternatives
+    const idMappings = new Map([
+      ['navbar-brand', ['nav-brand']],
+      ['nav-brand', ['navbar-brand']],
+      ['navbar-item-0', ['nav-item-0']],
+      ['navbar-item-1', ['nav-item-1']],
+      ['navbar-item-2', ['nav-item-2']],
+      ['landing-title', ['landing-panel-title']],
+      ['landing-subtitle', ['landing-panel-subtitle']]
+    ]);
+
+    if (idMappings.has(elementId)) {
+      alternatives.push(...idMappings.get(elementId)!);
+    }
+
+    // Try panel-prefixed versions
+    if (!elementId.includes('-')) {
+      alternatives.push(`navbar-${elementId}`, `landing-${elementId}`, `app-${elementId}`);
+    }
+
+    return alternatives;
   }
 
   /**
