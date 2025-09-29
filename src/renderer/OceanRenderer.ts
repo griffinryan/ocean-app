@@ -7,6 +7,8 @@ import { GeometryBuilder, BufferManager, GeometryData } from './Geometry';
 import { Mat4 } from '../utils/math';
 import { VesselSystem, VesselConfig } from './VesselSystem';
 import { GlassRenderer } from './GlassRenderer';
+import { TextContrastAnalyzer } from './TextContrastAnalyzer';
+import { TextRenderLayer } from './TextRenderLayer';
 
 export interface RenderConfig {
   canvas: HTMLCanvasElement;
@@ -49,6 +51,21 @@ export class OceanRenderer {
   // Glass panel renderer
   private glassRenderer: GlassRenderer | null = null;
   private glassEnabled: boolean = false;
+
+  // Text contrast analyzer (legacy)
+  private textAnalyzer: TextContrastAnalyzer | null = null;
+  private textAnalyzerEnabled: boolean = false;
+
+  // New per-pixel text rendering system
+  private textRenderLayer: TextRenderLayer | null = null;
+  private textCompositeProgram: ShaderProgram | null = null;
+  private textRenderEnabled: boolean = false;
+  private textDebugMode: number = 0; // 0=off, 1=text, 2=ocean, 3=analysis
+
+  // Independent ocean texture capture for text system
+  private textOceanFramebuffer: WebGLFramebuffer | null = null;
+  private textOceanTexture: WebGLTexture | null = null;
+  private textOceanDepthBuffer: WebGLRenderbuffer | null = null;
 
   // Pre-cached DOM elements
   private cachedElements = {
@@ -105,6 +122,15 @@ export class OceanRenderer {
 
     // Initialize glass renderer
     this.initializeGlassRenderer();
+
+    // Initialize text contrast analyzer
+    this.initializeTextAnalyzer();
+
+    // Initialize new text render layer
+    this.initializeTextRenderLayer();
+
+    // Initialize text ocean capture system
+    this.initializeTextOceanCapture();
   }
 
   /**
@@ -176,6 +202,9 @@ export class OceanRenderer {
       if (this.glassRenderer) {
         this.glassRenderer.resizeFramebuffer(canvasWidth, canvasHeight);
       }
+
+      // Resize text ocean capture framebuffer
+      this.resizeTextOceanCapture(canvasWidth, canvasHeight);
     }
   }
 
@@ -240,13 +269,141 @@ export class OceanRenderer {
   }
 
   /**
+   * Initialize text contrast analyzer system (legacy)
+   */
+  private initializeTextAnalyzer(): void {
+    try {
+      this.textAnalyzer = new TextContrastAnalyzer(
+        this.gl,
+        this.shaderManager,
+        this.canvas,
+        {
+          updateFrequency: 12, // 12 Hz for smooth text updates
+          samplingPoints: 9,   // 3x3 sampling grid
+          contrastThreshold: 7.0, // WCAG AAA compliance
+          smoothingFactor: 0.7,   // Smooth color transitions
+          glassAwareMode: true    // Consider glass panels in analysis
+        }
+      );
+      console.log('Text contrast analyzer (legacy) initialized successfully!');
+    } catch (error) {
+      console.error('Failed to initialize text contrast analyzer:', error);
+      this.textAnalyzer = null;
+    }
+  }
+
+  /**
+   * Initialize new per-pixel text render layer
+   */
+  private initializeTextRenderLayer(): void {
+    try {
+      this.textRenderLayer = new TextRenderLayer(
+        this.gl,
+        this.canvas,
+        {
+          enableHighDPI: true,
+          updateFrequency: 15, // 15 Hz for text texture updates
+          debugMode: false,    // Can be toggled later
+          fontScaling: 2.0     // 2x scaling for crisp text
+        }
+      );
+      console.log('Text render layer initialized successfully!');
+    } catch (error) {
+      console.error('Failed to initialize text render layer:', error);
+      this.textRenderLayer = null;
+    }
+  }
+
+  /**
+   * Initialize independent ocean texture capture for text system
+   */
+  private initializeTextOceanCapture(): void {
+    try {
+      const gl = this.gl;
+
+      // Create framebuffer
+      this.textOceanFramebuffer = gl.createFramebuffer();
+      if (!this.textOceanFramebuffer) {
+        throw new Error('Failed to create text ocean framebuffer');
+      }
+
+      // Create texture for ocean capture
+      this.textOceanTexture = gl.createTexture();
+      if (!this.textOceanTexture) {
+        throw new Error('Failed to create text ocean texture');
+      }
+
+      // Create depth buffer
+      this.textOceanDepthBuffer = gl.createRenderbuffer();
+      if (!this.textOceanDepthBuffer) {
+        throw new Error('Failed to create text ocean depth buffer');
+      }
+
+      // Setup will be completed in resize method
+      this.resizeTextOceanCapture(gl.canvas.width, gl.canvas.height);
+
+      console.log('Text ocean capture system initialized successfully!');
+    } catch (error) {
+      console.error('Failed to initialize text ocean capture:', error);
+      this.textOceanFramebuffer = null;
+      this.textOceanTexture = null;
+      this.textOceanDepthBuffer = null;
+    }
+  }
+
+  /**
+   * Resize text ocean capture framebuffer
+   */
+  private resizeTextOceanCapture(width: number, height: number): void {
+    const gl = this.gl;
+
+    if (!this.textOceanFramebuffer || !this.textOceanTexture || !this.textOceanDepthBuffer) {
+      return;
+    }
+
+    // Bind framebuffer
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.textOceanFramebuffer);
+
+    // Setup color texture
+    gl.bindTexture(gl.TEXTURE_2D, this.textOceanTexture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    // Attach color texture
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.textOceanTexture, 0);
+
+    // Setup depth buffer
+    gl.bindRenderbuffer(gl.RENDERBUFFER, this.textOceanDepthBuffer);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, width, height);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, this.textOceanDepthBuffer);
+
+    // Check framebuffer completeness
+    const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+    if (status !== gl.FRAMEBUFFER_COMPLETE) {
+      console.error('Text ocean framebuffer incomplete:', status);
+    }
+
+    // Unbind
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    gl.bindRenderbuffer(gl.RENDERBUFFER, null);
+  }
+
+  /**
    * Initialize ocean shader program and glass shaders
    */
   async initializeShaders(
     oceanVertexSource: string,
     oceanFragmentSource: string,
     glassVertexSource?: string,
-    glassFragmentSource?: string
+    glassFragmentSource?: string,
+    textSamplingVertexSource?: string,
+    textSamplingFragmentSource?: string,
+    textCompositeVertexSource?: string,
+    textCompositeFragmentSource?: string
   ): Promise<void> {
     // Define uniforms and attributes for ocean shader
     const uniforms = [
@@ -300,16 +457,66 @@ export class OceanRenderer {
         this.glassEnabled = false;
       }
     }
+
+    // Initialize text sampling shaders if provided (legacy)
+    if (textSamplingVertexSource && textSamplingFragmentSource && this.textAnalyzer) {
+      try {
+        await this.textAnalyzer.initializeShader(textSamplingVertexSource, textSamplingFragmentSource);
+        this.textAnalyzerEnabled = true;
+        console.log('Text sampling shaders (legacy) initialized successfully!');
+      } catch (error) {
+        console.error('Failed to initialize text sampling shaders:', error);
+        this.textAnalyzerEnabled = false;
+      }
+    }
+
+    // Initialize text composite shaders for new per-pixel system
+    if (textCompositeVertexSource && textCompositeFragmentSource) {
+      try {
+        // Define uniforms and attributes for text compositing
+        const textUniforms = [
+          'u_projectionMatrix',
+          'u_viewMatrix',
+          'u_textTexture',
+          'u_oceanTexture',
+          'u_resolution',
+          'u_time',
+          'u_contrastThreshold',
+          'u_transitionWidth',
+          'u_debugMode'
+        ];
+
+        const textAttributes = [
+          'a_position',
+          'a_texcoord'
+        ];
+
+        // Create text composite shader program
+        this.textCompositeProgram = this.shaderManager.createProgram(
+          'textComposite',
+          textCompositeVertexSource,
+          textCompositeFragmentSource,
+          textUniforms,
+          textAttributes
+        );
+
+        this.textRenderEnabled = true;
+        console.log('Text composite shaders initialized successfully!');
+      } catch (error) {
+        console.error('Failed to initialize text composite shaders:', error);
+        this.textRenderEnabled = false;
+      }
+    }
   }
 
   /**
-   * Render ocean scene with glass overlay pipeline
+   * Render ocean scene with glass overlay and adaptive text pipeline
    */
   private renderOceanScene(elapsedTime: number): void {
     const gl = this.gl;
 
     if (this.glassEnabled && this.glassRenderer) {
-      // Render ocean to texture for glass distortion
+      // Render ocean to texture for glass distortion and text analysis
       this.glassRenderer.captureOceanScene(() => {
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
         this.drawOcean(elapsedTime);
@@ -321,11 +528,136 @@ export class OceanRenderer {
 
       // Render glass panels as overlay
       this.glassRenderer.render();
+
+      // Render adaptive text overlay using the captured ocean texture
+      this.renderAdaptiveText(elapsedTime);
     } else {
       // Normal rendering without glass effects
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
       this.drawOcean(elapsedTime);
+
+      // For adaptive text without glass, we need to capture the current framebuffer
+      // This is a simplified approach - in production you might want a separate capture
+      this.renderAdaptiveText(elapsedTime);
     }
+  }
+
+  /**
+   * Capture ocean scene to independent texture for text analysis
+   */
+  private captureOceanForText(elapsedTime: number): void {
+    if (!this.textOceanFramebuffer || !this.textOceanTexture) {
+      return;
+    }
+
+    const gl = this.gl;
+
+    // Store current viewport
+    const viewport = gl.getParameter(gl.VIEWPORT);
+
+    // Bind text ocean framebuffer
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.textOceanFramebuffer);
+    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+
+    // Clear and render ocean to texture
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    this.drawOcean(elapsedTime);
+
+    // Restore screen framebuffer
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+  }
+
+  /**
+   * Render adaptive text overlay with per-pixel coloring
+   */
+  private renderAdaptiveText(elapsedTime: number): void {
+    if (!this.textRenderEnabled || !this.textRenderLayer || !this.textCompositeProgram) {
+      return;
+    }
+
+    const gl = this.gl;
+
+    // Update text layer
+    this.textRenderLayer.update();
+
+    // Get text texture
+    const textTexture = this.textRenderLayer.getTextTexture();
+    if (!textTexture) {
+      console.warn('No text texture available for rendering');
+      return;
+    }
+
+    // Get ocean texture for background analysis
+    let oceanTexture: WebGLTexture | null = null;
+
+    // First try to use glass renderer's ocean texture (if available)
+    if (this.glassRenderer) {
+      oceanTexture = this.glassRenderer.getOceanTexture();
+    }
+
+    // If no glass renderer texture, use our independent capture
+    if (!oceanTexture && this.textOceanTexture) {
+      this.captureOceanForText(elapsedTime);
+      oceanTexture = this.textOceanTexture;
+    }
+
+    // If still no ocean texture, skip rendering
+    if (!oceanTexture) {
+      console.warn('No ocean texture available for text rendering');
+      return;
+    }
+
+    // Use text composite shader
+    const program = this.shaderManager.useProgram('textComposite');
+
+    // Set matrices
+    this.shaderManager.setUniformMatrix4fv(program, 'u_projectionMatrix', this.projectionMatrix.data);
+    this.shaderManager.setUniformMatrix4fv(program, 'u_viewMatrix', this.viewMatrix.data);
+
+    // Set time and resolution
+    this.shaderManager.setUniform1f(program, 'u_time', elapsedTime);
+    this.shaderManager.setUniform2f(program, 'u_resolution', this.canvas.width, this.canvas.height);
+
+    // Set contrast parameters
+    this.shaderManager.setUniform1f(program, 'u_contrastThreshold', 0.5); // Adjust based on preference
+    this.shaderManager.setUniform1f(program, 'u_transitionWidth', 0.2);   // Smoothness of transitions
+
+    // Set debug mode
+    this.shaderManager.setUniform1i(program, 'u_debugMode', this.textDebugMode);
+
+    // Bind text texture
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, textTexture);
+    this.shaderManager.setUniform1i(program, 'u_textTexture', 0);
+
+    // Bind ocean texture
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, oceanTexture);
+    this.shaderManager.setUniform1i(program, 'u_oceanTexture', 1);
+
+    // Set up blending for text overlay
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+    // Disable depth testing for text overlay
+    const depthTestEnabled = gl.isEnabled(gl.DEPTH_TEST);
+    gl.disable(gl.DEPTH_TEST);
+
+    // Render full-screen quad with text composite shader
+    this.bufferManager.bind();
+    gl.drawElements(gl.TRIANGLES, this.geometry.indexCount, gl.UNSIGNED_SHORT, 0);
+
+    // Restore depth testing state
+    if (depthTestEnabled) {
+      gl.enable(gl.DEPTH_TEST);
+    }
+
+    // Cleanup texture bindings
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, null);
   }
 
   /**
@@ -410,6 +742,14 @@ export class OceanRenderer {
 
     // Render ocean scene with integrated glass distortion
     this.renderOceanScene(elapsedTime);
+
+    // Update text contrast analyzer if enabled
+    if (this.textAnalyzerEnabled && this.textAnalyzer && this.glassRenderer) {
+      const oceanTexture = this.glassRenderer.getOceanTexture();
+      if (oceanTexture) {
+        this.textAnalyzer.update(oceanTexture);
+      }
+    }
 
     // Update FPS counter
     this.updateFPS(currentTime);
@@ -531,6 +871,143 @@ export class OceanRenderer {
   }
 
   /**
+   * Enable/disable text contrast analyzer
+   */
+  setTextAnalyzerEnabled(enabled: boolean): void {
+    this.textAnalyzerEnabled = enabled && this.textAnalyzer !== null;
+    if (this.textAnalyzer) {
+      if (enabled) {
+        this.textAnalyzer.start();
+      } else {
+        this.textAnalyzer.stop();
+      }
+    }
+  }
+
+  /**
+   * Get text analyzer enabled state
+   */
+  getTextAnalyzerEnabled(): boolean {
+    return this.textAnalyzerEnabled;
+  }
+
+  /**
+   * Register a text element for adaptive coloring
+   */
+  registerTextElement(id: string, element: HTMLElement): void {
+    if (this.textAnalyzer) {
+      this.textAnalyzer.registerTextElement(id, element);
+    }
+  }
+
+  /**
+   * Unregister a text element
+   */
+  unregisterTextElement(id: string): void {
+    if (this.textAnalyzer) {
+      this.textAnalyzer.unregisterTextElement(id);
+    }
+  }
+
+  /**
+   * Update text element bounds (call on resize or layout changes)
+   */
+  updateTextElementBounds(id: string): void {
+    if (this.textAnalyzer) {
+      this.textAnalyzer.updateElementBounds(id);
+    }
+  }
+
+  /**
+   * Get text contrast analyzer instance for external control
+   */
+  getTextAnalyzer(): TextContrastAnalyzer | null {
+    return this.textAnalyzer;
+  }
+
+  /**
+   * Get text analyzer performance metrics (legacy)
+   */
+  getTextAnalyzerMetrics(): {
+    elementCount: number;
+    lastAnalysisTime: number;
+    updateFrequency: number;
+    isRunning: boolean;
+  } | null {
+    return this.textAnalyzer ? this.textAnalyzer.getPerformanceMetrics() : null;
+  }
+
+  /**
+   * Enable/disable new per-pixel text rendering system
+   */
+  setTextRenderEnabled(enabled: boolean): void {
+    this.textRenderEnabled = enabled && this.textRenderLayer !== null && this.textCompositeProgram !== null;
+  }
+
+  /**
+   * Get text render enabled state
+   */
+  getTextRenderEnabled(): boolean {
+    return this.textRenderEnabled;
+  }
+
+  /**
+   * Register a text element for per-pixel adaptive rendering
+   */
+  registerTextForRendering(id: string, element: HTMLElement): void {
+    if (this.textRenderLayer) {
+      this.textRenderLayer.registerTextElement(id, element);
+    }
+  }
+
+  /**
+   * Unregister a text element from per-pixel rendering
+   */
+  unregisterTextFromRendering(id: string): void {
+    if (this.textRenderLayer) {
+      this.textRenderLayer.unregisterTextElement(id);
+    }
+  }
+
+  /**
+   * Get text render layer instance for external control
+   */
+  getTextRenderLayer(): TextRenderLayer | null {
+    return this.textRenderLayer;
+  }
+
+  /**
+   * Get text render performance metrics
+   */
+  getTextRenderMetrics(): {
+    elementCount: number;
+    lastRenderTime: number;
+    textureUpdateCount: number;
+    textureSize: { width: number; height: number };
+  } | null {
+    return this.textRenderLayer ? this.textRenderLayer.getPerformanceMetrics() : null;
+  }
+
+  /**
+   * Set text render debug mode (cycles through modes)
+   */
+  setTextRenderDebugMode(enabled: boolean): void {
+    if (enabled) {
+      // Cycle through debug modes: 0 -> 1 -> 2 -> 3 -> 0
+      this.textDebugMode = (this.textDebugMode + 1) % 4;
+    } else {
+      this.textDebugMode = 0;
+    }
+
+    // Also set debug mode on text render layer for canvas rendering
+    if (this.textRenderLayer) {
+      this.textRenderLayer.setDebugMode(this.textDebugMode === 1); // Only mode 1 shows text rendering debug
+    }
+
+    console.log(`Text debug mode: ${this.textDebugMode} (${['Off', 'Text Texture', 'Ocean Sampling', 'Analysis'][this.textDebugMode]})`);
+  }
+
+  /**
    * Initialize cached DOM elements for performance
    */
   private initializeCachedElements(): void {
@@ -554,6 +1031,34 @@ export class OceanRenderer {
     if (this.glassRenderer) {
       this.glassRenderer.dispose();
       this.glassRenderer = null;
+    }
+
+    // Clean up text contrast analyzer
+    if (this.textAnalyzer) {
+      this.textAnalyzer.dispose();
+      this.textAnalyzer = null;
+    }
+
+    // Clean up text render layer
+    if (this.textRenderLayer) {
+      this.textRenderLayer.dispose();
+      this.textRenderLayer = null;
+    }
+
+    // Clean up text ocean capture resources
+    if (this.textOceanFramebuffer) {
+      this.gl.deleteFramebuffer(this.textOceanFramebuffer);
+      this.textOceanFramebuffer = null;
+    }
+
+    if (this.textOceanTexture) {
+      this.gl.deleteTexture(this.textOceanTexture);
+      this.textOceanTexture = null;
+    }
+
+    if (this.textOceanDepthBuffer) {
+      this.gl.deleteRenderbuffer(this.textOceanDepthBuffer);
+      this.textOceanDepthBuffer = null;
     }
   }
 }

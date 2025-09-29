@@ -12,6 +12,10 @@ import oceanVertexShader from './shaders/ocean.vert';
 import oceanFragmentShader from './shaders/ocean.frag';
 import glassVertexShader from './shaders/glass.vert';
 import glassFragmentShader from './shaders/glass.frag';
+import textSamplingVertexShader from './shaders/text-sampling.vert';
+import textSamplingFragmentShader from './shaders/text-sampling.frag';
+import textCompositeVertexShader from './shaders/text-composite.vert';
+import textCompositeFragmentShader from './shaders/text-composite.frag';
 
 class OceanApp {
   public renderer: OceanRenderer | null = null;
@@ -39,12 +43,16 @@ class OceanApp {
         alpha: false
       });
 
-      // Initialize shaders (ocean and glass)
+      // Initialize shaders (ocean, glass, text sampling, and text composite)
       await this.renderer.initializeShaders(
         oceanVertexShader,
         oceanFragmentShader,
         glassVertexShader,
-        glassFragmentShader
+        glassFragmentShader,
+        textSamplingVertexShader,
+        textSamplingFragmentShader,
+        textCompositeVertexShader,
+        textCompositeFragmentShader
       );
 
       // Start rendering
@@ -127,7 +135,82 @@ class OceanApp {
     } else {
       console.warn('Glass renderer not available, falling back to CSS-only effects');
     }
+
+    // Initialize new per-pixel adaptive text system
+    const textRenderLayer = this.renderer.getTextRenderLayer();
+    if (textRenderLayer) {
+      // Register all text elements for per-pixel rendering
+      this.registerAllTextElementsForRendering();
+
+      // Enable text render system
+      this.renderer.setTextRenderEnabled(true);
+
+      console.log('Per-pixel adaptive text system initialized successfully!');
+    } else {
+      console.warn('Text render layer not available');
+    }
+
+    // Keep legacy text analyzer for comparison (disabled by default)
+    const textAnalyzer = this.renderer.getTextAnalyzer();
+    if (textAnalyzer) {
+      // Don't enable by default - only for debugging/comparison
+      this.renderer.setTextAnalyzerEnabled(false);
+      console.log('Legacy text analyzer available for debugging');
+    }
   }
+
+  /**
+   * Register all text elements for per-pixel adaptive rendering
+   */
+  private registerAllTextElementsForRendering(): void {
+    if (!this.renderer) return;
+
+    // Define text elements to register for per-pixel rendering
+    const textElementConfigs = [
+      // Landing panel text
+      { id: 'landing-title', selector: '#landing-panel h1', type: 'heading' },
+      { id: 'landing-subtitle', selector: '#landing-panel .subtitle', type: 'body' },
+      { id: 'landing-buttons', selector: '#landing-panel .glass-button', type: 'button' },
+
+      // Navigation elements
+      { id: 'nav-brand', selector: '.brand-text', type: 'navigation' },
+      { id: 'nav-items', selector: '.nav-label', type: 'navigation' },
+
+      // App panel text
+      { id: 'app-title', selector: '#app-panel h2', type: 'heading' },
+      { id: 'app-content', selector: '#app-panel p', type: 'body' },
+      { id: 'app-projects', selector: '#app-panel .project-card h3', type: 'heading' },
+
+      // Portfolio panel text
+      { id: 'portfolio-title', selector: '#portfolio-panel h2', type: 'heading' },
+      { id: 'portfolio-content', selector: '#portfolio-panel p', type: 'body' },
+      { id: 'portfolio-projects', selector: '#portfolio-panel .project-detail h3', type: 'heading' },
+
+      // Resume panel text
+      { id: 'resume-title', selector: '#resume-panel h2', type: 'heading' },
+      { id: 'resume-sections', selector: '#resume-panel h3', type: 'heading' },
+      { id: 'resume-content', selector: '#resume-panel p', type: 'body' },
+      { id: 'resume-skills', selector: '.skill-tag', type: 'body' }
+    ];
+
+    textElementConfigs.forEach(config => {
+      const elements = document.querySelectorAll(config.selector);
+      elements.forEach((element, index) => {
+        if (element instanceof HTMLElement) {
+          const uniqueId = elements.length > 1 ? `${config.id}-${index}` : config.id;
+
+          // Start with HTML text visible as fallback
+          element.classList.add('webgl-text-fallback');
+
+          // Register with text render layer
+          this.renderer!.registerTextForRendering(uniqueId, element);
+
+          console.log(`Registered text element for per-pixel rendering: ${uniqueId}`);
+        }
+      });
+    });
+  }
+
 
   /**
    * Set up keyboard controls for debugging
@@ -190,6 +273,30 @@ class OceanApp {
             this.updateGlassInfo(!isEnabled);
           }
           break;
+        case 't':
+        case 'T':
+          // Toggle new per-pixel text rendering system
+          event.preventDefault();
+          event.stopPropagation();
+          if (this.renderer) {
+            const isEnabled = this.renderer.getTextRenderEnabled();
+            this.renderer.setTextRenderEnabled(!isEnabled);
+            this.updateTextRenderInfo(!isEnabled);
+          }
+          break;
+        case 'r':
+        case 'R':
+          // Cycle text render debug modes
+          event.preventDefault();
+          event.stopPropagation();
+          if (this.renderer) {
+            const textRenderLayer = this.renderer.getTextRenderLayer();
+            if (textRenderLayer) {
+              // Cycle through debug modes (state is tracked in renderer)
+              this.renderer.setTextRenderDebugMode(true);
+            }
+          }
+          break;
         case '1':
         case '2':
         case '3':
@@ -215,6 +322,8 @@ class OceanApp {
     console.log('  0-4 - Select debug mode directly');
     console.log('  V - Toggle vessel wake system');
     console.log('  G - Toggle glass panel rendering');
+    console.log('  T - Toggle per-pixel text rendering');
+    console.log('  R - Cycle text render debug modes (Off/Text/Ocean/Analysis)');
     console.log('  Space - Reserved for future controls');
   }
 
@@ -276,6 +385,37 @@ class OceanApp {
       glassElement.innerHTML = `<br>Glass Panels: ${enabled ? 'ON' : 'OFF'}`;
     }
   }
+
+  /**
+   * Update text render info display
+   */
+  private updateTextRenderInfo(enabled: boolean): void {
+    const infoElement = document.getElementById('info');
+    if (infoElement && this.renderer) {
+      // Update the existing info or add text render info
+      let textElement = document.getElementById('text-render-info');
+      if (!textElement) {
+        textElement = document.createElement('div');
+        textElement.id = 'text-render-info';
+        infoElement.appendChild(textElement);
+      }
+
+      let statusText = `<br>Per-Pixel Text: ${enabled ? 'ON' : 'OFF'}`;
+
+      // Add performance metrics if enabled
+      if (enabled) {
+        const metrics = this.renderer.getTextRenderMetrics();
+        if (metrics) {
+          statusText += `<br>Text Elements: ${metrics.elementCount}`;
+          statusText += `<br>Render Time: ${metrics.lastRenderTime.toFixed(2)}ms`;
+          statusText += `<br>Texture: ${metrics.textureSize.width}x${metrics.textureSize.height}`;
+        }
+      }
+
+      textElement.innerHTML = statusText;
+    }
+  }
+
 
   /**
    * Show error message to user

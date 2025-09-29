@@ -30,6 +30,13 @@
   /* Animation */
   --glass-transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   --hover-transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Adaptive Text System */
+  --text-adaptive-color: var(--text-primary);
+  --text-adaptive-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --text-adaptive-contrast: 7.0;
+  --text-adaptive-transition: color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                              text-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* ===== BASE RESET & LAYOUT ===== */
@@ -58,6 +65,121 @@ body {
   height: 100vh;
   display: block;
   z-index: 1;
+}
+
+/* ===== ADAPTIVE TEXT SYSTEM ===== */
+
+.adaptive-text {
+  color: var(--text-adaptive-color);
+  text-shadow: var(--text-adaptive-shadow);
+  transition: var(--text-adaptive-transition);
+  will-change: color, text-shadow;
+}
+
+.adaptive-text.high-contrast {
+  /* Enhanced contrast mode for WCAG AAA compliance */
+  font-weight: var(--font-weight-medium);
+}
+
+.adaptive-text.foam-mode {
+  /* Special styling for areas with ocean foam */
+  text-shadow:
+    0 0 4px rgba(0, 0, 0, 0.8),
+    0 1px 3px rgba(0, 0, 0, 0.6),
+    0 0 8px rgba(0, 0, 0, 0.3);
+}
+
+.adaptive-text.wave-mode {
+  /* Dynamic styling for wave crest areas */
+  text-shadow:
+    0 0 3px rgba(255, 255, 255, 0.9),
+    0 1px 2px rgba(255, 255, 255, 0.7),
+    0 0 6px rgba(255, 255, 255, 0.4);
+}
+
+.adaptive-text.glass-mode {
+  /* Special styling for glass panel areas */
+  color: rgba(255, 255, 255, 0.95);
+  text-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.5),
+    0 0 8px rgba(0, 100, 255, 0.2);
+  backdrop-filter: blur(1px);
+}
+
+.adaptive-text.debug {
+  /* Debug mode to visualize adaptive behavior */
+  outline: 1px solid var(--text-adaptive-color);
+  outline-offset: 2px;
+  position: relative;
+}
+
+.adaptive-text.debug::after {
+  content: attr(data-contrast-ratio);
+  position: absolute;
+  top: -20px;
+  left: 0;
+  font-size: 10px;
+  background: rgba(0, 0, 0, 0.7);
+  color: white;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-family: monospace;
+  pointer-events: none;
+  z-index: 1000;
+}
+
+/* Presets for different text types */
+.adaptive-text.heading {
+  font-weight: var(--font-weight-light);
+  letter-spacing: -0.02em;
+}
+
+.adaptive-text.body {
+  font-weight: var(--font-weight-normal);
+  line-height: 1.5;
+}
+
+.adaptive-text.button {
+  font-weight: var(--font-weight-medium);
+  transition: var(--text-adaptive-transition), transform 0.2s ease;
+}
+
+.adaptive-text.navigation {
+  font-weight: var(--font-weight-medium);
+  transition: var(--text-adaptive-transition), opacity 0.2s ease;
+}
+
+/* Performance optimizations */
+@media (prefers-reduced-motion: reduce) {
+  .adaptive-text {
+    transition: none !important;
+  }
+}
+
+/* Text visibility control for WebGL/HTML switching */
+.webgl-text-fallback {
+  /* HTML text visible as fallback */
+  opacity: 1;
+  transition: opacity 0.3s ease;
+}
+
+.webgl-text-active {
+  /* HTML text hidden when WebGL is rendering */
+  opacity: 0;
+  pointer-events: none;
+}
+
+.webgl-text-debug {
+  /* Debug mode: show both HTML and WebGL text with overlay */
+  opacity: 0.5;
+  outline: 2px dashed rgba(255, 255, 0, 0.5);
+  outline-offset: 2px;
+}
+
+/* Ensure text remains selectable and accessible */
+.webgl-text-fallback, .webgl-text-debug {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 /* ===== GLASS PANEL BASE ===== */
