@@ -5,6 +5,7 @@
 
 import { ShaderManager, ShaderProgram } from './ShaderManager';
 import { FontAtlas, TextMeshData } from '../utils/FontAtlas';
+import { Mat4 } from '../utils/math';
 
 export interface TextElement {
   id: string;                    // Unique identifier
@@ -34,6 +35,10 @@ export class TextRenderer {
   private fontAtlas: FontAtlas;
   private textProgram: ShaderProgram | null = null;
 
+  // Matrices for transformation
+  private projectionMatrix: Mat4;
+  private viewMatrix: Mat4;
+
   // Text elements tracking
   private textElements: Map<string, TextElement> = new Map();
 
@@ -55,6 +60,12 @@ export class TextRenderer {
     this.gl = gl;
     this.shaderManager = shaderManager;
     this.fontAtlas = new FontAtlas(gl);
+
+    // Initialize matrices for screen-space rendering
+    this.projectionMatrix = new Mat4();
+    this.viewMatrix = new Mat4();
+    this.projectionMatrix.identity();
+    this.viewMatrix.identity();
 
     // Set up resize observer for tracking HTML element changes
     this.resizeObserver = new ResizeObserver((entries) => {
@@ -121,6 +132,8 @@ export class TextRenderer {
 
     const textContent = this.extractTextContent(element);
     const bounds = this.fontAtlas.measureText(textContent, fontSize);
+
+    console.log(`Adding text element '${id}': "${textContent}" (${fontSize}px)`, bounds);
 
     const textElement: TextElement = {
       id,
@@ -304,9 +317,14 @@ export class TextRenderer {
 
       // Update position if element is visible
       if (textElement.visible && canvasRect.width > 0 && canvasRect.height > 0) {
-        // Calculate position relative to canvas
-        const x = elementRect.left - canvasRect.left;
-        const y = elementRect.top - canvasRect.top;
+        // Calculate position relative to canvas, accounting for CSS box model
+        const computedStyle = window.getComputedStyle(textElement.element);
+        const paddingLeft = parseFloat(computedStyle.paddingLeft);
+        const paddingTop = parseFloat(computedStyle.paddingTop);
+
+        // Position at the text content area (inside padding)
+        const x = elementRect.left - canvasRect.left + paddingLeft;
+        const y = elementRect.top - canvasRect.top + paddingTop;
 
         textElement.position = [x, y];
 
@@ -330,7 +348,12 @@ export class TextRenderer {
    * Render all text elements
    */
   public render(oceanTexture: WebGLTexture, time: number, canvasWidth: number, canvasHeight: number): void {
+
     if (!this.textProgram || !this.fontAtlas.isReady()) {
+      console.warn('TextRenderer: Cannot render - program or font not ready', {
+        hasProgram: !!this.textProgram,
+        fontReady: this.fontAtlas.isReady()
+      });
       return;
     }
 
@@ -338,6 +361,10 @@ export class TextRenderer {
 
     // Use text shader program
     const program = this.shaderManager.useProgram('text');
+
+    // Set matrix uniforms
+    this.shaderManager.setUniformMatrix4fv(program, 'u_projectionMatrix', this.projectionMatrix.data);
+    this.shaderManager.setUniformMatrix4fv(program, 'u_viewMatrix', this.viewMatrix.data);
 
     // Set global uniforms
     this.shaderManager.setUniform1f(program, 'u_time', time);
@@ -373,13 +400,21 @@ export class TextRenderer {
     }
 
     // Render each visible text element
+    let visibleCount = 0;
+    let renderedCount = 0;
+
     for (const textElement of this.textElements.values()) {
+      if (textElement.visible) visibleCount++;
+
+
       if (!textElement.visible || !textElement.meshData || !textElement.buffers) {
         continue;
       }
 
+      renderedCount++;
       this.renderTextElement(textElement, program, positionLocation, texCoordLocation);
     }
+
 
     // Re-enable depth testing
     gl.enable(gl.DEPTH_TEST);

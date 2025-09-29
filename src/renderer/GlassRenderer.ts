@@ -308,8 +308,14 @@ export class GlassRenderer {
       }
     });
 
-    // Re-enable depth testing
+    // Restore WebGL state properly
     gl.enable(gl.DEPTH_TEST);
+
+    // Unbind textures to prevent conflicts
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+
+    // Note: Don't unbind buffers here as they may be needed by subsequent renderers
   }
 
   /**

@@ -178,6 +178,9 @@ export class BufferManager {
   setupAttributes(positionLocation: number, texcoordLocation?: number): void {
     this.gl.bindVertexArray(this.vao);
 
+    // Ensure index buffer is bound to this VAO
+    this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
+
     // Position attribute (x, y, z) - 3 floats
     this.gl.enableVertexAttribArray(positionLocation);
     this.gl.vertexAttribPointer(positionLocation, 3, this.gl.FLOAT, false, 5 * 4, 0);
@@ -188,7 +191,7 @@ export class BufferManager {
       this.gl.vertexAttribPointer(texcoordLocation, 2, this.gl.FLOAT, false, 5 * 4, 3 * 4);
     }
 
-    this.gl.bindVertexArray(null);
+    // Keep VAO bound to preserve state including index buffer binding
   }
 
   /**

@@ -458,7 +458,8 @@ export class OceanRenderer {
     if (!texture) return null;
 
     gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.copyTexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 0, 0, this.canvas.width, this.canvas.height, 0);
+    // Use RGB format since the WebGL context has alpha: false
+    gl.copyTexImage2D(gl.TEXTURE_2D, 0, gl.RGB, 0, 0, this.canvas.width, this.canvas.height, 0);
 
     // Set texture parameters
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);

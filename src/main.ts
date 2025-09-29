@@ -134,8 +134,11 @@ class OceanApp {
 
     // Enable text rendering with inverse color mapping if available
     const textRenderer = this.renderer.getTextRenderer();
+    console.log('Text renderer check:', { textRenderer: !!textRenderer });
+
     if (textRenderer) {
       this.renderer.setTextEnabled(true);
+      console.log('Text rendering enabled');
 
       // Add all text elements from HTML
       this.setupTextElements();
@@ -150,7 +153,12 @@ class OceanApp {
    * Set up text elements for WebGL text rendering
    */
   private setupTextElements(): void {
-    if (!this.renderer) return;
+    if (!this.renderer) {
+      console.warn('No renderer available for text setup');
+      return;
+    }
+
+    console.log('Setting up text elements...');
 
     // Add text elements for each panel
     const textElements = [
@@ -163,6 +171,8 @@ class OceanApp {
 
     for (const { id, elementId, fontSize } of textElements) {
       const element = document.getElementById(elementId);
+      console.log(`Looking for element: ${elementId}`, { element: !!element });
+
       if (element) {
         this.renderer.addTextElement(id, element, fontSize);
         console.log(`Added text element: ${id} (${elementId})`);
@@ -170,6 +180,8 @@ class OceanApp {
         console.warn(`Text element not found: ${elementId}`);
       }
     }
+
+    console.log('Text elements setup complete');
   }
 
   /**

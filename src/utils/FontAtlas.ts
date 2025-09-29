@@ -79,10 +79,10 @@ export class FontAtlas {
         yoffset: 2,
         xadvance: charSize - 2,
         uvRect: [
-          x / 512,         // u1
-          y / 512,         // v1
-          (x + charSize) / 512,  // u2
-          (y + charSize) / 512   // v2
+          x / 512,                      // u1
+          1.0 - (y + charSize) / 512,   // v1 (flipped)
+          (x + charSize) / 512,         // u2
+          1.0 - y / 512                 // v2 (flipped)
         ]
       });
     }

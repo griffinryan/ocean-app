@@ -116,8 +116,8 @@ void main() {
     // Sample font texture for character shape
     float fontSample = texture(u_fontTexture, v_texCoord).r;
 
-    // Early discard for transparent areas
-    if (fontSample < 0.1) {
+    // Early discard for transparent areas (lowered threshold for canvas-generated fonts)
+    if (fontSample < 0.01) {
         discard;
     }
 
@@ -162,5 +162,6 @@ void main() {
         finalAlpha *= alphaAnimation;
     }
 
+    // Output final text color with alpha
     fragColor = vec4(finalColor, finalAlpha);
 }
