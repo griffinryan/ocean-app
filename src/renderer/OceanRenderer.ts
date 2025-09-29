@@ -67,6 +67,9 @@ export class OceanRenderer {
   private textOceanTexture: WebGLTexture | null = null;
   private textOceanDepthBuffer: WebGLRenderbuffer | null = null;
 
+  // Debug logging control
+  private hasLoggedTextRenderFailure: boolean = false;
+
   // Pre-cached DOM elements
   private cachedElements = {
     fpsElement: null as HTMLElement | null,
@@ -296,7 +299,12 @@ export class OceanRenderer {
    * Initialize new per-pixel text render layer
    */
   private initializeTextRenderLayer(): void {
+    console.log('[INIT DEBUG] Starting TextRenderLayer initialization...');
+    console.log('[INIT DEBUG] WebGL context available:', !!this.gl);
+    console.log('[INIT DEBUG] Canvas available:', !!this.canvas);
+
     try {
+      console.log('[INIT DEBUG] Creating TextRenderLayer...');
       this.textRenderLayer = new TextRenderLayer(
         this.gl,
         this.canvas,
@@ -307,9 +315,10 @@ export class OceanRenderer {
           fontScaling: 2.0     // 2x scaling for crisp text
         }
       );
-      console.log('Text render layer initialized successfully!');
+      console.log('[INIT DEBUG] ✓ TextRenderLayer created successfully!');
+      console.log('[INIT DEBUG] TextRenderLayer instance:', !!this.textRenderLayer);
     } catch (error) {
-      console.error('Failed to initialize text render layer:', error);
+      console.error('[INIT DEBUG] ✗ Failed to initialize text render layer:', error);
       this.textRenderLayer = null;
     }
   }
@@ -405,6 +414,22 @@ export class OceanRenderer {
     textCompositeVertexSource?: string,
     textCompositeFragmentSource?: string
   ): Promise<void> {
+    // CRITICAL: Early validation for undefined shaders
+    console.log('[SHADER INIT] Starting shader initialization with parameters:');
+    console.log('[SHADER INIT] - oceanVertexSource exists:', !!oceanVertexSource, 'length:', oceanVertexSource?.length || 0);
+    console.log('[SHADER INIT] - oceanFragmentSource exists:', !!oceanFragmentSource, 'length:', oceanFragmentSource?.length || 0);
+    console.log('[SHADER INIT] - textCompositeVertexSource exists:', !!textCompositeVertexSource, 'length:', textCompositeVertexSource?.length || 0);
+    console.log('[SHADER INIT] - textCompositeFragmentSource exists:', !!textCompositeFragmentSource, 'length:', textCompositeFragmentSource?.length || 0);
+
+    if (!textCompositeVertexSource || !textCompositeFragmentSource) {
+      console.error('[SHADER INIT] CRITICAL: Text composite shaders are undefined!');
+      console.error('[SHADER INIT] This indicates a fundamental import issue.');
+      console.error('[SHADER INIT] Text rendering will be disabled.');
+    } else if (textCompositeVertexSource.length < 50 || textCompositeFragmentSource.length < 50) {
+      console.error('[SHADER INIT] CRITICAL: Text composite shaders are too short - may be empty!');
+      console.error('[SHADER INIT] Vertex shader length:', textCompositeVertexSource.length);
+      console.error('[SHADER INIT] Fragment shader length:', textCompositeFragmentSource.length);
+    }
     // Define uniforms and attributes for ocean shader
     const uniforms = [
       'u_time',
@@ -471,7 +496,20 @@ export class OceanRenderer {
     }
 
     // Initialize text composite shaders for new per-pixel system
+    console.log('[INIT DEBUG] Checking text composite shader sources...');
+    console.log('[INIT DEBUG] textCompositeVertexSource type:', typeof textCompositeVertexSource);
+    console.log('[INIT DEBUG] textCompositeVertexSource truthy:', !!textCompositeVertexSource);
+    console.log('[INIT DEBUG] textCompositeVertexSource length:', textCompositeVertexSource?.length || 0);
+    console.log('[INIT DEBUG] textCompositeVertexSource preview:', textCompositeVertexSource?.substring(0, 50) || 'UNDEFINED');
+    console.log('[INIT DEBUG] textCompositeVertexSource is valid GLSL?:', textCompositeVertexSource?.includes('#version') || false);
+    console.log('[INIT DEBUG] textCompositeFragmentSource type:', typeof textCompositeFragmentSource);
+    console.log('[INIT DEBUG] textCompositeFragmentSource truthy:', !!textCompositeFragmentSource);
+    console.log('[INIT DEBUG] textCompositeFragmentSource length:', textCompositeFragmentSource?.length || 0);
+    console.log('[INIT DEBUG] textCompositeFragmentSource preview:', textCompositeFragmentSource?.substring(0, 50) || 'UNDEFINED');
+    console.log('[INIT DEBUG] textCompositeFragmentSource is valid GLSL?:', textCompositeFragmentSource?.includes('#version') || false);
+
     if (textCompositeVertexSource && textCompositeFragmentSource) {
+      console.log('[INIT DEBUG] Text composite shader sources are available, proceeding with compilation...');
       try {
         // Define uniforms and attributes for text compositing
         const textUniforms = [
@@ -491,6 +529,7 @@ export class OceanRenderer {
           'a_texcoord'
         ];
 
+        console.log('[INIT DEBUG] Creating text composite shader program...');
         // Create text composite shader program
         this.textCompositeProgram = this.shaderManager.createProgram(
           'textComposite',
@@ -500,12 +539,28 @@ export class OceanRenderer {
           textAttributes
         );
 
+        console.log('[INIT DEBUG] ✓ Text composite shader program created:', !!this.textCompositeProgram);
         this.textRenderEnabled = true;
+        console.log('[INIT DEBUG] ✓ Text render enabled set to true');
         console.log('Text composite shaders initialized successfully!');
       } catch (error) {
-        console.error('Failed to initialize text composite shaders:', error);
+        console.error('[INIT DEBUG] ✗ Failed to initialize text composite shaders!');
+        console.error('[INIT DEBUG] Error details:', error);
+        if (error instanceof Error) {
+          console.error('[INIT DEBUG] Error message:', error.message);
+          console.error('[INIT DEBUG] Error stack:', error.stack);
+        }
+        console.error('[INIT DEBUG] This indicates a shader compilation or linking error.');
+        console.error('[INIT DEBUG] Check the shader source files for syntax errors.');
         this.textRenderEnabled = false;
+        this.textCompositeProgram = null;
       }
+    } else {
+      console.error('[INIT DEBUG] ✗ Text composite shader sources are missing or invalid!');
+      console.error('[INIT DEBUG] - Vertex source:', textCompositeVertexSource ? 'Available' : 'MISSING');
+      console.error('[INIT DEBUG] - Fragment source:', textCompositeFragmentSource ? 'Available' : 'MISSING');
+      this.textRenderEnabled = false;
+      this.textCompositeProgram = null;
     }
   }
 
@@ -530,7 +585,9 @@ export class OceanRenderer {
       this.glassRenderer.render();
 
       // Render adaptive text overlay using the captured ocean texture
-      this.renderAdaptiveText(elapsedTime);
+      if (this.isTextSystemReady()) {
+        this.renderAdaptiveText(elapsedTime);
+      }
     } else {
       // Normal rendering without glass effects
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
@@ -538,7 +595,9 @@ export class OceanRenderer {
 
       // For adaptive text without glass, we need to capture the current framebuffer
       // This is a simplified approach - in production you might want a separate capture
-      this.renderAdaptiveText(elapsedTime);
+      if (this.isTextSystemReady()) {
+        this.renderAdaptiveText(elapsedTime);
+      }
     }
   }
 
@@ -572,21 +631,32 @@ export class OceanRenderer {
    * Render adaptive text overlay with per-pixel coloring
    */
   private renderAdaptiveText(elapsedTime: number): void {
+    // Only log text render failure once to prevent spam
     if (!this.textRenderEnabled || !this.textRenderLayer || !this.textCompositeProgram) {
+      if (!this.hasLoggedTextRenderFailure) {
+        console.log(`[TEXT DEBUG] renderAdaptiveText() early return - missing components:`);
+        console.log(`[TEXT DEBUG] - enabled: ${this.textRenderEnabled}, layer: ${!!this.textRenderLayer}, program: ${!!this.textCompositeProgram}`);
+        this.hasLoggedTextRenderFailure = true;
+      }
       return;
     }
 
     const gl = this.gl;
 
     // Update text layer
+    console.log(`[TEXT DEBUG] Calling textRenderLayer.update()...`);
     this.textRenderLayer.update();
 
     // Get text texture
     const textTexture = this.textRenderLayer.getTextTexture();
     if (!textTexture) {
-      console.warn('No text texture available for rendering');
+      console.warn('[TEXT DEBUG] No text texture available for rendering');
       return;
     }
+    console.log(`[TEXT DEBUG] ✓ Text texture available`);
+
+    const textureDimensions = this.textRenderLayer.getTextureDimensions();
+    console.log(`[TEXT DEBUG] Text texture dimensions: ${textureDimensions.width}x${textureDimensions.height}`);
 
     // Get ocean texture for background analysis
     let oceanTexture: WebGLTexture | null = null;
@@ -594,22 +664,29 @@ export class OceanRenderer {
     // First try to use glass renderer's ocean texture (if available)
     if (this.glassRenderer) {
       oceanTexture = this.glassRenderer.getOceanTexture();
+      console.log(`[TEXT DEBUG] Glass renderer ocean texture: ${!!oceanTexture}`);
     }
 
     // If no glass renderer texture, use our independent capture
     if (!oceanTexture && this.textOceanTexture) {
+      console.log(`[TEXT DEBUG] Using independent ocean texture capture...`);
       this.captureOceanForText(elapsedTime);
       oceanTexture = this.textOceanTexture;
+      console.log(`[TEXT DEBUG] Independent ocean texture: ${!!oceanTexture}`);
     }
 
     // If still no ocean texture, skip rendering
     if (!oceanTexture) {
-      console.warn('No ocean texture available for text rendering');
+      console.warn('[TEXT DEBUG] No ocean texture available for text rendering');
       return;
     }
 
     // Use text composite shader
+    console.log(`[TEXT DEBUG] Using text composite shader program...`);
     const program = this.shaderManager.useProgram('textComposite');
+    console.log(`[TEXT DEBUG] Shader program: ${!!program}`);
+
+    console.log(`[TEXT DEBUG] Setting shader uniforms - debugMode: ${this.textDebugMode}`);
 
     // Set matrices
     this.shaderManager.setUniformMatrix4fv(program, 'u_projectionMatrix', this.projectionMatrix.data);
@@ -627,16 +704,19 @@ export class OceanRenderer {
     this.shaderManager.setUniform1i(program, 'u_debugMode', this.textDebugMode);
 
     // Bind text texture
+    console.log(`[TEXT DEBUG] Binding text texture to unit 0...`);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, textTexture);
     this.shaderManager.setUniform1i(program, 'u_textTexture', 0);
 
     // Bind ocean texture
+    console.log(`[TEXT DEBUG] Binding ocean texture to unit 1...`);
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, oceanTexture);
     this.shaderManager.setUniform1i(program, 'u_oceanTexture', 1);
 
     // Set up blending for text overlay
+    console.log(`[TEXT DEBUG] Setting up blending and depth state...`);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
@@ -645,8 +725,17 @@ export class OceanRenderer {
     gl.disable(gl.DEPTH_TEST);
 
     // Render full-screen quad with text composite shader
+    console.log(`[TEXT DEBUG] Executing draw call - ${this.geometry.indexCount} indices...`);
     this.bufferManager.bind();
     gl.drawElements(gl.TRIANGLES, this.geometry.indexCount, gl.UNSIGNED_SHORT, 0);
+
+    // Check for GL errors
+    const error = gl.getError();
+    if (error !== gl.NO_ERROR) {
+      console.error(`[TEXT DEBUG] WebGL error after draw call: ${error}`);
+    } else {
+      console.log(`[TEXT DEBUG] ✓ Draw call successful`);
+    }
 
     // Restore depth testing state
     if (depthTestEnabled) {
@@ -654,10 +743,13 @@ export class OceanRenderer {
     }
 
     // Cleanup texture bindings
+    console.log(`[TEXT DEBUG] Cleaning up texture bindings...`);
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, null);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, null);
+
+    console.log(`[TEXT DEBUG] renderAdaptiveText() complete`);
   }
 
   /**
@@ -941,7 +1033,30 @@ export class OceanRenderer {
    * Enable/disable new per-pixel text rendering system
    */
   setTextRenderEnabled(enabled: boolean): void {
+    console.log('[INIT DEBUG] setTextRenderEnabled called with:', enabled);
+    console.log('[INIT DEBUG] Current state before setting:');
+    console.log('[INIT DEBUG] - textRenderEnabled:', this.textRenderEnabled);
+    console.log('[INIT DEBUG] - textRenderLayer:', !!this.textRenderLayer);
+    console.log('[INIT DEBUG] - textCompositeProgram:', !!this.textCompositeProgram);
+
+    const wasEnabled = this.textRenderEnabled;
     this.textRenderEnabled = enabled && this.textRenderLayer !== null && this.textCompositeProgram !== null;
+
+    // Reset the logging flag if we're attempting to enable
+    if (enabled && !wasEnabled) {
+      this.hasLoggedTextRenderFailure = false;
+    }
+
+    console.log('[INIT DEBUG] setTextRenderEnabled result:');
+    console.log('[INIT DEBUG] - Previous value:', wasEnabled);
+    console.log('[INIT DEBUG] - New value:', this.textRenderEnabled);
+    console.log('[INIT DEBUG] - Change:', wasEnabled !== this.textRenderEnabled ? 'CHANGED' : 'NO CHANGE');
+
+    if (enabled && !this.textRenderEnabled) {
+      console.error('[INIT DEBUG] ✗ Failed to enable text rendering - missing components:');
+      if (!this.textRenderLayer) console.error('[INIT DEBUG]   - TextRenderLayer is NULL');
+      if (!this.textCompositeProgram) console.error('[INIT DEBUG]   - textCompositeProgram is NULL');
+    }
   }
 
   /**
@@ -955,8 +1070,12 @@ export class OceanRenderer {
    * Register a text element for per-pixel adaptive rendering
    */
   registerTextForRendering(id: string, element: HTMLElement): void {
+    console.log(`[TEXT DEBUG] OceanRenderer.registerTextForRendering("${id}")`);
     if (this.textRenderLayer) {
       this.textRenderLayer.registerTextElement(id, element);
+      console.log(`[TEXT DEBUG] ✓ Delegated to TextRenderLayer: ${id}`);
+    } else {
+      console.error(`[TEXT DEBUG] ✗ No TextRenderLayer available for registration: ${id}`);
     }
   }
 
@@ -1005,6 +1124,40 @@ export class OceanRenderer {
     }
 
     console.log(`Text debug mode: ${this.textDebugMode} (${['Off', 'Text Texture', 'Ocean Sampling', 'Analysis'][this.textDebugMode]})`);
+  }
+
+  /**
+   * Get current text debug mode
+   */
+  getTextDebugMode(): number {
+    return this.textDebugMode;
+  }
+
+  /**
+   * Force update all text element bounds and visibility (for debugging)
+   */
+  forceUpdateTextElements(): void {
+    if (this.textRenderLayer) {
+      this.textRenderLayer.forceUpdateAllElements();
+    }
+  }
+
+  /**
+   * Force all text elements to be visible (for debugging/testing)
+   */
+  forceAllTextElementsVisible(): void {
+    if (this.textRenderLayer) {
+      this.textRenderLayer.forceAllElementsVisible();
+    }
+  }
+
+  /**
+   * Check if the text rendering system is fully initialized and ready
+   */
+  private isTextSystemReady(): boolean {
+    return this.textRenderEnabled &&
+           this.textRenderLayer !== null &&
+           this.textCompositeProgram !== null;
   }
 
   /**

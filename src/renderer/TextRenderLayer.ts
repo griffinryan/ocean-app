@@ -56,28 +56,46 @@ export class TextRenderLayer {
     canvas: HTMLCanvasElement,
     config?: Partial<TextRenderConfig>
   ) {
+    console.log('[INIT DEBUG] TextRenderLayer constructor starting...');
+    console.log('[INIT DEBUG] - gl context:', !!gl);
+    console.log('[INIT DEBUG] - canvas:', !!canvas);
+    console.log('[INIT DEBUG] - config:', config);
+
     this.gl = gl;
     this.canvas = canvas;
 
     if (config) {
       this.config = { ...this.config, ...config };
+      console.log('[INIT DEBUG] - merged config:', this.config);
     }
 
-    // Create off-screen canvas for text rendering
-    this.textCanvas = document.createElement('canvas');
-    const context = this.textCanvas.getContext('2d');
-    if (!context) {
-      throw new Error('Failed to create 2D context for text rendering');
+    try {
+      // Create off-screen canvas for text rendering
+      console.log('[INIT DEBUG] Creating off-screen text canvas...');
+      this.textCanvas = document.createElement('canvas');
+      const context = this.textCanvas.getContext('2d');
+      if (!context) {
+        throw new Error('Failed to create 2D context for text rendering');
+      }
+      this.textContext = context;
+      console.log('[INIT DEBUG] ✓ Off-screen canvas created');
+
+      // Initialize WebGL resources
+      console.log('[INIT DEBUG] Initializing WebGL texture...');
+      this.initializeTexture();
+      console.log('[INIT DEBUG] ✓ WebGL texture initialized');
+
+      // Set up resize observer to track canvas changes
+      console.log('[INIT DEBUG] Setting up resize observer...');
+      this.setupResizeObserver();
+      console.log('[INIT DEBUG] ✓ Resize observer set up');
+
+      console.log('[INIT DEBUG] ✓ TextRenderLayer constructor completed successfully!');
+      console.log('TextRenderLayer initialized successfully!');
+    } catch (error) {
+      console.error('[INIT DEBUG] ✗ TextRenderLayer constructor failed:', error);
+      throw error;
     }
-    this.textContext = context;
-
-    // Initialize WebGL resources
-    this.initializeTexture();
-
-    // Set up resize observer to track canvas changes
-    this.setupResizeObserver();
-
-    console.log('TextRenderLayer initialized successfully!');
   }
 
   /**
@@ -184,18 +202,45 @@ export class TextRenderLayer {
    * Register a text element for rendering
    */
   registerTextElement(id: string, element: HTMLElement): void {
+    console.log(`[TEXT DEBUG] TextRenderLayer.registerTextElement("${id}")`);
+
+    // Check if already registered
+    if (this.textElements.has(id)) {
+      console.log(`[TEXT DEBUG] Element "${id}" already registered, updating...`);
+      const existing = this.textElements.get(id)!;
+      existing.bounds = element.getBoundingClientRect();
+      existing.visible = this.isElementVisible(element);
+      existing.element = element;
+      this.markForUpdate();
+      return;
+    }
+
     const bounds = element.getBoundingClientRect();
+    const visible = this.isElementVisible(element);
+
+    console.log(`[TEXT DEBUG] Element "${id}" details:`, {
+      bounds: bounds,
+      visible: visible,
+      textContent: element.textContent?.slice(0, 30) + '...',
+      offsetParent: element.offsetParent,
+      computedStyle: {
+        visibility: window.getComputedStyle(element).visibility,
+        opacity: window.getComputedStyle(element).opacity,
+        display: window.getComputedStyle(element).display
+      }
+    });
 
     this.textElements.set(id, {
       id,
       element,
       bounds,
       lastUpdate: 0,
-      visible: this.isElementVisible(element)
+      visible
     });
 
     this.markForUpdate();
-    console.log(`Registered text element: ${id}`);
+    console.log(`[TEXT DEBUG] ✓ Registered and marked for update: ${id} (visible: ${visible})`);
+    console.log(`[TEXT DEBUG] Total elements now: ${this.textElements.size}`);
   }
 
   /**
@@ -209,14 +254,82 @@ export class TextRenderLayer {
   }
 
   /**
-   * Check if an element is visible and should be rendered
+   * Check if an element is visible and should be rendered (robust detection)
    */
   private isElementVisible(element: HTMLElement): boolean {
-    return element.offsetParent !== null &&
-           !element.classList.contains('hidden') &&
-           window.getComputedStyle(element).visibility !== 'hidden' &&
-           window.getComputedStyle(element).opacity !== '0';
+    const style = window.getComputedStyle(element);
+    const bounds = element.getBoundingClientRect();
+
+    // Basic style checks
+    if (style.display === 'none' ||
+        style.visibility === 'hidden' ||
+        parseFloat(style.opacity) === 0) {
+      return false;
+    }
+
+    // Check for hidden class
+    if (element.classList.contains('hidden')) {
+      return false;
+    }
+
+    // Check if element has any size
+    if (bounds.width === 0 && bounds.height === 0) {
+      return false;
+    }
+
+    // Check if element is positioned outside viewport in a way that suggests it's hidden
+    // But allow elements that are partially offscreen (since we want to render text that might be scrolled)
+    if (bounds.bottom < -1000 || bounds.top > window.innerHeight + 1000 ||
+        bounds.right < -1000 || bounds.left > window.innerWidth + 1000) {
+      return false;
+    }
+
+    // More lenient offsetParent check - don't require it for positioned elements
+    if (element.offsetParent === null) {
+      // Check if it's a positioned element or has specific positioning
+      const position = style.position;
+      if (position === 'fixed' || position === 'absolute') {
+        // For positioned elements, they might not have offsetParent but still be visible
+        return true;
+      }
+
+      // For other elements, check if parent chain has any positioned elements
+      let parent = element.parentElement;
+      while (parent && parent !== document.body) {
+        const parentStyle = window.getComputedStyle(parent);
+        if (parentStyle.position === 'fixed' || parentStyle.position === 'absolute') {
+          return true;
+        }
+        if (parent.classList.contains('hidden') || parentStyle.display === 'none') {
+          return false;
+        }
+        parent = parent.parentElement;
+      }
+
+      // If we get here and offsetParent is null, likely not visible
+      return false;
+    }
+
+    return true;
   }
+
+  /**
+   * Very permissive visibility check for initial registration (debugging/fallback)
+   * Currently unused but kept for potential future use
+   */
+  // private isElementPotentiallyVisible(element: HTMLElement): boolean {
+  //   const style = window.getComputedStyle(element);
+
+  //   // Only exclude if definitely hidden
+  //   if (style.display === 'none' ||
+  //       style.visibility === 'hidden' ||
+  //       parseFloat(style.opacity) === 0) {
+  //     return false;
+  //   }
+
+  //   // Don't check offsetParent or bounds - be very permissive
+  //   return true;
+  // }
 
   /**
    * Update bounds for all registered text elements
@@ -261,12 +374,53 @@ export class TextRenderLayer {
   }
 
   /**
+   * Force update all element bounds and visibility (for debugging)
+   */
+  forceUpdateAllElements(): void {
+    console.log(`[TEXT DEBUG] Force updating all ${this.textElements.size} elements...`);
+    let visibleCount = 0;
+
+    this.textElements.forEach((textElement) => {
+      const newBounds = textElement.element.getBoundingClientRect();
+      const newVisible = this.isElementVisible(textElement.element);
+
+      if (newVisible) visibleCount++;
+
+      console.log(`[TEXT DEBUG] Element "${textElement.id}": visible ${textElement.visible} -> ${newVisible}`);
+
+      textElement.bounds = newBounds;
+      textElement.visible = newVisible;
+    });
+
+    console.log(`[TEXT DEBUG] Force update complete: ${visibleCount}/${this.textElements.size} elements visible`);
+    this.markForUpdate();
+  }
+
+  /**
+   * Force all elements to be visible (for debugging/testing)
+   */
+  forceAllElementsVisible(): void {
+    console.log(`[TEXT DEBUG] Forcing all ${this.textElements.size} elements to be visible...`);
+
+    this.textElements.forEach((textElement) => {
+      textElement.bounds = textElement.element.getBoundingClientRect();
+      textElement.visible = true;
+      console.log(`[TEXT DEBUG] Forced visible: "${textElement.id}"`);
+    });
+
+    console.log(`[TEXT DEBUG] All elements forced visible`);
+    this.markForUpdate();
+  }
+
+  /**
    * Render all text elements to the off-screen canvas
    */
   private renderTextToCanvas(): void {
     const startTime = performance.now();
     const canvasRect = this.canvas.getBoundingClientRect();
     const devicePixelRatio = this.config.enableHighDPI ? (window.devicePixelRatio || 1) : 1;
+
+    console.log(`[TEXT DEBUG] renderTextToCanvas() starting - canvas: ${this.textCanvas.width}x${this.textCanvas.height}, devicePixelRatio: ${devicePixelRatio}`);
 
     // Clear the text canvas
     this.textContext.clearRect(0, 0, this.textCanvas.width, this.textCanvas.height);
@@ -275,11 +429,24 @@ export class TextRenderLayer {
     if (this.config.debugMode) {
       this.textContext.fillStyle = 'rgba(255, 0, 0, 0.1)';
       this.textContext.fillRect(0, 0, this.textCanvas.width, this.textCanvas.height);
+      console.log(`[TEXT DEBUG] Debug mode active - filled canvas with red background`);
     }
+
+    let renderedCount = 0;
+    let skippedCount = 0;
+    let visibleCount = 0;
 
     // Render each visible text element
     this.textElements.forEach((textElement) => {
-      if (!textElement.visible) return;
+      if (textElement.visible) {
+        visibleCount++;
+      }
+
+      if (!textElement.visible) {
+        skippedCount++;
+        console.log(`[TEXT DEBUG] Skipping invisible element: ${textElement.id}`);
+        return;
+      }
 
       const element = textElement.element;
       const bounds = textElement.bounds;
@@ -290,9 +457,13 @@ export class TextRenderLayer {
       const width = bounds.width * devicePixelRatio;
       const height = bounds.height * devicePixelRatio;
 
+      console.log(`[TEXT DEBUG] Processing visible element "${textElement.id}" - bounds: ${bounds.width}x${bounds.height} at (${bounds.left}, ${bounds.top})`);
+
       // Skip if element is outside canvas bounds
       if (x + width < 0 || y + height < 0 ||
           x > this.textCanvas.width || y > this.textCanvas.height) {
+        console.log(`[TEXT DEBUG] Element "${textElement.id}" outside canvas bounds - skipped`);
+        skippedCount++;
         return;
       }
 
@@ -316,12 +487,18 @@ export class TextRenderLayer {
         const lines = this.wrapText(textContent, width / devicePixelRatio, computedStyle);
         const lineHeight = fontSize * 1.2; // Standard line height
 
+        console.log(`[TEXT DEBUG] Rendering "${textElement.id}" - ${lines.length} lines, fontSize: ${fontSize}px, pos: (${x}, ${y})`);
+
         lines.forEach((line, index) => {
           const lineY = y + (index * lineHeight);
           if (lineY < this.textCanvas.height) {
             this.textContext.fillText(line, x, lineY);
           }
         });
+
+        renderedCount++;
+      } else {
+        console.log(`[TEXT DEBUG] Element "${textElement.id}" has no text content`);
       }
 
       // Debug: draw element bounds
@@ -333,6 +510,15 @@ export class TextRenderLayer {
     });
 
     this.renderTime = performance.now() - startTime;
+
+    console.log(`[TEXT DEBUG] renderTextToCanvas() complete:`, {
+      totalElements: this.textElements.size,
+      visibleElements: visibleCount,
+      renderedElements: renderedCount,
+      skippedElements: skippedCount,
+      renderTime: this.renderTime.toFixed(2) + 'ms',
+      canvasSize: `${this.textCanvas.width}x${this.textCanvas.height}`
+    });
   }
 
   /**
@@ -397,18 +583,27 @@ export class TextRenderLayer {
     const deltaTime = now - this.lastUpdate;
     const updateInterval = 1000 / this.config.updateFrequency;
 
+    console.log(`[TEXT DEBUG] TextRenderLayer.update() - deltaTime: ${deltaTime}ms, needsUpdate: ${this.needsUpdate}, elements: ${this.textElements.size}`);
+
     // Throttle updates to target frequency
-    if (deltaTime < updateInterval && !this.needsUpdate) return;
+    if (deltaTime < updateInterval && !this.needsUpdate) {
+      console.log(`[TEXT DEBUG] Skipping update - throttled (${deltaTime}ms < ${updateInterval}ms)`);
+      return;
+    }
 
     // Update element bounds first
     this.updateElementBounds();
 
     // Render text to canvas if needed
     if (this.needsUpdate) {
+      console.log(`[TEXT DEBUG] Executing renderTextToCanvas()...`);
       this.renderTextToCanvas();
       this.updateTexture();
       this.needsUpdate = false;
       this.lastUpdate = now;
+      console.log(`[TEXT DEBUG] ✓ Text rendering complete, render time: ${this.renderTime.toFixed(2)}ms`);
+    } else {
+      console.log(`[TEXT DEBUG] No update needed - needsUpdate: false`);
     }
   }
 

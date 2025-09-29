@@ -14,8 +14,135 @@ import glassVertexShader from './shaders/glass.vert';
 import glassFragmentShader from './shaders/glass.frag';
 import textSamplingVertexShader from './shaders/text-sampling.vert';
 import textSamplingFragmentShader from './shaders/text-sampling.frag';
+// Try standard import first, then fallback to raw import
 import textCompositeVertexShader from './shaders/text-composite.vert';
 import textCompositeFragmentShader from './shaders/text-composite.frag';
+
+// Backup raw imports if vite-plugin-glsl fails
+import textCompositeVertexShaderRaw from './shaders/text-composite.vert?raw';
+import textCompositeFragmentShaderRaw from './shaders/text-composite.frag?raw';
+
+// CRITICAL: Test shader imports and provide fallback
+console.log('=== CRITICAL SHADER IMPORT TEST ===');
+
+let finalTextCompositeVertexShader = textCompositeVertexShader;
+let finalTextCompositeFragmentShader = textCompositeFragmentShader;
+
+// Test and fallback for vertex shader
+if (typeof textCompositeVertexShader === 'undefined' || !textCompositeVertexShader) {
+  console.error('CRITICAL: textCompositeVertexShader is UNDEFINED - trying fallback');
+  if (typeof textCompositeVertexShaderRaw !== 'undefined' && textCompositeVertexShaderRaw) {
+    console.log('✓ Using raw import fallback for vertex shader');
+    finalTextCompositeVertexShader = textCompositeVertexShaderRaw;
+  } else {
+    console.error('✗ Both standard and raw imports failed for vertex shader');
+  }
+} else {
+  console.log('✓ textCompositeVertexShader imported successfully via plugin');
+}
+
+// Test and fallback for fragment shader
+if (typeof textCompositeFragmentShader === 'undefined' || !textCompositeFragmentShader) {
+  console.error('CRITICAL: textCompositeFragmentShader is UNDEFINED - trying fallback');
+  if (typeof textCompositeFragmentShaderRaw !== 'undefined' && textCompositeFragmentShaderRaw) {
+    console.log('✓ Using raw import fallback for fragment shader');
+    finalTextCompositeFragmentShader = textCompositeFragmentShaderRaw;
+  } else {
+    console.error('✗ Both standard and raw imports failed for fragment shader');
+  }
+} else {
+  console.log('✓ textCompositeFragmentShader imported successfully via plugin');
+}
+
+// Log final status
+console.log('Final shader status:');
+console.log('- Vertex shader length:', finalTextCompositeVertexShader?.length || 0);
+console.log('- Fragment shader length:', finalTextCompositeFragmentShader?.length || 0);
+console.log('- Both shaders available:', !!(finalTextCompositeVertexShader && finalTextCompositeFragmentShader));
+
+// Log first few characters to verify content
+if (finalTextCompositeVertexShader) {
+  console.log('- Vertex shader preview:', finalTextCompositeVertexShader.substring(0, 50) + '...');
+}
+if (finalTextCompositeFragmentShader) {
+  console.log('- Fragment shader preview:', finalTextCompositeFragmentShader.substring(0, 50) + '...');
+}
+
+// Ultimate fallback: inline shader strings if all imports fail
+const INLINE_TEXT_COMPOSITE_VERTEX = `#version 300 es
+precision highp float;
+in vec2 a_position;
+in vec2 a_texcoord;
+uniform mat4 u_projectionMatrix;
+uniform mat4 u_viewMatrix;
+out vec2 v_uv;
+out vec2 v_screenPos;
+void main() {
+    v_uv = a_texcoord;
+    vec4 worldPos = vec4(a_position, 0.0, 1.0);
+    gl_Position = u_projectionMatrix * u_viewMatrix * worldPos;
+    v_screenPos = gl_Position.xy / gl_Position.w;
+}`;
+
+const INLINE_TEXT_COMPOSITE_FRAGMENT = `#version 300 es
+precision highp float;
+in vec2 v_uv;
+in vec2 v_screenPos;
+uniform sampler2D u_textTexture;
+uniform sampler2D u_oceanTexture;
+uniform vec2 u_resolution;
+uniform float u_time;
+uniform float u_contrastThreshold;
+uniform float u_transitionWidth;
+uniform int u_debugMode;
+out vec4 fragColor;
+
+float getLuminance(vec3 color) {
+    return dot(color, vec3(0.2126, 0.7152, 0.0722));
+}
+
+void main() {
+    vec2 oceanUV = (v_screenPos + 1.0) * 0.5;
+    vec4 textSample = texture(u_textTexture, v_uv);
+    float textAlpha = textSample.a;
+
+    if (textAlpha < 0.01) {
+        discard;
+        return;
+    }
+
+    vec3 oceanColor = texture(u_oceanTexture, oceanUV).rgb;
+    float luminance = getLuminance(oceanColor);
+
+    float transition = smoothstep(
+        u_contrastThreshold - u_transitionWidth * 0.5,
+        u_contrastThreshold + u_transitionWidth * 0.5,
+        luminance
+    );
+
+    vec3 darkTextColor = vec3(0.05, 0.05, 0.05);
+    vec3 lightTextColor = vec3(0.95, 0.95, 0.95);
+    vec3 textColor = mix(lightTextColor, darkTextColor, transition);
+
+    fragColor = vec4(textColor, textAlpha);
+
+    if (fragColor.a < 0.01) {
+        discard;
+    }
+}`;
+
+// Apply ultimate fallback if needed
+if (!finalTextCompositeVertexShader || finalTextCompositeVertexShader.length < 50) {
+  console.warn('⚠️ Using inline fallback for vertex shader');
+  finalTextCompositeVertexShader = INLINE_TEXT_COMPOSITE_VERTEX;
+}
+
+if (!finalTextCompositeFragmentShader || finalTextCompositeFragmentShader.length < 50) {
+  console.warn('⚠️ Using inline fallback for fragment shader');
+  finalTextCompositeFragmentShader = INLINE_TEXT_COMPOSITE_FRAGMENT;
+}
+
+console.log('=== END SHADER IMPORT TEST ===');
 
 class OceanApp {
   public renderer: OceanRenderer | null = null;
@@ -51,8 +178,8 @@ class OceanApp {
         glassFragmentShader,
         textSamplingVertexShader,
         textSamplingFragmentShader,
-        textCompositeVertexShader,
-        textCompositeFragmentShader
+        finalTextCompositeVertexShader,
+        finalTextCompositeFragmentShader
       );
 
       // Start rendering
@@ -60,6 +187,9 @@ class OceanApp {
 
       // Connect UI to glass renderer
       this.connectUIToRenderer();
+
+      // Start debug overlay updates
+      this.startDebugOverlayUpdates();
 
       console.log('Ocean Portfolio initialized successfully!');
 
@@ -137,16 +267,36 @@ class OceanApp {
     }
 
     // Initialize new per-pixel adaptive text system
+    console.log('[INIT DEBUG] Starting text system initialization in connectUIToRenderer...');
     const textRenderLayer = this.renderer.getTextRenderLayer();
-    if (textRenderLayer) {
-      // Register all text elements for per-pixel rendering
-      this.registerAllTextElementsForRendering();
+    console.log('[INIT DEBUG] getTextRenderLayer() returned:', !!textRenderLayer);
 
-      // Enable text render system
+    if (textRenderLayer) {
+      console.log('[INIT DEBUG] TextRenderLayer is available, enabling text render system...');
+
+      // Check initial state
+      const initialState = this.renderer.getTextRenderEnabled();
+      console.log('[INIT DEBUG] Initial textRenderEnabled state:', initialState);
+
+      // Enable text render system first
       this.renderer.setTextRenderEnabled(true);
 
-      console.log('Per-pixel adaptive text system initialized successfully!');
+      // Check final state
+      const finalState = this.renderer.getTextRenderEnabled();
+      console.log('[INIT DEBUG] Final textRenderEnabled state:', finalState);
+
+      if (finalState) {
+        console.log('[INIT DEBUG] ✓ Text render system successfully enabled!');
+
+        // Defer text element registration until DOM is ready and panels are visible
+        this.deferredTextElementRegistration();
+
+        console.log('Per-pixel adaptive text system initialized successfully!');
+      } else {
+        console.error('[INIT DEBUG] ✗ Failed to enable text render system despite having TextRenderLayer');
+      }
     } else {
+      console.error('[INIT DEBUG] ✗ Text render layer not available - initialization failed');
       console.warn('Text render layer not available');
     }
 
@@ -160,10 +310,69 @@ class OceanApp {
   }
 
   /**
+   * Deferred text element registration with visibility monitoring
+   */
+  private deferredTextElementRegistration(): void {
+    console.log('[TEXT DEBUG] Setting up deferred text element registration...');
+
+    // Try immediate registration with relaxed checks
+    this.registerAllTextElementsForRendering(true);
+
+    // Set up mutation observer to watch for panel visibility changes
+    this.setupPanelVisibilityObserver();
+
+    // Set up periodic re-registration to catch elements that become visible later
+    setInterval(() => {
+      console.log('[TEXT DEBUG] Periodic re-registration check...');
+      this.registerAllTextElementsForRendering(true);
+    }, 5000); // Check every 5 seconds
+  }
+
+  /**
+   * Set up mutation observer to watch for panel visibility changes
+   */
+  private setupPanelVisibilityObserver(): void {
+    const targetPanels = ['landing-panel', 'app-panel', 'portfolio-panel', 'resume-panel'];
+
+    const observer = new MutationObserver((mutations) => {
+      let shouldReregister = false;
+
+      mutations.forEach((mutation) => {
+        if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+          const target = mutation.target as HTMLElement;
+          if (targetPanels.includes(target.id)) {
+            console.log(`[TEXT DEBUG] Panel visibility changed: ${target.id}`);
+            shouldReregister = true;
+          }
+        }
+      });
+
+      if (shouldReregister) {
+        console.log('[TEXT DEBUG] Re-registering text elements due to panel visibility change...');
+        this.registerAllTextElementsForRendering(true);
+      }
+    });
+
+    // Observe all panels for class changes (hidden/visible)
+    targetPanels.forEach(panelId => {
+      const panel = document.getElementById(panelId);
+      if (panel) {
+        observer.observe(panel, { attributes: true, attributeFilter: ['class'] });
+        console.log(`[TEXT DEBUG] Set up visibility observer for panel: ${panelId}`);
+      }
+    });
+  }
+
+  /**
    * Register all text elements for per-pixel adaptive rendering
    */
-  private registerAllTextElementsForRendering(): void {
-    if (!this.renderer) return;
+  private registerAllTextElementsForRendering(relaxedVisibility = false): void {
+    if (!this.renderer) {
+      console.error('[TEXT DEBUG] No renderer available for text registration');
+      return;
+    }
+
+    console.log('[TEXT DEBUG] Starting text element registration...');
 
     // Define text elements to register for per-pixel rendering
     const textElementConfigs = [
@@ -193,22 +402,76 @@ class OceanApp {
       { id: 'resume-skills', selector: '.skill-tag', type: 'body' }
     ];
 
+    let totalRegistered = 0;
+    let totalFound = 0;
+
     textElementConfigs.forEach(config => {
       const elements = document.querySelectorAll(config.selector);
+      console.log(`[TEXT DEBUG] Config "${config.id}" - Found ${elements.length} elements with selector "${config.selector}"`);
+      totalFound += elements.length;
+
       elements.forEach((element, index) => {
         if (element instanceof HTMLElement) {
           const uniqueId = elements.length > 1 ? `${config.id}-${index}` : config.id;
 
+          // Get element visibility info for debugging
+          const computedStyle = window.getComputedStyle(element);
+          const visibility = {
+            offsetParent: element.offsetParent !== null,
+            visibility: computedStyle.visibility,
+            opacity: computedStyle.opacity,
+            display: computedStyle.display,
+            bounds: element.getBoundingClientRect()
+          };
+
+          const strictVisibility = element.offsetParent !== null &&
+                                  !element.classList.contains('hidden') &&
+                                  computedStyle.visibility !== 'hidden' &&
+                                  computedStyle.opacity !== '0';
+
+          const relaxedVisibilityCheck = !element.classList.contains('hidden') &&
+                                        computedStyle.visibility !== 'hidden' &&
+                                        computedStyle.display !== 'none';
+
+          const shouldRegister = relaxedVisibility ? relaxedVisibilityCheck : strictVisibility;
+
+          console.log(`[TEXT DEBUG] Element "${uniqueId}":`, {
+            selector: config.selector,
+            textContent: element.textContent?.slice(0, 50) + '...',
+            visibility: visibility,
+            strictVisibility: strictVisibility,
+            relaxedVisibilityCheck: relaxedVisibilityCheck,
+            shouldRegister: shouldRegister,
+            relaxedMode: relaxedVisibility
+          });
+
           // Start with HTML text visible as fallback
           element.classList.add('webgl-text-fallback');
 
-          // Register with text render layer
-          this.renderer!.registerTextForRendering(uniqueId, element);
+          // Only register if element should be registered and isn't already registered
+          if (shouldRegister) {
+            // Check if already registered to avoid duplicates
+            const isAlreadyRegistered = element.hasAttribute('data-text-registered');
 
-          console.log(`Registered text element for per-pixel rendering: ${uniqueId}`);
+            if (!isAlreadyRegistered) {
+              // Register with text render layer
+              this.renderer!.registerTextForRendering(uniqueId, element);
+              element.setAttribute('data-text-registered', 'true');
+              totalRegistered++;
+              console.log(`[TEXT DEBUG] ✓ Registered text element: ${uniqueId}`);
+            } else {
+              console.log(`[TEXT DEBUG] ⚠ Element already registered: ${uniqueId}`);
+            }
+          } else {
+            console.log(`[TEXT DEBUG] ✗ Skipping element (not visible): ${uniqueId}`);
+          }
+        } else {
+          console.warn(`[TEXT DEBUG] ✗ Element not HTMLElement:`, element);
         }
       });
     });
+
+    console.log(`[TEXT DEBUG] Registration complete: ${totalRegistered}/${totalFound} elements registered`);
   }
 
 
@@ -287,14 +550,44 @@ class OceanApp {
         case 'r':
         case 'R':
           // Cycle text render debug modes
+          console.log('[TEXT DEBUG] R key pressed - cycling debug modes');
           event.preventDefault();
           event.stopPropagation();
           if (this.renderer) {
             const textRenderLayer = this.renderer.getTextRenderLayer();
             if (textRenderLayer) {
+              console.log('[TEXT DEBUG] Text render layer available, cycling debug mode...');
               // Cycle through debug modes (state is tracked in renderer)
               this.renderer.setTextRenderDebugMode(true);
+              // Update debug overlay immediately
+              this.updateTextDebugOverlay();
+            } else {
+              console.log('[TEXT DEBUG] No text render layer available');
             }
+          } else {
+            console.log('[TEXT DEBUG] No renderer available');
+          }
+          break;
+        case 'u':
+        case 'U':
+          // Force update text elements
+          console.log('[TEXT DEBUG] U key pressed - force updating text elements');
+          event.preventDefault();
+          event.stopPropagation();
+          if (this.renderer) {
+            this.renderer.forceUpdateTextElements();
+            this.updateTextDebugOverlay();
+          }
+          break;
+        case 'e':
+        case 'E':
+          // Force all text elements visible
+          console.log('[TEXT DEBUG] E key pressed - forcing all text elements visible');
+          event.preventDefault();
+          event.stopPropagation();
+          if (this.renderer) {
+            this.renderer.forceAllTextElementsVisible();
+            this.updateTextDebugOverlay();
           }
           break;
         case '1':
@@ -324,6 +617,8 @@ class OceanApp {
     console.log('  G - Toggle glass panel rendering');
     console.log('  T - Toggle per-pixel text rendering');
     console.log('  R - Cycle text render debug modes (Off/Text/Ocean/Analysis)');
+    console.log('  U - Force update text element visibility');
+    console.log('  E - Force all text elements visible (debug)');
     console.log('  Space - Reserved for future controls');
   }
 
@@ -383,6 +678,69 @@ class OceanApp {
       }
 
       glassElement.innerHTML = `<br>Glass Panels: ${enabled ? 'ON' : 'OFF'}`;
+    }
+  }
+
+  /**
+   * Start debug overlay updates
+   */
+  private startDebugOverlayUpdates(): void {
+    // Update debug overlay every second
+    setInterval(() => {
+      this.updateTextDebugOverlay();
+    }, 1000);
+
+    // Initial update
+    this.updateTextDebugOverlay();
+  }
+
+  /**
+   * Update text debug overlay with current status
+   */
+  private updateTextDebugOverlay(): void {
+    if (!this.renderer) return;
+
+    const statusEl = document.getElementById('text-status');
+    const elementsEl = document.getElementById('text-elements');
+    const debugModeEl = document.getElementById('text-debug-mode');
+    const renderTimeEl = document.getElementById('text-render-time');
+    const lastUpdateEl = document.getElementById('text-last-update');
+
+    if (statusEl && elementsEl && debugModeEl && renderTimeEl && lastUpdateEl) {
+      const textRenderLayer = this.renderer.getTextRenderLayer();
+      const isEnabled = this.renderer.getTextRenderEnabled();
+
+      if (textRenderLayer && isEnabled) {
+        const metrics = this.renderer.getTextRenderMetrics();
+
+        statusEl.textContent = `Status: ${isEnabled ? 'Enabled' : 'Disabled'}`;
+        statusEl.style.color = isEnabled ? '#00ff00' : '#ff0000';
+
+        if (metrics) {
+          elementsEl.textContent = `Elements: ${metrics.elementCount} registered`;
+          renderTimeEl.textContent = `Render Time: ${metrics.lastRenderTime.toFixed(2)}ms`;
+
+          // Color code render time (red if 0, green if > 0)
+          if (metrics.lastRenderTime > 0) {
+            renderTimeEl.style.color = '#00ff00';
+          } else {
+            renderTimeEl.style.color = '#ff0000';
+          }
+        } else {
+          elementsEl.textContent = 'Elements: No metrics';
+          renderTimeEl.textContent = 'Render Time: No data';
+        }
+
+        debugModeEl.textContent = `Debug Mode: ${['Off', 'Text', 'Ocean', 'Analysis'][this.renderer.getTextDebugMode?.()] || 'Unknown'}`;
+        lastUpdateEl.textContent = `Last Update: ${new Date().toLocaleTimeString()}`;
+      } else {
+        statusEl.textContent = 'Status: Not Available';
+        statusEl.style.color = '#ff0000';
+        elementsEl.textContent = 'Elements: N/A';
+        debugModeEl.textContent = 'Debug Mode: N/A';
+        renderTimeEl.textContent = 'Render Time: N/A';
+        lastUpdateEl.textContent = 'Last Update: N/A';
+      }
     }
   }
 
