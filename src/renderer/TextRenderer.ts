@@ -314,33 +314,8 @@ export class TextRenderer {
   }
 
   /**
-   * Detect CSS layout mode for the element and its parent
-   */
-  private detectLayoutMode(element: HTMLElement): {
-    isFlexChild: boolean;
-    isCentered: boolean;
-    alignItems: string;
-    justifyContent: string;
-    display: string;
-  } {
-    const parent = element.parentElement;
-    if (!parent) {
-      return { isFlexChild: false, isCentered: false, alignItems: '', justifyContent: '', display: '' };
-    }
-
-    const parentStyles = getComputedStyle(parent);
-    const display = parentStyles.display;
-    const isFlexChild = display === 'flex' || display === 'inline-flex';
-    const alignItems = parentStyles.alignItems;
-    const justifyContent = parentStyles.justifyContent;
-    const isCentered = (alignItems === 'center' || justifyContent === 'center');
-
-    return { isFlexChild, isCentered, alignItems, justifyContent, display };
-  }
-
-  /**
-   * Render individual text element to canvas using actual screen coordinates
-   * Accounts for CSS layout modes: flexbox centering, transforms, and box model
+   * Render individual text element to canvas using direct screen-space coordinates
+   * Simplified approach: match HTML's exact visual position without reverse-engineering CSS layout
    */
   private renderTextToCanvas(element: HTMLElement, _config: TextElementConfig): void {
     const ctx = this.textContext;
@@ -372,132 +347,132 @@ export class TextRenderer {
       lineHeightPx = parseFloat(lineHeightStyle) * fontSize;
     }
 
-    // Detect layout mode (flexbox, grid, etc.)
-    const layout = this.detectLayoutMode(element);
+    // Element position in screen space (pixels from canvas top-left)
+    // getBoundingClientRect() returns position AFTER all CSS transforms and layout
+    const screenX = elementRect.left - canvasRect.left;
+    const screenY = elementRect.top - canvasRect.top;
 
-    // Get CSS box model dimensions
-    const paddingTop = parseFloat(styles.paddingTop);
-    const paddingLeft = parseFloat(styles.paddingLeft);
-    const paddingRight = parseFloat(styles.paddingRight);
-    const paddingBottom = parseFloat(styles.paddingBottom);
-    const borderTopWidth = parseFloat(styles.borderTopWidth);
-    const borderLeftWidth = parseFloat(styles.borderLeftWidth);
-    const borderRightWidth = parseFloat(styles.borderRightWidth);
-    const borderBottomWidth = parseFloat(styles.borderBottomWidth);
-
-    // Calculate position in canvas pixel coordinates
-    // getBoundingClientRect() returns border box edge
-    const relativeX = elementRect.left - canvasRect.left;
-    const relativeY = elementRect.top - canvasRect.top;
-
-    // Scale to canvas texture size (which matches WebGL canvas pixel-for-pixel)
+    // Scale to canvas texture coordinates
+    // TextCanvas dimensions match WebGL canvas dimensions, so this is 1:1 mapping
     const scaleX = this.textCanvas.width / canvasRect.width;
     const scaleY = this.textCanvas.height / canvasRect.height;
 
-    // Calculate position based on layout mode
-    let canvasX: number;
-    let canvasY: number;
+    // Convert screen coordinates to canvas texture coordinates
+    const textureX = screenX * scaleX;
+    const textureY = screenY * scaleY;
 
-    // FLEXBOX-AWARE POSITIONING
-    if (layout.isFlexChild && layout.alignItems === 'center') {
-      // Text is vertically centered by flexbox, not positioned at padding edge
-      // Calculate center of container
-      const containerCenterY = relativeY + elementRect.height / 2;
-      // Position text at vertical center (using 'middle' baseline)
-      canvasY = Math.round(containerCenterY * scaleY);
-
-      // For horizontal: check if horizontally centered too
-      if (layout.justifyContent === 'center' || textAlign === 'center') {
-        const containerCenterX = relativeX + elementRect.width / 2;
-        canvasX = Math.round(containerCenterX * scaleX);
-      } else {
-        // Use content area left edge (border + padding)
-        const contentOffsetX = borderLeftWidth + paddingLeft;
-        canvasX = Math.round((relativeX + contentOffsetX) * scaleX);
-      }
-    } else {
-      // Standard flow positioning (original approach)
-      const contentOffsetX = borderLeftWidth + paddingLeft;
-      const contentOffsetY = borderTopWidth + paddingTop;
-      const leading = (lineHeightPx - fontSize) / 2;
-
-      canvasX = Math.round((relativeX + contentOffsetX) * scaleX);
-      canvasY = Math.round((relativeY + contentOffsetY + leading) * scaleY);
-    }
-
+    // Scale font and line height
     const scaledFontSize = Math.round(fontSize * scaleY);
     const scaledLineHeight = Math.round(lineHeightPx * scaleY);
+    const scaledWidth = Math.round(elementRect.width * scaleX);
+    const scaledHeight = Math.round(elementRect.height * scaleY);
 
-    // Set font properties
+    // Set font properties to match HTML exactly
     ctx.font = `${fontWeight} ${scaledFontSize}px ${fontFamily}`;
-
-    // Use 'middle' baseline for flexbox-centered text, 'top' for standard flow
-    if (layout.isFlexChild && layout.alignItems === 'center') {
-      ctx.textBaseline = 'middle';
-    } else {
-      ctx.textBaseline = 'top';
-    }
-
     ctx.textAlign = textAlign;
+    ctx.textBaseline = 'top'; // We'll calculate Y position for top baseline
     ctx.fillStyle = 'white';
 
-    // Get text content - use innerText to preserve line breaks from <br> tags
+    // Get text content
     const text = element.innerText || element.textContent || '';
     const lines = text.split('\n');
 
-    // Calculate content width (excludes border and padding) for text alignment
-    const contentWidth = elementRect.width - borderLeftWidth - borderRightWidth - paddingLeft - paddingRight;
-    const contentWidthInCanvas = contentWidth * scaleX;
+    // Calculate text position within element
+    // HTML renders text inside the content box (after border and padding)
+    const paddingTop = parseFloat(styles.paddingTop) * scaleY;
+    const paddingLeft = parseFloat(styles.paddingLeft) * scaleX;
+    const paddingRight = parseFloat(styles.paddingRight) * scaleX;
+    const borderTopWidth = parseFloat(styles.borderTopWidth) * scaleY;
+    const borderLeftWidth = parseFloat(styles.borderLeftWidth) * scaleX;
+    const borderRightWidth = parseFloat(styles.borderRightWidth) * scaleX;
 
-    // Adjust X position based on text alignment within content area
-    let adjustedX = canvasX;
-    if (textAlign === 'center' && !(layout.isFlexChild && layout.justifyContent === 'center')) {
-      adjustedX = canvasX + contentWidthInCanvas / 2;
+    // Calculate content box (inside border and padding)
+    const contentLeft = textureX + borderLeftWidth + paddingLeft;
+    const contentTop = textureY + borderTopWidth + paddingTop;
+    const contentWidth = scaledWidth - borderLeftWidth - borderRightWidth - paddingLeft - paddingRight;
+
+    // Line-height creates leading space (vertical centering within line box)
+    const leading = (scaledLineHeight - scaledFontSize) / 2;
+
+    // Calculate final text baseline position
+    let textX = contentLeft;
+    let textY = contentTop + leading;
+
+    // Apply text-align for horizontal positioning
+    if (textAlign === 'center') {
+      textX = contentLeft + contentWidth / 2;
     } else if (textAlign === 'right') {
-      adjustedX = canvasX + contentWidthInCanvas;
+      textX = contentLeft + contentWidth;
     }
 
-    // DEBUG: Draw element bounds and calculated position
+    // DEBUG MODE: Draw visual guides
     const DEBUG_MODE = true;
     if (DEBUG_MODE) {
-      // Draw element border box in red
-      ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
+      // Draw element border box (red)
+      ctx.strokeStyle = 'rgba(255, 0, 0, 0.6)';
       ctx.lineWidth = 2;
       ctx.strokeRect(
-        Math.round(relativeX * scaleX),
-        Math.round(relativeY * scaleY),
-        Math.round(elementRect.width * scaleX),
-        Math.round(elementRect.height * scaleY)
+        Math.round(textureX),
+        Math.round(textureY),
+        Math.round(scaledWidth),
+        Math.round(scaledHeight)
       );
 
-      // Draw content box in green
-      ctx.strokeStyle = 'rgba(0, 255, 0, 0.5)';
-      ctx.strokeRect(
-        Math.round((relativeX + borderLeftWidth + paddingLeft) * scaleX),
-        Math.round((relativeY + borderTopWidth + paddingTop) * scaleY),
-        Math.round(contentWidth * scaleX),
-        Math.round((elementRect.height - borderTopWidth - borderBottomWidth - paddingTop - paddingBottom) * scaleY)
-      );
-
-      // Draw crosshair at calculated text position
-      ctx.strokeStyle = 'rgba(0, 255, 255, 0.8)';
+      // Draw content box (green)
+      ctx.strokeStyle = 'rgba(0, 255, 0, 0.6)';
       ctx.lineWidth = 1;
-      const crosshairSize = 10;
+      ctx.strokeRect(
+        Math.round(contentLeft),
+        Math.round(contentTop),
+        Math.round(contentWidth),
+        Math.round(scaledHeight - borderTopWidth - parseFloat(styles.borderBottomWidth) * scaleY - paddingTop - parseFloat(styles.paddingBottom) * scaleY)
+      );
+
+      // Draw text baseline position (cyan crosshair)
+      ctx.strokeStyle = 'rgba(0, 255, 255, 1.0)';
+      ctx.lineWidth = 2;
+      const crossSize = 15;
       ctx.beginPath();
-      ctx.moveTo(adjustedX - crosshairSize, canvasY);
-      ctx.lineTo(adjustedX + crosshairSize, canvasY);
-      ctx.moveTo(adjustedX, canvasY - crosshairSize);
-      ctx.lineTo(adjustedX, canvasY + crosshairSize);
+      // Horizontal line
+      ctx.moveTo(textX - crossSize, textY);
+      ctx.lineTo(textX + crossSize, textY);
+      // Vertical line
+      ctx.moveTo(textX, textY - crossSize);
+      ctx.lineTo(textX, textY + crossSize);
       ctx.stroke();
+
+      // Draw text alignment guide (yellow vertical line)
+      if (textAlign === 'center') {
+        ctx.strokeStyle = 'rgba(255, 255, 0, 0.5)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(textX, textureY);
+        ctx.lineTo(textX, textureY + scaledHeight);
+        ctx.stroke();
+      }
+
+      // Label element with its selector (small text)
+      const selector = _config.selector;
+      ctx.fillStyle = 'rgba(255, 255, 0, 0.9)';
+      ctx.font = '10px monospace';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText(selector, textureX + 2, textureY + 2);
+
+      // Restore font for actual text rendering
+      ctx.font = `${fontWeight} ${scaledFontSize}px ${fontFamily}`;
+      ctx.textAlign = textAlign;
+      ctx.textBaseline = 'top';
     }
 
-    // Render each line
+    // Render each line of text
+    ctx.fillStyle = 'white';
     lines.forEach((line, index) => {
-      const y = canvasY + (index * scaledLineHeight);
+      const y = textY + (index * scaledLineHeight);
 
       // Ensure text stays within canvas bounds
       if (y >= 0 && y < this.textCanvas.height && line.trim().length > 0) {
-        ctx.fillText(line, adjustedX, y);
+        ctx.fillText(line, textX, y);
       }
     });
   }
