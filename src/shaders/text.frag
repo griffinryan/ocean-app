@@ -14,6 +14,11 @@ uniform float u_adaptiveStrength;   // Strength of adaptive coloring
 
 out vec4 fragColor;
 
+// Panel positions and sizes for boundary checking (matching GlassRenderer approach)
+uniform vec2 u_panelPositions[5];  // Panel center positions in screen space [-1,1]
+uniform vec2 u_panelSizes[5];      // Panel sizes in screen space
+uniform int u_panelCount;
+
 // Adaptive coloring constants
 const float LUMINANCE_THRESHOLD = 0.5;
 const vec3 DARK_TEXT_COLOR = vec3(0.0, 0.0, 0.0);   // Black for light backgrounds
@@ -61,14 +66,42 @@ vec3 calculateAdaptiveTextColor(vec3 backgroundColor, float adaptiveStrength) {
     return mix(LIGHT_TEXT_COLOR, adaptiveColor, adaptiveStrength);
 }
 
+// Check if current fragment is within any panel boundary (from GlassRenderer)
+bool isWithinPanel(vec2 screenPos, out vec2 panelUV) {
+    for (int i = 0; i < u_panelCount && i < 5; i++) {
+        // Convert screen position to panel-relative coordinates
+        vec2 panelCenter = (u_panelPositions[i] + 1.0) * 0.5; // Convert from [-1,1] to [0,1]
+        vec2 panelHalfSize = u_panelSizes[i] * 0.5;
+
+        // Calculate position relative to panel center
+        vec2 deltaFromCenter = screenPos - panelCenter;
+        vec2 localPanelUV = deltaFromCenter / panelHalfSize + 0.5;
+
+        // Check if within panel bounds
+        if (localPanelUV.x >= 0.0 && localPanelUV.x <= 1.0 &&
+            localPanelUV.y >= 0.0 && localPanelUV.y <= 1.0) {
+            panelUV = localPanelUV;
+            return true;
+        }
+    }
+    return false;
+}
+
 void main() {
     // Convert screen position to UV coordinates
     vec2 screenUV = (v_screenPos + 1.0) * 0.5;
 
+    // Check if we're within any panel boundary
+    vec2 panelUV;
+    if (!isWithinPanel(screenUV, panelUV)) {
+        discard; // Only render text within panels
+    }
+
     // Sample the background scene (ocean + glass combined)
     vec3 backgroundColor = texture(u_sceneTexture, screenUV).rgb;
 
-    // Sample the text mask texture
+    // Sample the text mask texture using corrected UV coordinates
+    // Now that UV coordinates are flipped, v_uv should work correctly
     float textAlpha = texture(u_textTexture, v_uv).a;
 
     // Early discard for areas with no text
@@ -102,6 +135,17 @@ void main() {
 
     // Simple anti-aliasing using step function (more performant than smoothstep)
     float smoothAlpha = step(0.05, textAlpha);
+
+    // Add soft edge fade for panel boundaries
+    float edgeFade = 1.0;
+    float fadeWidth = 0.05; // 5% fade at edges
+    edgeFade *= smoothstep(0.0, fadeWidth, panelUV.x);
+    edgeFade *= smoothstep(0.0, fadeWidth, panelUV.y);
+    edgeFade *= smoothstep(0.0, fadeWidth, 1.0 - panelUV.x);
+    edgeFade *= smoothstep(0.0, fadeWidth, 1.0 - panelUV.y);
+
+    // Apply edge fade to alpha
+    smoothAlpha *= edgeFade;
 
     // Ensure proper contrast
     finalTextColor = clamp(finalTextColor, vec3(0.0), vec3(1.0));

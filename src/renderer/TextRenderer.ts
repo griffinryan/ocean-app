@@ -17,6 +17,8 @@ export interface TextElementConfig {
   color: string;              // Fallback color for CSS compatibility
   textAlign: 'left' | 'center' | 'right'; // Text alignment
   lineHeight: number;         // Line height multiplier
+  panelId: string;            // ID of the panel this text belongs to
+  panelRelativePosition: [number, number]; // Position relative to panel [0,1]
 }
 
 export class TextRenderer {
@@ -42,8 +44,9 @@ export class TextRenderer {
   private projectionMatrix: Mat4;
   private viewMatrix: Mat4;
 
-  // Text element configurations
+  // Text element configurations organized by panel
   private textElements: Map<string, TextElementConfig> = new Map();
+  private panelTextElements: Map<string, TextElementConfig[]> = new Map();
 
   // Animation and state
   private startTime: number;
@@ -151,7 +154,10 @@ export class TextRenderer {
         'u_resolution',
         'u_sceneTexture',
         'u_textTexture',
-        'u_adaptiveStrength'
+        'u_adaptiveStrength',
+        'u_panelPositions',
+        'u_panelSizes',
+        'u_panelCount'
       ];
 
       const attributes = [
@@ -278,6 +284,37 @@ export class TextRenderer {
   }
 
   /**
+   * Get panel information for shader uniforms (matching GlassRenderer approach)
+   */
+  private getPanelInfo(): { positions: Float32Array, sizes: Float32Array, count: number } {
+    const canvas = this.gl.canvas as HTMLCanvasElement;
+    const canvasRect = canvas.getBoundingClientRect();
+
+    const panelIds = ['landing-panel', 'app-panel', 'portfolio-panel', 'resume-panel', 'navbar'];
+    const positions = new Float32Array(10); // 5 panels * 2 components (x,y)
+    const sizes = new Float32Array(10);
+    let validPanelCount = 0;
+
+    panelIds.forEach((panelId) => {
+      const element = document.getElementById(panelId);
+      if (element && !element.classList.contains('hidden') && canvasRect.width > 0 && canvasRect.height > 0) {
+        const rect = element.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
+
+          positions[validPanelCount * 2] = normalizedPos.position[0];
+          positions[validPanelCount * 2 + 1] = normalizedPos.position[1];
+          sizes[validPanelCount * 2] = normalizedPos.size[0];
+          sizes[validPanelCount * 2 + 1] = normalizedPos.size[1];
+          validPanelCount++;
+        }
+      }
+    });
+
+    return { positions, sizes, count: validPanelCount };
+  }
+
+  /**
    * Add a text element configuration
    */
   public addTextElement(id: string, config: TextElementConfig): void {
@@ -338,7 +375,7 @@ export class TextRenderer {
   }
 
   /**
-   * Render individual text element to canvas
+   * Render individual text element to canvas using panel-relative coordinates
    */
   private renderTextToCanvas(config: TextElementConfig, ctx: CanvasRenderingContext2D): void {
     // Set font properties
@@ -347,18 +384,32 @@ export class TextRenderer {
     ctx.textAlign = config.textAlign;
     ctx.fillStyle = 'white'; // Always white on canvas, shader will handle color adaptation
 
-    // Calculate position in canvas coordinates (fixed coordinate transformation)
-    // Convert from WebGL coordinates [-1,1] to canvas coordinates [0, canvas.width/height]
-    const canvasX = (config.position[0] + 1.0) * 0.5 * this.textCanvas.width;
-    const canvasY = (1.0 - (config.position[1] + 1.0) * 0.5) * this.textCanvas.height;
+    // Use panel-relative coordinates directly [0,1] range
+    // No coordinate flipping needed since UV coordinates are now fixed
+    const canvasX = config.panelRelativePosition[0] * this.textCanvas.width;
+    const canvasY = config.panelRelativePosition[1] * this.textCanvas.height;
 
-    // Handle multi-line text
+    // Handle multi-line text with proper line height
     const lines = config.content.split('\n');
     const lineHeight = config.fontSize * config.lineHeight;
 
+    // Calculate adjusted Y position for text alignment
+    let adjustedY = canvasY;
+
+    // Adjust Y position based on text alignment
+    if (config.textAlign === 'center') {
+      // Center text vertically around the specified position
+      adjustedY = canvasY - (lines.length * lineHeight) / 2;
+    }
+
+    // Render each line
     lines.forEach((line, index) => {
-      const y = canvasY + (index * lineHeight);
-      ctx.fillText(line, canvasX, y);
+      const y = adjustedY + (index * lineHeight);
+
+      // Ensure text stays within canvas bounds
+      if (y > 0 && y < this.textCanvas.height) {
+        ctx.fillText(line, canvasX, y);
+      }
     });
   }
 
@@ -386,79 +437,98 @@ export class TextRenderer {
    * Scan HTML and automatically setup text elements
    */
   private scanAndSetupTextElements(): void {
-    // Define text elements to track with their selectors and configurations
+    // Define text elements to track with their selectors and panel associations
     const textElementSelectors = [
       {
         selector: '#landing-panel h1',
         id: 'landing-title',
+        panelId: 'landing-panel',
         fontSize: 48,
         fontWeight: '200',
         textAlign: 'center' as const,
-        lineHeight: 1.2
+        lineHeight: 1.2,
+        panelRelativePosition: [0.5, 0.3] // Center horizontally, upper third
       },
       {
         selector: '#landing-panel .subtitle',
         id: 'landing-subtitle',
+        panelId: 'landing-panel',
         fontSize: 22,
         fontWeight: '400',
         textAlign: 'center' as const,
-        lineHeight: 1.2
+        lineHeight: 1.2,
+        panelRelativePosition: [0.5, 0.7] // Center horizontally, lower third
       },
       {
         selector: '#app-panel h2',
         id: 'app-title',
+        panelId: 'app-panel',
         fontSize: 36,
         fontWeight: '500',
         textAlign: 'left' as const,
-        lineHeight: 1.3
+        lineHeight: 1.3,
+        panelRelativePosition: [0.1, 0.2] // Left margin, top
       },
       {
         selector: '#app-panel p',
         id: 'app-description',
+        panelId: 'app-panel',
         fontSize: 18,
         fontWeight: '400',
         textAlign: 'left' as const,
-        lineHeight: 1.5
+        lineHeight: 1.5,
+        panelRelativePosition: [0.1, 0.6] // Left margin, middle
       },
       {
         selector: '#portfolio-panel h2',
         id: 'portfolio-title',
+        panelId: 'portfolio-panel',
         fontSize: 36,
         fontWeight: '500',
         textAlign: 'left' as const,
-        lineHeight: 1.3
+        lineHeight: 1.3,
+        panelRelativePosition: [0.1, 0.2] // Left margin, top
       },
       {
         selector: '#resume-panel h2',
         id: 'resume-title',
+        panelId: 'resume-panel',
         fontSize: 36,
         fontWeight: '500',
         textAlign: 'left' as const,
-        lineHeight: 1.3
+        lineHeight: 1.3,
+        panelRelativePosition: [0.1, 0.2] // Left margin, top
       },
       {
         selector: '.brand-text',
         id: 'nav-brand',
+        panelId: 'navbar',
         fontSize: 24,
         fontWeight: '600',
         textAlign: 'left' as const,
-        lineHeight: 1.0
+        lineHeight: 1.0,
+        panelRelativePosition: [0.05, 0.5] // Left edge, center
       },
       {
         selector: '.nav-label',
         id: 'nav-labels',
+        panelId: 'navbar',
         fontSize: 16,
         fontWeight: '500',
         textAlign: 'center' as const,
-        lineHeight: 1.0
+        lineHeight: 1.0,
+        panelRelativePosition: [0.5, 0.5] // Will be updated for each label
       }
     ];
+
+    // Clear existing panel text elements
+    this.panelTextElements.clear();
 
     // Setup each text element
     textElementSelectors.forEach(config => {
       const element = document.querySelector(config.selector);
       if (element && element.textContent) {
-        this.addTextElement(config.id, {
+        const textConfig: TextElementConfig = {
           position: [0.0, 0.0], // Will be updated by updateTextPositions
           size: [1.0, 0.2], // Will be updated by updateTextPositions
           content: element.textContent.trim(),
@@ -467,8 +537,19 @@ export class TextRenderer {
           fontWeight: config.fontWeight,
           color: getComputedStyle(element).color || 'white',
           textAlign: config.textAlign,
-          lineHeight: config.lineHeight
-        });
+          lineHeight: config.lineHeight,
+          panelId: config.panelId,
+          panelRelativePosition: [config.panelRelativePosition[0], config.panelRelativePosition[1]]
+        };
+
+        // Add to main text elements map
+        this.addTextElement(config.id, textConfig);
+
+        // Add to panel-organized map
+        if (!this.panelTextElements.has(config.panelId)) {
+          this.panelTextElements.set(config.panelId, []);
+        }
+        this.panelTextElements.get(config.panelId)!.push(textConfig);
       }
     });
   }
@@ -692,6 +773,12 @@ export class TextRenderer {
 
     // Set adaptive strength
     this.shaderManager.setUniform1f(program, 'u_adaptiveStrength', 1.0);
+
+    // Get panel information and set uniforms
+    const panelInfo = this.getPanelInfo();
+    this.shaderManager.setUniform2fv(program, 'u_panelPositions', panelInfo.positions);
+    this.shaderManager.setUniform2fv(program, 'u_panelSizes', panelInfo.sizes);
+    this.shaderManager.setUniform1i(program, 'u_panelCount', panelInfo.count);
 
     // Enable blending for text overlay
     gl.enable(gl.BLEND);
