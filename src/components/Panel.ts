@@ -33,6 +33,8 @@ export class PanelManager {
 
   // Transition tracking for proper text update timing
   private activeTransitions: Set<HTMLElement> = new Set();
+  private activeAnimations: Set<HTMLElement> = new Set();
+  private pendingTimeouts: Set<number> = new Set();
   private transitionTimeout: number | null = null;
 
   constructor() {
@@ -46,6 +48,7 @@ export class PanelManager {
 
     this.setupEventListeners();
     this.setupTransitionListeners();
+    this.setupAnimationListeners();
     this.initializeState();
   }
 
@@ -104,6 +107,29 @@ export class PanelManager {
   }
 
   /**
+   * Setup animationend listeners on all panels
+   * Critical for handling initial page load animations (fadeInUp, etc.)
+   */
+  private setupAnimationListeners(): void {
+    const panels = [
+      this.landingPanel,
+      this.appPanel,
+      this.portfolioPanel,
+      this.resumePanel,
+      this.navbar
+    ];
+
+    panels.forEach(panel => {
+      panel.addEventListener('animationend', (e) => {
+        // Only handle animations on the panel itself, not child elements
+        if (e.target === panel) {
+          this.handleAnimationEnd(panel);
+        }
+      });
+    });
+  }
+
+  /**
    * Handle transition completion on a panel
    */
   private handleTransitionEnd(panel: HTMLElement): void {
@@ -112,8 +138,30 @@ export class PanelManager {
 
     console.debug(`PanelManager: Transition ended on ${panel.id}, ${this.activeTransitions.size} remaining`);
 
-    // If all transitions complete, update text renderer
-    if (this.activeTransitions.size === 0) {
+    // Check if all state changes complete
+    this.checkAllStateChangesComplete();
+  }
+
+  /**
+   * Handle animation completion on a panel
+   */
+  private handleAnimationEnd(panel: HTMLElement): void {
+    // Remove from active animations set
+    this.activeAnimations.delete(panel);
+
+    console.debug(`PanelManager: Animation ended on ${panel.id}, ${this.activeAnimations.size} remaining`);
+
+    // Check if all state changes complete
+    this.checkAllStateChangesComplete();
+  }
+
+  /**
+   * Check if all transitions, animations, and async state changes are complete
+   */
+  private checkAllStateChangesComplete(): void {
+    if (this.activeTransitions.size === 0 &&
+        this.activeAnimations.size === 0 &&
+        this.pendingTimeouts.size === 0) {
       this.onAllTransitionsComplete();
     }
   }
@@ -237,10 +285,17 @@ export class PanelManager {
 
       element.classList.add('fade-out');
 
-      setTimeout(() => {
+      // Track setTimeout callback
+      const timeoutId = window.setTimeout(() => {
         element.classList.add('hidden');
         element.classList.remove('fade-out');
+
+        // Remove from pending timeouts
+        this.pendingTimeouts.delete(timeoutId);
+        this.checkAllStateChangesComplete();
       }, this.defaultTransition.duration / 2);
+
+      this.pendingTimeouts.add(timeoutId);
     }
   }
 
@@ -253,7 +308,8 @@ export class PanelManager {
       element.classList.remove('hidden');
       element.classList.add('fade-in');
 
-      setTimeout(() => {
+      // Track setTimeout callback
+      const timeoutId = window.setTimeout(() => {
         element.classList.remove('fade-in');
 
         // Add active class for content panels (this triggers transform transition)
@@ -262,7 +318,13 @@ export class PanelManager {
           // Track the transform transition that follows
           this.activeTransitions.add(element);
         }
+
+        // Remove from pending timeouts
+        this.pendingTimeouts.delete(timeoutId);
+        this.checkAllStateChangesComplete();
       }, this.defaultTransition.duration / 2);
+
+      this.pendingTimeouts.add(timeoutId);
     }
   }
 

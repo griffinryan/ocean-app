@@ -642,6 +642,12 @@ export class TextRenderer {
   public render(): void {
     const gl = this.gl;
 
+    // CRITICAL: Skip rendering entirely during CSS transitions
+    // This prevents rendering stale texture data at wrong positions
+    if (this.isTransitioningFlag) {
+      return;
+    }
+
     if (!this.textProgram || !this.sceneTexture || this.textElements.size === 0) {
       return;
     }

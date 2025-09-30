@@ -57,6 +57,11 @@ class OceanApp {
       // Connect UI to glass renderer
       this.connectUIToRenderer();
 
+      // CRITICAL: Wait for landing panel animation before enabling text rendering
+      // Landing panel has `animation: fadeInUp 1.2s` that moves elements
+      // Text positions must NOT be captured during this animation
+      this.waitForInitialAnimation();
+
       console.log('Ocean Portfolio initialized successfully!');
 
       // Set up keyboard controls for debugging
@@ -143,6 +148,47 @@ class OceanApp {
       console.log('UI connected to text renderer successfully!');
     } else {
       console.warn('Text renderer not available, falling back to CSS-only text');
+    }
+  }
+
+  /**
+   * Wait for initial landing page animation before enabling text rendering
+   * Prevents capturing text positions during CSS animation
+   */
+  private waitForInitialAnimation(): void {
+    if (!this.renderer) {
+      return;
+    }
+
+    const textRenderer = this.renderer.getTextRenderer();
+    if (!textRenderer) {
+      return;
+    }
+
+    // Block text rendering during initial animation
+    textRenderer.setTransitioning(true);
+
+    console.log('OceanApp: Waiting for landing panel animation to complete...');
+
+    // Listen for animationend event on landing panel
+    const landingPanel = document.getElementById('landing-panel');
+    if (landingPanel) {
+      landingPanel.addEventListener('animationend', () => {
+        console.log('OceanApp: Landing panel animation complete, enabling text rendering');
+
+        // Enable text rendering now that animation is complete
+        textRenderer.setTransitioning(false);
+        textRenderer.forceTextureUpdate();
+        textRenderer.markSceneDirty();
+      }, { once: true });
+    } else {
+      // Fallback: Enable after timeout if landing panel not found
+      setTimeout(() => {
+        console.warn('OceanApp: Landing panel not found, enabling text after timeout');
+        textRenderer.setTransitioning(false);
+        textRenderer.forceTextureUpdate();
+        textRenderer.markSceneDirty();
+      }, 1300); // 1.2s animation + 100ms safety
     }
   }
 
