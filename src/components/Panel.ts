@@ -97,10 +97,10 @@ export class PanelManager {
     ];
 
     panels.forEach(panel => {
-      panel.addEventListener('transitionend', (e) => {
+      panel.addEventListener('transitionend', (e: TransitionEvent) => {
         // Only handle transitions on the panel itself, not child elements
         if (e.target === panel) {
-          this.handleTransitionEnd(panel);
+          this.handleTransitionEnd(panel, e);
         }
       });
     });
@@ -131,12 +131,24 @@ export class PanelManager {
 
   /**
    * Handle transition completion on a panel
+   * CRITICAL: Only track transform transitions (spatial positioning)
    */
-  private handleTransitionEnd(panel: HTMLElement): void {
+  private handleTransitionEnd(panel: HTMLElement, event: TransitionEvent): void {
+    // Only care about transform/translate transitions for spatial positioning
+    // Opacity transitions don't affect text position and complete earlier
+    const propertyName = event.propertyName;
+
+    if (propertyName !== 'transform' &&
+        propertyName !== '-webkit-transform' &&
+        !propertyName.startsWith('translate')) {
+      console.debug(`PanelManager: Ignoring ${propertyName} transition on ${panel.id}`);
+      return;
+    }
+
     // Remove from active transitions set
     this.activeTransitions.delete(panel);
 
-    console.debug(`PanelManager: Transition ended on ${panel.id}, ${this.activeTransitions.size} remaining`);
+    console.debug(`PanelManager: Transform transition ended on ${panel.id}, ${this.activeTransitions.size} remaining`);
 
     // Check if all state changes complete
     this.checkAllStateChangesComplete();
@@ -170,7 +182,7 @@ export class PanelManager {
    * Called when all CSS transitions are complete
    */
   private onAllTransitionsComplete(): void {
-    console.debug('PanelManager: All transitions complete, updating text');
+    console.debug('PanelManager: All transitions complete, waiting for render settle...');
 
     // Clear any pending timeout
     if (this.transitionTimeout !== null) {
@@ -178,13 +190,21 @@ export class PanelManager {
       this.transitionTimeout = null;
     }
 
-    // Update text renderer now that layout is settled
-    if (this.textRenderer) {
-      this.textRenderer.setTransitioning(false);
-      // Force immediate update
-      this.textRenderer.forceTextureUpdate();
-      this.textRenderer.markSceneDirty();
-    }
+    // CRITICAL: Wait 2 frames for browser to fully render final state
+    // Frame 1: Browser computes final styles after transitionend
+    // Frame 2: Browser renders final painted state
+    // Frame 3: We can safely capture positions
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (this.textRenderer) {
+          console.debug('PanelManager: Render settled, enabling text');
+          this.textRenderer.setTransitioning(false);
+          // Force immediate update
+          this.textRenderer.forceTextureUpdate();
+          this.textRenderer.markSceneDirty();
+        }
+      });
+    });
   }
 
   private handleHashChange(): void {
