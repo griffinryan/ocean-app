@@ -20,6 +20,20 @@ uniform vec2 u_panelPositions[5];  // Panel center positions in screen space [-1
 uniform vec2 u_panelSizes[5];      // Panel sizes in screen space
 uniform int u_panelCount;
 
+// Vessel wake uniforms (from ocean system for glow distortion)
+uniform int u_vesselCount;
+uniform vec3 u_vesselPositions[5];
+uniform vec3 u_vesselVelocities[5];
+uniform float u_vesselWeights[5];
+uniform float u_vesselHullLengths[5];
+uniform float u_vesselStates[5];
+uniform bool u_wakesEnabled;
+
+// Glow control uniforms
+uniform float u_glowRadius;          // Glow radius in pixels (default: 8.0)
+uniform float u_glowIntensity;       // Glow intensity multiplier (default: 0.8)
+uniform float u_glowWaveReactivity;  // How much waves affect glow (default: 0.4)
+
 // Adaptive coloring constants
 const float LUMINANCE_THRESHOLD = 0.5;
 const vec3 DARK_TEXT_COLOR = vec3(0.0, 0.0, 0.0);   // Black for light backgrounds
@@ -95,6 +109,228 @@ float noise(vec2 p) {
     return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
 }
 
+// ===== WAVE PHYSICS FUNCTIONS (from ocean.frag) =====
+
+const float PI = 3.14159265359;
+const float KELVIN_ANGLE = 0.34; // ~19.47 degrees in radians
+const float GRAVITY = 9.81;
+
+// Rotate 2D vector by angle (in radians)
+vec2 rotate2D(vec2 v, float angle) {
+    float c = cos(angle);
+    float s = sin(angle);
+    return vec2(v.x * c - v.y * s, v.x * s + v.y * c);
+}
+
+// Calculate wave number from wavelength
+float waveNumber(float wavelength) {
+    return 2.0 * PI / wavelength;
+}
+
+// Deep water dispersion relation: omega = sqrt(g * k)
+float waveFrequency(float k) {
+    return sqrt(GRAVITY * k);
+}
+
+// Simple sine wave for procedural ocean
+float sineWave(vec2 pos, vec2 direction, float wavelength, float amplitude, float speed, float time) {
+    float k = 2.0 * PI / wavelength;
+    float phase = k * dot(direction, pos) - speed * time;
+    return amplitude * sin(phase);
+}
+
+// Simplified trail decay function
+float getSimplifiedTrailDecay(float normalizedDistance, float weight) {
+    float decay = exp(-normalizedDistance * 2.5);
+    float modulation = 1.0 - normalizedDistance * 0.3;
+    float weightFactor = 1.0 + weight * 0.2;
+    return max(0.0, decay * modulation * weightFactor);
+}
+
+// Calculate vessel wake contribution (simplified for glow distortion)
+float calculateVesselWakeForGlow(vec2 pos, vec3 vesselPos, vec3 vesselVel, float weight, float hullLength, float vesselState, float time) {
+    vec2 delta = pos - vesselPos.xz;
+    float distance = length(delta);
+
+    vec2 vesselDir = normalize(vesselVel.xz);
+    float vesselSpeed = length(vesselVel.xz);
+
+    if (vesselSpeed < 0.1) return 0.0;
+
+    float maxTrailDistance = 80.0 + weight * 25.0;
+    float wakeRange = 25.0 + weight * 15.0 + vesselSpeed * 4.0;
+
+    if (distance > 120.0) return 0.0;
+
+    float dotProduct = dot(delta, vesselDir);
+    if (dotProduct > 0.0) return 0.0;
+
+    float pathDistance = abs(dotProduct);
+    if (pathDistance > maxTrailDistance) return 0.0;
+
+    float froudeNumber = vesselSpeed / sqrt(GRAVITY * hullLength);
+    float baseAngle = KELVIN_ANGLE * (1.0 + weight * 0.8);
+    float froudeModifier = 1.0 + froudeNumber * 0.2;
+    float shearRate = 0.15;
+    float progressiveShear = 1.0 + shearRate * log(1.0 + pathDistance * 0.1);
+    float dynamicAngle = baseAngle * froudeModifier * progressiveShear;
+
+    vec2 leftArm = rotate2D(vesselDir, dynamicAngle);
+    vec2 rightArm = rotate2D(vesselDir, -dynamicAngle);
+
+    float leftDist = abs(dot(delta, vec2(-leftArm.y, leftArm.x)));
+    float rightDist = abs(dot(delta, vec2(-rightArm.y, rightArm.x)));
+
+    float stateIntensity = 1.0;
+    if (vesselState > 0.5 && vesselState < 1.5) {
+        stateIntensity = 0.7;
+    } else if (vesselState > 1.5) {
+        float fadeFactor = (vesselState - 2.0);
+        stateIntensity = 0.7 * (1.0 - fadeFactor);
+    }
+
+    float baseAmplitude = vesselSpeed * (0.15 + weight * 0.25) * stateIntensity;
+    float normalizedPathDistance = min(pathDistance / maxTrailDistance, 1.0);
+    float simplifiedDecay = getSimplifiedTrailDecay(normalizedPathDistance, weight);
+
+    float edgeFade = 1.0;
+    if (distance > wakeRange * 0.6) {
+        float t = (distance - wakeRange * 0.6) / (wakeRange * 0.4);
+        edgeFade = 1.0 - smoothstep(0.0, 1.0, t);
+    }
+
+    float ageFactor = simplifiedDecay;
+    float baseWakeWidth = 2.0 + weight * 3.0;
+    float spreadFactor = 1.0 + log(pathDistance + 1.0) * 0.3;
+    float curlSpread = 1.0 + progressiveShear * 0.2;
+    float effectiveWidth = baseWakeWidth * spreadFactor * curlSpread;
+
+    float wakeHeight = 0.0;
+    float phi = 1.618;
+
+    // Simplified to single wave component for performance
+    if (leftDist < effectiveWidth) {
+        float armIntensity = smoothstep(effectiveWidth, effectiveWidth * 0.3, leftDist);
+        float wavelength = 2.5 + vesselSpeed * 0.5;
+        float k = waveNumber(wavelength);
+        float omega = waveFrequency(k);
+        float phase = k * pathDistance - omega * time;
+        wakeHeight += baseAmplitude * armIntensity * ageFactor * edgeFade * sin(phase);
+    }
+
+    if (rightDist < effectiveWidth) {
+        float armIntensity = smoothstep(effectiveWidth, effectiveWidth * 0.3, rightDist);
+        float wavelength = 2.5 + vesselSpeed * 0.5;
+        float k = waveNumber(wavelength);
+        float omega = waveFrequency(k);
+        float phase = k * pathDistance - omega * time;
+        wakeHeight += baseAmplitude * armIntensity * ageFactor * edgeFade * sin(phase);
+    }
+
+    return wakeHeight * 1.5;
+}
+
+// Calculate all vessel wake contributions for glow
+float getAllVesselWakesForGlow(vec2 pos, float time) {
+    if (!u_wakesEnabled || u_vesselCount == 0) return 0.0;
+
+    float totalWake = 0.0;
+    for (int i = 0; i < u_vesselCount && i < 5; i++) {
+        totalWake += calculateVesselWakeForGlow(pos, u_vesselPositions[i], u_vesselVelocities[i],
+                                                u_vesselWeights[i], u_vesselHullLengths[i], u_vesselStates[i], time);
+    }
+
+    return totalWake;
+}
+
+// Calculate ocean height at position (simplified procedural waves for glow distortion)
+float getOceanHeightForGlow(vec2 pos, float time) {
+    float height = 0.0;
+
+    // Simplified wave set for performance
+    height += sineWave(pos, vec2(1.0, 0.0), 8.0, 0.4, 1.0, time);
+    height += sineWave(pos, vec2(0.7, 0.7), 6.0, 0.3, 1.2, time);
+    height += sineWave(pos, vec2(0.0, 1.0), 10.0, 0.35, 0.8, time);
+
+    // Add vessel wakes
+    float wakeHeight = getAllVesselWakesForGlow(pos, time);
+    height += wakeHeight;
+
+    return height;
+}
+
+// ===== GLOW SYSTEM FUNCTIONS =====
+
+// Calculate distance field from text
+float calculateGlowDistance(vec2 uv, vec2 pixelSize) {
+    float minDistance = u_glowRadius;
+
+    // 8-direction sampling pattern for distance field
+    const int numSamples = 8;
+    const float angleStep = 2.0 * PI / float(numSamples);
+
+    // Multi-radius sampling for smooth falloff
+    const int numRings = 3;
+    float radii[3] = float[3](1.0, 3.0, 5.0);
+
+    for (int ring = 0; ring < numRings; ring++) {
+        float radius = radii[ring];
+        vec2 radiusOffset = pixelSize * radius;
+
+        for (int i = 0; i < numSamples; i++) {
+            float angle = float(i) * angleStep;
+            vec2 direction = vec2(cos(angle), sin(angle));
+            vec2 sampleUV = uv + direction * radiusOffset;
+
+            float sampleAlpha = texture(u_textTexture, sampleUV).a;
+
+            if (sampleAlpha > 0.01) {
+                float dist = length(direction * radiusOffset * u_resolution.x);
+                minDistance = min(minDistance, dist);
+            }
+        }
+    }
+
+    return minDistance;
+}
+
+// Calculate glow intensity from distance with Gaussian falloff
+float calculateGlowIntensity(float distance) {
+    // Gaussian falloff: exp(-distance² / (2 * sigma²))
+    float sigma = u_glowRadius * 0.5;
+    float normalizedDist = distance / sigma;
+    return exp(-0.5 * normalizedDist * normalizedDist) * u_glowIntensity;
+}
+
+// Calculate glow color based on background luminance (heatmap effect)
+vec3 calculateGlowColor(vec3 backgroundColor, float glowIntensity) {
+    float luminance = calculateLuminance(backgroundColor);
+
+    // Heatmap color gradient
+    vec3 coldGlow = vec3(0.2, 0.4, 0.8);    // Deep blue for light backgrounds
+    vec3 warmGlow = vec3(0.7, 0.9, 1.0);    // Bright cyan for dark backgrounds
+    vec3 hotGlow = vec3(1.0, 1.0, 1.0);     // White for very dark backgrounds
+
+    // Map luminance to glow color
+    vec3 glowColor;
+    if (luminance < 0.3) {
+        // Dark background → bright warm glow
+        glowColor = mix(hotGlow, warmGlow, luminance / 0.3);
+    } else if (luminance < 0.7) {
+        // Mid luminance → transition
+        glowColor = mix(warmGlow, coldGlow, (luminance - 0.3) / 0.4);
+    } else {
+        // Light background → deep blue shadow
+        glowColor = coldGlow;
+    }
+
+    // Add edge highlighting for "hot spot" effect
+    float edgeBoost = pow(glowIntensity, 2.0) * 0.3;
+    glowColor += vec3(edgeBoost);
+
+    return glowColor;
+}
+
 // Check if current fragment is within any panel boundary (from GlassRenderer)
 bool isWithinPanel(vec2 screenPos, out vec2 panelUV) {
     for (int i = 0; i < u_panelCount && i < 5; i++) {
@@ -129,6 +365,17 @@ void main() {
     // Sample the background scene (ocean + glass combined)
     vec3 backgroundColor = texture(u_sceneTexture, screenUV).rgb;
 
+    // ===== CALCULATE OCEAN WAVE DISTORTION FOR GLOW =====
+    // Convert screen position to ocean coordinates
+    vec2 oceanPos = v_screenPos * 15.0;
+    oceanPos.x *= u_aspectRatio;
+
+    // Get ocean height at current position
+    float oceanHeight = getOceanHeightForGlow(oceanPos, v_time);
+
+    // Calculate wave-based distortion offset
+    float waveDistortion = oceanHeight * u_glowWaveReactivity;
+
     // ===== TEXT INTRO ANIMATION =====
     // Calculate distortion amount based on intro progress
     float eased = cubicEaseOut(u_textIntroProgress);
@@ -145,53 +392,93 @@ void main() {
     // Organic noise variation
     float noiseValue = noise(screenUV * 12.0 + v_time * 1.5) * 0.04;
 
-    // Combine all distortions
+    // Combine all distortions (intro animation + wave distortion)
     vec2 distortion = vec2(
         wave1 + wave3 + deepWave + noiseValue,
         wave2 + wave3 + noiseValue
     );
 
-    // Apply distortion scaled by animation progress
-    vec2 distortedUV = screenUV + distortion * distortionAmount;
+    // Add wave-based distortion for glow reactivity
+    vec2 waveDistortionVec = vec2(
+        sin(oceanPos.y * 0.5 + v_time) * waveDistortion,
+        cos(oceanPos.x * 0.5 + v_time) * waveDistortion
+    ) * 0.01;
+
+    // Apply combined distortion scaled by animation progress
+    vec2 totalDistortion = distortion * distortionAmount + waveDistortionVec;
+    vec2 distortedUV = screenUV + totalDistortion;
 
     // Sample the text texture with distorted UV coordinates
-    // Text canvas now matches screen canvas dimensions, so distortedUV maps directly
     float textAlpha = texture(u_textTexture, distortedUV).a;
 
-    // Early discard for areas with no text
-    if (textAlpha < 0.01) {
-        discard;
+    // ===== RENDER TEXT OR GLOW =====
+    vec3 finalColor;
+    float finalAlpha;
+
+    if (textAlpha > 0.01) {
+        // ===== TEXT RENDERING PATH (EXISTING LOGIC) =====
+
+        // Calculate adaptive text color based on background
+        vec3 adaptiveTextColor = calculateAdaptiveTextColor(backgroundColor, u_adaptiveStrength);
+
+        // Apply Bayer dithering for stylized quantization (like ocean.frag)
+        float dither = bayerDither4x4(gl_FragCoord.xy);
+
+        // Quantize the adaptive color to match ocean's stylized look
+        vec3 quantizedColor = quantizeColor(adaptiveTextColor, 8);
+
+        // Add subtle dithering for smooth gradients
+        vec2 ditherPos = gl_FragCoord.xy * 0.75;
+        float animatedDither = fract(sin(dot(ditherPos, vec2(12.9898, 78.233))) * 43758.5453);
+        quantizedColor += vec3((animatedDither - 0.5) * 0.02);
+
+        // Create range from black to white based on background luminance
+        float luminance = calculateLuminance(backgroundColor);
+        float colorLevel = luminance + dither * 0.3 + animatedDither * 0.2;
+
+        // Map to black-white range with dithering
+        vec3 ditherColor = vec3(clamp(colorLevel, 0.0, 1.0));
+
+        // Mix between quantized adaptive color and dithered grayscale
+        finalColor = mix(quantizedColor, ditherColor, 0.3);
+
+        // Gentle anti-aliasing for text edges
+        finalAlpha = smoothstep(0.1, 0.5, textAlpha);
+
+    } else {
+        // ===== GLOW RENDERING PATH (NEW LOGIC) =====
+
+        // Calculate pixel size for distance field sampling
+        vec2 pixelSize = 1.0 / u_resolution;
+
+        // Calculate distance to nearest text with wave distortion
+        float glowDistance = calculateGlowDistance(distortedUV, pixelSize);
+
+        // Check if within glow radius
+        if (glowDistance < u_glowRadius) {
+            // Calculate glow intensity with Gaussian falloff
+            float glowIntensity = calculateGlowIntensity(glowDistance);
+
+            // Add wave reactivity to glow intensity
+            float waveBoost = abs(oceanHeight) * 0.15;
+            glowIntensity += waveBoost * glowIntensity;
+
+            // Calculate glow color based on background (heatmap effect)
+            vec3 glowColor = calculateGlowColor(backgroundColor, glowIntensity);
+
+            // Apply intro animation to glow (slightly offset from text)
+            float glowAnimationFactor = 1.0 - cubicEaseOut(max(0.0, u_textIntroProgress - 0.1));
+            glowIntensity *= (1.0 - glowAnimationFactor * 0.5);
+
+            finalColor = glowColor;
+            finalAlpha = glowIntensity;
+        } else {
+            // Outside glow radius - discard
+            discard;
+        }
     }
 
-    // Calculate adaptive text color based on background
-    vec3 adaptiveTextColor = calculateAdaptiveTextColor(backgroundColor, u_adaptiveStrength);
-
-    // Apply Bayer dithering for stylized quantization (like ocean.frag)
-    float dither = bayerDither4x4(gl_FragCoord.xy);
-
-    // Quantize the adaptive color to match ocean's stylized look
-    vec3 quantizedColor = quantizeColor(adaptiveTextColor, 8);
-
-    // Add subtle dithering for smooth gradients
-    vec2 ditherPos = gl_FragCoord.xy * 0.75;
-    float animatedDither = fract(sin(dot(ditherPos, vec2(12.9898, 78.233))) * 43758.5453);
-    quantizedColor += vec3((animatedDither - 0.5) * 0.02);
-
-    // Create range from black to white based on background luminance
-    float luminance = calculateLuminance(backgroundColor);
-    float colorLevel = luminance + dither * 0.3 + animatedDither * 0.2;
-
-    // Map to black-white range with dithering
-    vec3 ditherColor = vec3(clamp(colorLevel, 0.0, 1.0));
-
-    // Mix between quantized adaptive color and dithered grayscale
-    vec3 finalTextColor = mix(quantizedColor, ditherColor, 0.3);
-
-    // Gentle anti-aliasing for text edges
-    // Canvas2D already handles text antialiasing, just smooth the alpha slightly
-    float smoothAlpha = smoothstep(0.1, 0.5, textAlpha);
-
-    // Add soft edge fade for panel boundaries
+    // ===== APPLY PANEL EDGE FADE =====
     float edgeFade = 1.0;
     float fadeWidth = 0.05; // 5% fade at edges
     edgeFade *= smoothstep(0.0, fadeWidth, panelUV.x);
@@ -200,10 +487,10 @@ void main() {
     edgeFade *= smoothstep(0.0, fadeWidth, 1.0 - panelUV.y);
 
     // Apply edge fade to alpha
-    smoothAlpha *= edgeFade;
+    finalAlpha *= edgeFade;
 
-    // Ensure proper contrast
-    finalTextColor = clamp(finalTextColor, vec3(0.0), vec3(1.0));
+    // Ensure proper values
+    finalColor = clamp(finalColor, vec3(0.0), vec3(1.0));
 
-    fragColor = vec4(finalTextColor, smoothAlpha);
+    fragColor = vec4(finalColor, finalAlpha);
 }
