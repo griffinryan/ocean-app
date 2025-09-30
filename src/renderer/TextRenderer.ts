@@ -62,7 +62,7 @@ export class TextRenderer {
   private readonly TEXT_INTRO_DURATION = 1000; // milliseconds
 
   // Glow control properties
-  private glowRadius: number = 24.0;
+  private glowRadius: number = 64.0;
   private glowIntensity: number = 0.8;
   private glowWaveReactivity: number = 0.4;
 

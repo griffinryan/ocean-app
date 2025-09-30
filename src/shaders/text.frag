@@ -294,48 +294,55 @@ float calculateGlowDistance(vec2 uv, vec2 pixelSize) {
     return minDistance;
 }
 
-// Calculate glow intensity from distance with Gaussian falloff
+// Calculate glow intensity from distance with neon-like falloff
 float calculateGlowIntensity(float distance) {
-    // Gaussian falloff: exp(-distance² / (2 * sigma²))
-    float sigma = u_glowRadius * 0.5;
+    // Tighter sigma for brighter core (neon effect)
+    float sigma = u_glowRadius * 0.3;
     float normalizedDist = distance / sigma;
-    return exp(-0.5 * normalizedDist * normalizedDist) * u_glowIntensity;
+
+    // Gaussian falloff with power boost for bright core
+    float gaussian = exp(-0.5 * normalizedDist * normalizedDist);
+    float coreBoost = pow(gaussian, 0.7); // Power < 1 boosts core brightness
+
+    return coreBoost * u_glowIntensity;
 }
 
-// Calculate glow color based on wave height with dithered color range
+// Calculate glow color with sharp quantized transitions (inverse of text)
 vec3 calculateGlowColor(vec3 backgroundColor, float glowIntensity, float oceanHeight, vec2 fragCoord) {
-    float luminance = calculateLuminance(backgroundColor);
-
-    // Base glow color (from original heatmap logic)
-    vec3 coldGlow = vec3(0.2, 0.4, 0.8);    // Deep blue
-    vec3 warmGlow = vec3(0.7, 0.9, 1.0);    // Bright cyan
-    vec3 hotGlow = vec3(1.0, 1.0, 1.0);     // White
-
-    // Determine base color from background luminance
-    vec3 baseGlowColor;
-    if (luminance < 0.3) {
-        baseGlowColor = mix(hotGlow, warmGlow, luminance / 0.3);
-    } else if (luminance < 0.7) {
-        baseGlowColor = mix(warmGlow, coldGlow, (luminance - 0.3) / 0.4);
-    } else {
-        baseGlowColor = coldGlow;
-    }
-
-    // Coral pink target color
-    vec3 coralPink = vec3(1.0, 0.5, 0.47);
+    // Define color stops: White → Blue → Ochre-yellow (inverse of text)
+    vec3 whiteGlow = vec3(1.0, 1.0, 1.0);        // Low waves (inverse of dark text)
+    vec3 blueGlow = vec3(0.2, 0.4, 0.8);         // Mid waves
+    vec3 ochreGlow = vec3(0.8, 0.6, 0.2);        // High waves (inverse of white text)
 
     // Normalize wave height to 0-1 range
-    // Wave heights typically range from -1.5 to 1.5, normalize and clamp
+    // Wave heights typically range from -1.5 to 1.5
     float normalizedWave = clamp((oceanHeight + 1.5) / 3.0, 0.0, 1.0);
 
-    // Apply Bayer dithering to wave value for stylized look
+    // Apply Bayer dithering for stylized quantization (matching text aesthetic)
     float dither = bayerDither4x4(fragCoord);
-    float ditheredWave = clamp(normalizedWave + (dither - 0.5) * 0.15, 0.0, 1.0);
+    float ditheredWave = normalizedWave + (dither - 0.5) * 0.2;
 
-    // Mix between base glow color and coral pink based on wave height
-    vec3 glowColor = mix(baseGlowColor, coralPink, ditheredWave);
+    // Sharp step transitions at 0.33 and 0.66 thresholds
+    float lowStep = step(0.33, ditheredWave);   // 0 if wave < 0.33, 1 if >= 0.33
+    float highStep = step(0.66, ditheredWave);  // 0 if wave < 0.66, 1 if >= 0.66
 
-    // Add edge highlighting for "hot spot" effect
+    // Select color based on steps (sharp transitions)
+    vec3 glowColor;
+    if (highStep > 0.5) {
+        // High waves: ochre-yellow
+        glowColor = ochreGlow;
+    } else if (lowStep > 0.5) {
+        // Mid waves: blue
+        glowColor = blueGlow;
+    } else {
+        // Low waves: white
+        glowColor = whiteGlow;
+    }
+
+    // Apply quantization to 8 levels (matching text quantization)
+    glowColor = quantizeColor(glowColor, 8);
+
+    // Add edge highlighting for bright core neon effect
     float edgeBoost = pow(glowIntensity, 2.0) * 0.3;
     glowColor += vec3(edgeBoost);
 
