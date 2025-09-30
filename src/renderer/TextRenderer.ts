@@ -421,6 +421,9 @@ export class TextRenderer {
     const text = this.extractTextWithLineBreaks(element);
     const lines = text.split('\n');
 
+    // Calculate total text block height for multi-line centering
+    const totalTextHeight = lines.length * scaledLineHeight;
+
     // Calculate text position within element
     // HTML renders text inside the content box (after border and padding)
     const paddingTop = parseFloat(styles.paddingTop) * scaleY;
@@ -457,7 +460,16 @@ export class TextRenderer {
       textX = textureX + scaledWidth / 2;
       textY = textureY + scaledHeight / 2;
       alignMode = 'center';
-      baselineMode = 'middle';
+
+      // Multi-line text requires centering the entire text block, not just the first line
+      if (lines.length > 1) {
+        // Center the entire text block by adjusting starting Y position
+        textY = textY - (totalTextHeight / 2);
+        baselineMode = 'top';
+      } else {
+        // Single-line text: use 'middle' baseline for proper centering
+        baselineMode = 'middle';
+      }
 
       // Debug logging for button positioning
       if (element.id === 'paper-btn' || element.id === 'app-btn') {
@@ -474,7 +486,9 @@ export class TextRenderer {
           },
           textureCoords: { textureX, textureY, scaledWidth, scaledHeight },
           textPosition: { textX, textY },
-          text: text.substring(0, 30)
+          text: text.substring(0, 30),
+          lines: lines.length,
+          baselineMode
         });
       }
     }
@@ -484,7 +498,14 @@ export class TextRenderer {
       if (alignItems === 'center') {
         // Vertically center text in element's full height
         textY = textureY + scaledHeight / 2;
-        baselineMode = 'middle';
+
+        // Multi-line text requires centering the entire text block
+        if (lines.length > 1) {
+          textY = textY - (totalTextHeight / 2);
+          baselineMode = 'top';
+        } else {
+          baselineMode = 'middle';
+        }
       }
 
       if (justifyContent === 'center') {
@@ -499,7 +520,14 @@ export class TextRenderer {
     else if (parentIsFlexContainer && parentAlignItems === 'center' && !isButton) {
       // Vertically center text in element's full height
       textY = textureY + scaledHeight / 2;
-      baselineMode = 'middle';
+
+      // Multi-line text requires centering the entire text block
+      if (lines.length > 1) {
+        textY = textY - (totalTextHeight / 2);
+        baselineMode = 'top';
+      } else {
+        baselineMode = 'middle';
+      }
 
       // For horizontal, still use element's text-align
       if (textAlign === 'center') {
