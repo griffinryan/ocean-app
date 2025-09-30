@@ -1,5 +1,14 @@
 /* ===== LIQUID GLASS PANEL SYSTEM ===== */
 
+/* ===== CUSTOM FONTS ===== */
+@font-face {
+  font-family: 'Alagard';
+  src: url('/assets/fonts/alagard.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* CSS Custom Properties for theming */
 :root {
   /* Glass Material Properties */
@@ -16,6 +25,7 @@
 
   /* Typography */
   --font-primary: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+  --font-display: 'Alagard', monospace, sans-serif;
   --font-weight-light: 200;
   --font-weight-normal: 400;
   --font-weight-medium: 500;
@@ -149,11 +159,12 @@ body {
 }
 
 .landing-panel h1 {
+  font-family: var(--font-display);
   font-size: 2.5rem;
-  font-weight: var(--font-weight-light);
+  font-weight: normal;
   line-height: 1.2;
   margin-bottom: 0.5rem;
-  letter-spacing: -0.02em;
+  letter-spacing: 0.05em;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 
   /* Fallback color for browsers without background-clip support */
@@ -252,10 +263,11 @@ body {
 }
 
 .brand-text {
+  font-family: var(--font-display);
   font-size: 1.2rem;
-  font-weight: var(--font-weight-semibold);
+  font-weight: normal;
   color: var(--text-primary);
-  letter-spacing: -0.02em;
+  letter-spacing: 0.05em;
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.8) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -362,6 +374,9 @@ body {
 .nav-label {
   position: relative;
   z-index: 1;
+  font-family: var(--font-display);
+  font-weight: normal;
+  letter-spacing: 0.05em;
 }
 
 /* ===== APP PANEL ===== */
@@ -381,9 +396,11 @@ body {
 }
 
 .app-panel h2 {
+  font-family: var(--font-display);
   font-size: 1.8rem;
-  font-weight: var(--font-weight-medium);
+  font-weight: normal;
   margin-bottom: 1rem;
+  letter-spacing: 0.05em;
 }
 
 /* ===== GLASS BUTTONS ===== */
@@ -412,11 +429,12 @@ body {
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
 
-  font-family: var(--font-primary);
+  font-family: var(--font-display);
   font-size: 0.95rem;
-  font-weight: var(--font-weight-medium);
+  font-weight: normal;
   color: var(--text-primary);
   text-decoration: none;
+  letter-spacing: 0.05em;
 
   cursor: pointer;
   transition: var(--hover-transition);
@@ -558,10 +576,12 @@ body {
 
 .project-card h3,
 .project-detail h3 {
+  font-family: var(--font-display);
   font-size: 1.1rem;
-  font-weight: var(--font-weight-semibold);
+  font-weight: normal;
   margin-bottom: 0.5rem;
   color: var(--text-primary);
+  letter-spacing: 0.05em;
 }
 
 .project-card p,
@@ -580,12 +600,14 @@ body {
 }
 
 .resume-section h3 {
+  font-family: var(--font-display);
   font-size: 1.2rem;
-  font-weight: var(--font-weight-semibold);
+  font-weight: normal;
   margin-bottom: 1rem;
   color: var(--text-primary);
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   padding-bottom: 0.5rem;
+  letter-spacing: 0.05em;
 }
 
 .experience-item {
@@ -597,10 +619,12 @@ body {
 }
 
 .experience-item h4 {
+  font-family: var(--font-display);
   font-size: 1rem;
-  font-weight: var(--font-weight-medium);
+  font-weight: normal;
   margin-bottom: 0.5rem;
   color: var(--text-primary);
+  letter-spacing: 0.05em;
 }
 
 .skills-grid {
@@ -724,6 +748,7 @@ body {
 
   .landing-panel h1 {
     font-size: 2rem;
+    letter-spacing: 0.05em;
   }
 
   .app-panel {
@@ -766,6 +791,7 @@ body {
   .landing-panel h1 {
     font-size: 2rem;
     margin-bottom: 0.25rem;
+    letter-spacing: 0.05em;
   }
 
   .landing-panel .subtitle {

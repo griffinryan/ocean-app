@@ -56,6 +56,11 @@ export class TextRenderer {
   // Transition state tracking - block updates during CSS transitions
   private isTransitioningFlag: boolean = false;
 
+  // Text intro animation state
+  private textIntroStartTime: number = 0;
+  private isIntroActive: boolean = false;
+  private readonly TEXT_INTRO_DURATION = 1000; // milliseconds
+
   constructor(gl: WebGL2RenderingContext, _shaderManager: ShaderManager) {
     this.gl = gl;
     this.shaderManager = _shaderManager;
@@ -181,7 +186,8 @@ export class TextRenderer {
         'u_adaptiveStrength',
         'u_panelPositions',
         'u_panelSizes',
-        'u_panelCount'
+        'u_panelCount',
+        'u_textIntroProgress'
       ];
 
       const attributes = [
@@ -666,6 +672,20 @@ export class TextRenderer {
     const currentTime = performance.now() / 1000.0;
     this.shaderManager.setUniform1f(program, 'u_time', currentTime);
 
+    // Calculate and pass text intro progress
+    let introProgress = 1.0; // Default: animation complete (no distortion)
+    if (this.isIntroActive) {
+      const elapsed = performance.now() - this.textIntroStartTime;
+      introProgress = Math.min(elapsed / this.TEXT_INTRO_DURATION, 1.0);
+
+      // Disable intro animation when complete
+      if (introProgress >= 1.0) {
+        this.isIntroActive = false;
+        console.log('TextRenderer: Text intro animation complete');
+      }
+    }
+    this.shaderManager.setUniform1f(program, 'u_textIntroProgress', introProgress);
+
     // Set resolution
     this.shaderManager.setUniform2f(program, 'u_resolution', gl.canvas.width, gl.canvas.height);
     this.shaderManager.setUniform1f(program, 'u_aspectRatio', gl.canvas.width / gl.canvas.height);
@@ -744,10 +764,15 @@ export class TextRenderer {
   public setTransitioning(transitioning: boolean): void {
     this.isTransitioningFlag = transitioning;
 
-    // If transitioning just ended, force immediate update
+    // If transitioning just ended, force immediate update and trigger intro animation
     if (!transitioning) {
       this.needsTextureUpdate = true;
       this.markSceneDirty();
+
+      // Trigger text intro animation
+      this.textIntroStartTime = performance.now();
+      this.isIntroActive = true;
+      console.log('TextRenderer: Text intro animation started');
     }
   }
 
