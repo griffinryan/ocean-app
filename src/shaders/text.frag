@@ -302,27 +302,38 @@ float calculateGlowIntensity(float distance) {
     return exp(-0.5 * normalizedDist * normalizedDist) * u_glowIntensity;
 }
 
-// Calculate glow color based on background luminance (heatmap effect)
-vec3 calculateGlowColor(vec3 backgroundColor, float glowIntensity) {
+// Calculate glow color based on wave height with dithered color range
+vec3 calculateGlowColor(vec3 backgroundColor, float glowIntensity, float oceanHeight, vec2 fragCoord) {
     float luminance = calculateLuminance(backgroundColor);
 
-    // Heatmap color gradient
-    vec3 coldGlow = vec3(0.2, 0.4, 0.8);    // Deep blue for light backgrounds
-    vec3 warmGlow = vec3(0.7, 0.9, 1.0);    // Bright cyan for dark backgrounds
-    vec3 hotGlow = vec3(1.0, 1.0, 1.0);     // White for very dark backgrounds
+    // Base glow color (from original heatmap logic)
+    vec3 coldGlow = vec3(0.2, 0.4, 0.8);    // Deep blue
+    vec3 warmGlow = vec3(0.7, 0.9, 1.0);    // Bright cyan
+    vec3 hotGlow = vec3(1.0, 1.0, 1.0);     // White
 
-    // Map luminance to glow color
-    vec3 glowColor;
+    // Determine base color from background luminance
+    vec3 baseGlowColor;
     if (luminance < 0.3) {
-        // Dark background → bright warm glow
-        glowColor = mix(hotGlow, warmGlow, luminance / 0.3);
+        baseGlowColor = mix(hotGlow, warmGlow, luminance / 0.3);
     } else if (luminance < 0.7) {
-        // Mid luminance → transition
-        glowColor = mix(warmGlow, coldGlow, (luminance - 0.3) / 0.4);
+        baseGlowColor = mix(warmGlow, coldGlow, (luminance - 0.3) / 0.4);
     } else {
-        // Light background → deep blue shadow
-        glowColor = coldGlow;
+        baseGlowColor = coldGlow;
     }
+
+    // Coral pink target color
+    vec3 coralPink = vec3(1.0, 0.5, 0.47);
+
+    // Normalize wave height to 0-1 range
+    // Wave heights typically range from -1.5 to 1.5, normalize and clamp
+    float normalizedWave = clamp((oceanHeight + 1.5) / 3.0, 0.0, 1.0);
+
+    // Apply Bayer dithering to wave value for stylized look
+    float dither = bayerDither4x4(fragCoord);
+    float ditheredWave = clamp(normalizedWave + (dither - 0.5) * 0.15, 0.0, 1.0);
+
+    // Mix between base glow color and coral pink based on wave height
+    vec3 glowColor = mix(baseGlowColor, coralPink, ditheredWave);
 
     // Add edge highlighting for "hot spot" effect
     float edgeBoost = pow(glowIntensity, 2.0) * 0.3;
@@ -463,8 +474,8 @@ void main() {
             float waveBoost = abs(oceanHeight) * 0.15;
             glowIntensity += waveBoost * glowIntensity;
 
-            // Calculate glow color based on background (heatmap effect)
-            vec3 glowColor = calculateGlowColor(backgroundColor, glowIntensity);
+            // Calculate glow color based on wave height with dithered color range
+            vec3 glowColor = calculateGlowColor(backgroundColor, glowIntensity, oceanHeight, gl_FragCoord.xy);
 
             // Apply intro animation to glow (slightly offset from text)
             float glowAnimationFactor = 1.0 - cubicEaseOut(max(0.0, u_textIntroProgress - 0.1));
