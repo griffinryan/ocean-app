@@ -210,10 +210,29 @@ export class PanelManager {
       currentPanel.classList.remove('hidden');
     }
 
-    // Notify TextRenderer that panel visibility changed
+    // CRITICAL: Double-frame update strategy for TextRenderer
+    // First update: Capture immediate state (may have stale layout)
+    // Second update: Capture after layout settles (correct positions)
     if (this.textRenderer) {
+      // Immediate update (current frame)
       this.textRenderer.forceTextureUpdate();
       this.textRenderer.markSceneDirty();
+
+      // Delayed update (next frame after layout settles)
+      requestAnimationFrame(() => {
+        if (this.textRenderer) {
+          this.textRenderer.forceTextureUpdate();
+          this.textRenderer.markSceneDirty();
+        }
+      });
+
+      // Third update for extra safety after CSS transition duration
+      setTimeout(() => {
+        if (this.textRenderer) {
+          this.textRenderer.forceTextureUpdate();
+          this.textRenderer.markSceneDirty();
+        }
+      }, this.defaultTransition.duration);
     }
   }
 

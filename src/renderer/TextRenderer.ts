@@ -320,6 +320,12 @@ export class TextRenderer {
   private renderTextToCanvas(element: HTMLElement, _config: TextElementConfig): void {
     const ctx = this.textContext;
     const glCanvas = this.gl.canvas as HTMLCanvasElement;
+
+    // CRITICAL: Force layout recalculation before getBoundingClientRect()
+    // This ensures CSS transitions are complete and layout is settled
+    void element.offsetHeight; // Force reflow
+    void glCanvas.offsetHeight; // Force canvas reflow
+
     const canvasRect = glCanvas.getBoundingClientRect();
     const elementRect = element.getBoundingClientRect();
 
@@ -490,11 +496,17 @@ export class TextRenderer {
       }
     }
 
-    // Set font and text properties
+    // CRITICAL: Reset ALL Canvas2D context state before rendering
+    // Prevents state leakage between different text elements
+    ctx.save(); // Save context state for restoration later
+
+    // Reset text properties explicitly
     ctx.font = `${fontWeight} ${scaledFontSize}px ${fontFamily}`;
     ctx.textBaseline = baselineMode;
     ctx.textAlign = alignMode;
     ctx.fillStyle = 'white';
+    ctx.globalAlpha = 1.0;
+    ctx.globalCompositeOperation = 'source-over';
 
     // Render each line of text
     lines.forEach((line, index) => {
@@ -505,6 +517,9 @@ export class TextRenderer {
         ctx.fillText(line, textX, y);
       }
     });
+
+    // CRITICAL: Restore context state to prevent leakage
+    ctx.restore();
   }
 
   /**
@@ -519,8 +534,18 @@ export class TextRenderer {
     const gl = this.gl;
     const ctx = this.textContext;
 
-    // Clear canvas completely
+    // CRITICAL: Aggressively clear canvas and reset ALL context state
+    // This prevents ghosting and state accumulation across frames
     ctx.clearRect(0, 0, this.textCanvas.width, this.textCanvas.height);
+
+    // Reset global Canvas2D state to defaults before rendering any text
+    ctx.save(); // Save clean state
+    ctx.globalAlpha = 1.0;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.imageSmoothingEnabled = false;
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = 'white';
+    ctx.restore(); // Apply clean state
 
     // Get list of visible panels
     const visiblePanels = new Set<string>();
