@@ -62,7 +62,7 @@ export class TextRenderer {
   private readonly TEXT_INTRO_DURATION = 1000; // milliseconds
 
   // Glow control properties
-  private glowRadius: number = 8.0;
+  private glowRadius: number = 64.0;
   private glowIntensity: number = 0.8;
   private glowWaveReactivity: number = 0.4;
 
@@ -419,7 +419,7 @@ export class TextRenderer {
     // Get text content with proper multi-line support
     // CRITICAL: Must use innerText for <br> tag support, with fallback handling
     const text = this.extractTextWithLineBreaks(element);
-    const lines = text.split('\n');
+    let lines = text.split('\n');
 
     // Calculate text position within element
     // HTML renders text inside the content box (after border and padding)
@@ -434,6 +434,24 @@ export class TextRenderer {
     const contentLeft = textureX + borderLeftWidth + paddingLeft;
     const contentTop = textureY + borderTopWidth + paddingTop;
     const contentWidth = scaledWidth - borderLeftWidth - borderRightWidth - paddingLeft - paddingRight;
+
+    // Apply automatic word wrapping to fit content width
+    // Set Canvas2D font first so measureText works correctly
+    ctx.save();
+    ctx.font = `${fontWeight} ${scaledFontSize}px ${fontFamily}`;
+
+    // Wrap each line (preserving explicit <br> line breaks)
+    const wrappedLines: string[] = [];
+    for (const line of lines) {
+      const wrapped = this.wrapTextToWidth(ctx, line, contentWidth);
+      wrappedLines.push(...wrapped);
+    }
+    lines = wrappedLines;
+
+    ctx.restore();
+
+    // Calculate total text block height for multi-line centering
+    const totalTextHeight = lines.length * scaledLineHeight;
 
     // Line-height creates leading space (vertical centering within line box)
     const leading = (scaledLineHeight - scaledFontSize) / 2;
@@ -457,7 +475,16 @@ export class TextRenderer {
       textX = textureX + scaledWidth / 2;
       textY = textureY + scaledHeight / 2;
       alignMode = 'center';
-      baselineMode = 'middle';
+
+      // Multi-line text requires centering the entire text block, not just the first line
+      if (lines.length > 1) {
+        // Center the entire text block by adjusting starting Y position
+        textY = textY - (totalTextHeight / 2);
+        baselineMode = 'top';
+      } else {
+        // Single-line text: use 'middle' baseline for proper centering
+        baselineMode = 'middle';
+      }
 
       // Debug logging for button positioning
       if (element.id === 'paper-btn' || element.id === 'app-btn') {
@@ -474,7 +501,9 @@ export class TextRenderer {
           },
           textureCoords: { textureX, textureY, scaledWidth, scaledHeight },
           textPosition: { textX, textY },
-          text: text.substring(0, 30)
+          text: text.substring(0, 30),
+          lines: lines.length,
+          baselineMode
         });
       }
     }
@@ -484,7 +513,14 @@ export class TextRenderer {
       if (alignItems === 'center') {
         // Vertically center text in element's full height
         textY = textureY + scaledHeight / 2;
-        baselineMode = 'middle';
+
+        // Multi-line text requires centering the entire text block
+        if (lines.length > 1) {
+          textY = textY - (totalTextHeight / 2);
+          baselineMode = 'top';
+        } else {
+          baselineMode = 'middle';
+        }
       }
 
       if (justifyContent === 'center') {
@@ -499,7 +535,14 @@ export class TextRenderer {
     else if (parentIsFlexContainer && parentAlignItems === 'center' && !isButton) {
       // Vertically center text in element's full height
       textY = textureY + scaledHeight / 2;
-      baselineMode = 'middle';
+
+      // Multi-line text requires centering the entire text block
+      if (lines.length > 1) {
+        textY = textY - (totalTextHeight / 2);
+        baselineMode = 'top';
+      } else {
+        baselineMode = 'middle';
+      }
 
       // For horizontal, still use element's text-align
       if (textAlign === 'center') {
@@ -1037,6 +1080,75 @@ export class TextRenderer {
         });
       }
     });
+  }
+
+  /**
+   * Wrap text to fit within a maximum width, breaking at word boundaries
+   * Uses Canvas2D measureText API to calculate text widths
+   *
+   * @param ctx Canvas2D context (must have font already set)
+   * @param text Text string to wrap
+   * @param maxWidth Maximum width in pixels
+   * @returns Array of wrapped lines
+   */
+  private wrapTextToWidth(
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    maxWidth: number
+  ): string[] {
+    // Empty or whitespace-only text
+    if (!text || !text.trim()) {
+      return [text]; // Preserve empty lines
+    }
+
+    // If maxWidth is too small, return text as-is (avoid infinite loops)
+    if (maxWidth <= 0) {
+      return [text];
+    }
+
+    // Measure full text width
+    const textMetrics = ctx.measureText(text);
+    const textWidth = textMetrics.width;
+
+    // Text fits within width - no wrapping needed
+    if (textWidth <= maxWidth) {
+      return [text];
+    }
+
+    // Text needs wrapping - split into words
+    const words = text.split(/\s+/); // Split on any whitespace
+    const lines: string[] = [];
+    let currentLine = '';
+
+    for (let i = 0; i < words.length; i++) {
+      const word = words[i];
+      const testLine = currentLine ? `${currentLine} ${word}` : word;
+      const testWidth = ctx.measureText(testLine).width;
+
+      if (testWidth <= maxWidth) {
+        // Word fits on current line
+        currentLine = testLine;
+      } else {
+        // Word doesn't fit
+        if (currentLine) {
+          // Save current line and start new line with word
+          lines.push(currentLine);
+          currentLine = word;
+        } else {
+          // Single word is too long - add it anyway (allow overflow for unbreakable words)
+          // This prevents infinite loops and is better than breaking mid-word
+          lines.push(word);
+          currentLine = '';
+        }
+      }
+    }
+
+    // Add remaining line
+    if (currentLine) {
+      lines.push(currentLine);
+    }
+
+    return lines.length > 0 ? lines : [text];
   }
 
   /**
