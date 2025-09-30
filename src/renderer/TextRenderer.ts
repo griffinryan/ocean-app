@@ -405,14 +405,49 @@ export class TextRenderer {
     // Line-height creates leading space (vertical centering within line box)
     const leading = (scaledLineHeight - scaledFontSize) / 2;
 
+    // Detect if this is a button element (glass-button class or anchor with button styling)
+    const isButton = element.classList.contains('glass-button') ||
+                     (element.tagName === 'A' && elementDisplay === 'inline-flex');
+
     // Determine text position based on layout mode
     let textX = contentLeft;
     let textY = contentTop + leading;
     let baselineMode: CanvasTextBaseline = 'top';
     let alignMode: CanvasTextAlign = 'left';
 
+    // SPECIAL CASE: Glass buttons with inline-flex centering
+    // Buttons use `display: inline-flex; align-items: center; justify-content: center`
+    // The text should be centered within the button's actual rendered bounds
+    if (isButton && elementDisplay === 'inline-flex') {
+      // Use the button's actual screen position (elementRect already accounts for flexbox layout)
+      // Center both horizontally and vertically within the button
+      textX = textureX + scaledWidth / 2;
+      textY = textureY + scaledHeight / 2;
+      alignMode = 'center';
+      baselineMode = 'middle';
+
+      // Debug logging for button positioning
+      if (element.id === 'paper-btn' || element.id === 'app-btn') {
+        console.debug(`Button ${element.id} positioning:`, {
+          elementRect: {
+            left: elementRect.left,
+            top: elementRect.top,
+            width: elementRect.width,
+            height: elementRect.height
+          },
+          canvasRect: {
+            width: canvasRect.width,
+            height: canvasRect.height
+          },
+          textureCoords: { textureX, textureY, scaledWidth, scaledHeight },
+          textPosition: { textX, textY },
+          text: text.substring(0, 30)
+        });
+      }
+    }
+
     // CASE 1: Element itself is flex container with centering
-    if (isFlexContainer) {
+    else if (isFlexContainer) {
       if (alignItems === 'center') {
         // Vertically center text in element's full height
         textY = textureY + scaledHeight / 2;
@@ -427,7 +462,8 @@ export class TextRenderer {
     }
 
     // CASE 2: Element is child of flex container with centering
-    else if (parentIsFlexContainer && parentAlignItems === 'center') {
+    // NOTE: This case now only applies to non-button elements
+    else if (parentIsFlexContainer && parentAlignItems === 'center' && !isButton) {
       // Vertically center text in element's full height
       textY = textureY + scaledHeight / 2;
       baselineMode = 'middle';
@@ -443,7 +479,7 @@ export class TextRenderer {
     }
 
     // CASE 3: Standard flow (no flex centering)
-    else {
+    else if (!isButton) {
       // Use text-align from CSS
       if (textAlign === 'center') {
         textX = contentLeft + contentWidth / 2;
@@ -498,6 +534,9 @@ export class TextRenderer {
         visiblePanels.add(panelId.replace('-panel', '')); // e.g., 'landing-panel' → 'landing'
       }
     });
+
+    // Debug: Log visible panels when updating texture
+    console.debug('TextRenderer: Updating text texture for visible panels:', Array.from(visiblePanels));
 
     // Render ONLY text elements from visible panels
     this.textElements.forEach((config) => {

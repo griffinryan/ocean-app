@@ -136,6 +136,10 @@ class OceanApp {
     const textRenderer = this.renderer.getTextRenderer();
     if (textRenderer) {
       this.renderer.setTextEnabled(true);
+
+      // Connect TextRenderer to PanelManager for visibility updates
+      this.panelManager.setTextRenderer(textRenderer);
+
       console.log('UI connected to text renderer successfully!');
     } else {
       console.warn('Text renderer not available, falling back to CSS-only text');

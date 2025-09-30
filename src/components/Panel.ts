@@ -3,6 +3,8 @@
  * Manages panel transitions, routing, and glass effects
  */
 
+import type { TextRenderer } from '../renderer/TextRenderer';
+
 export type PanelState = 'landing' | 'app' | 'portfolio' | 'resume' | 'paper' | 'not-found';
 
 export interface PanelTransition {
@@ -19,6 +21,9 @@ export class PanelManager {
   private paperBtn: HTMLElement;
   private appBtn: HTMLElement;
   private navbar: HTMLElement;
+
+  // Optional TextRenderer reference for triggering updates
+  private textRenderer: TextRenderer | null = null;
 
   // Default transition settings
   private defaultTransition: PanelTransition = {
@@ -204,6 +209,12 @@ export class PanelManager {
     if (currentPanel) {
       currentPanel.classList.remove('hidden');
     }
+
+    // Notify TextRenderer that panel visibility changed
+    if (this.textRenderer) {
+      this.textRenderer.forceTextureUpdate();
+      this.textRenderer.markSceneDirty();
+    }
   }
 
   private getPanelElement(state: PanelState): HTMLElement | null {
@@ -296,6 +307,13 @@ export class PanelManager {
     this.portfolioPanel.classList.remove('webgl-enhanced');
     this.resumePanel.classList.remove('webgl-enhanced');
     this.navbar.classList.remove('webgl-enhanced');
+  }
+
+  /**
+   * Set TextRenderer reference for triggering updates on panel transitions
+   */
+  public setTextRenderer(textRenderer: TextRenderer | null): void {
+    this.textRenderer = textRenderer;
   }
 
   public dispose(): void {
