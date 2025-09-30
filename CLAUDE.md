@@ -273,41 +273,7 @@ render() {
 8. Render text lines: `ctx.fillText(line, textX, textY)`
 9. Restore context state: `ctx.restore()`
 
-**Layout Modes**:
-
-```typescript
-// Special case: Glass buttons (inline-flex with centering)
-if (isButton && display === 'inline-flex') {
-  textX = textureX + scaledWidth / 2;
-  textY = textureY + scaledHeight / 2;
-  alignMode = 'center';
-  baselineMode = 'middle';
-}
-
-// Case 1: Element is flex container with centering
-else if (isFlexContainer) {
-  if (alignItems === 'center') {
-    textY = textureY + scaledHeight / 2;
-    baselineMode = 'middle';
-  }
-  if (justifyContent === 'center') {
-    textX = textureX + scaledWidth / 2;
-    alignMode = 'center';
-  }
-}
-
-// Case 2: Element is child of flex container
-else if (parentIsFlexContainer && parentAlignItems === 'center') {
-  textY = textureY + scaledHeight / 2;
-  baselineMode = 'middle';
-  // Horizontal uses element's text-align
-}
-
-// Case 3: Standard flow
-else {
-  // Use CSS text-align
-}
-```
+**Layout Detection**: System detects three modes: (1) inline-flex buttons → center/middle alignment, (2) flex containers → uses alignItems/justifyContent, (3) flex children → vertical centering with CSS text-align for horizontal, (4) standard flow → pure CSS text-align. Each mode sets appropriate Canvas2D `textAlign` and `textBaseline` values.
 
 **Coordinate Mapping** (HTML → Canvas2D → WebGL):
 
@@ -329,78 +295,9 @@ gl.texImage2D(..., textCanvas);
 // 4. WebGL shader samples texture normally (Y-flip handled by upload)
 ```
 
-**Transition-Aware Updates** (Critical for correct positioning):
+**Transition-Aware Updates**: PanelManager blocks TextRenderer during transitions via `setTransitioning(true)`, tracks `transitionend` events (transform property only), waits for all transitions to complete, then waits 2 additional frames before unblocking. This ensures text positions are never captured mid-animation.
 
-**Problem**: Text positions must not be captured during CSS transitions, as elements are mid-animation.
-
-**Solution**: Block text updates during transitions, wait for completion + 2 frames.
-
-```typescript
-// In PanelManager.updatePanelVisibility():
-if (textRenderer) {
-  textRenderer.setTransitioning(true);  // Block updates
-  this.activeTransitions.add(currentPanel);  // Track transition
-}
-
-// In transitionend event handler (Panel.ts):
-handleTransitionEnd(panel, event) {
-  // Only track transform transitions (spatial positioning)
-  if (propertyName !== 'transform') return;
-
-  this.activeTransitions.delete(panel);
-  this.checkAllStateChangesComplete();
-}
-
-// When all transitions complete:
-onAllTransitionsComplete() {
-  // Wait 2 frames for browser to fully render final state
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      textRenderer.setTransitioning(false);  // Enable updates
-      textRenderer.forceTextureUpdate();
-      textRenderer.markSceneDirty();
-    });
-  });
-}
-```
-
-**Texture Update Process** (`updateTextTexture`):
-
-```typescript
-updateTextTexture() {
-  // Block updates during transitions
-  if (this.isTransitioningFlag) return;
-
-  // Aggressively clear canvas
-  ctx.clearRect(0, 0, width, height);
-
-  // Reset Canvas2D state
-  ctx.save();
-  ctx.globalAlpha = 1.0;
-  ctx.globalCompositeOperation = 'source-over';
-  ctx.restore();
-
-  // Get visible panels
-  const visiblePanels = new Set<string>();
-  panelIds.forEach(panelId => {
-    const panel = document.getElementById(panelId);
-    if (panel && !panel.classList.contains('hidden')) {
-      visiblePanels.add(panelId);
-    }
-  });
-
-  // Render only text from visible panels
-  this.textElements.forEach((config) => {
-    if (visiblePanels.has(config.panelId)) {
-      this.renderTextToCanvas(element, config);
-    }
-  });
-
-  // Upload to WebGL with Y-flip
-  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-  gl.texImage2D(..., this.textCanvas);
-}
-```
+**Texture Update Process**: Early return if transitioning. Clear canvas, reset Canvas2D state, query visible panels (via `.hidden` class), render only text from visible panels, upload to WebGL with Y-flip. This visibility culling prevents cross-panel text bleeding.
 
 **Adaptive Coloring Shader** (`src/shaders/text.frag`):
 
@@ -690,109 +587,11 @@ float getOceanHeight(vec2 pos, float time) {
 
 ## Component Systems: UI Integration
 
-### Router: Hash-Based SPA Navigation
+**Router** (`Router.ts`): Hash-based SPA routing (`#`, `#app`, `#portfolio`, `#resume`) that calls `PanelManager.transitionTo(state)` and updates document metadata.
 
-**File**: `src/components/Router.ts`
+**PanelManager** (`Panel.ts`): Manages 6 panel states (landing, app, portfolio, resume, paper, not-found) with transition-aware synchronization. Tracks `transitionend` events (transform property only), waits for all transitions + timeouts to complete, then waits 2 frames before notifying TextRenderer to update. Critical integration point for preventing mid-animation text captures.
 
-**Routes**:
-- `#` → Landing panel
-- `#app` → Home/App panel
-- `#portfolio` → Portfolio panel
-- `#resume` → Resume panel
-
-**Integration**:
-```typescript
-// In Router.navigateToRoute():
-this.panelManager.transitionTo(route.state);
-
-// Updates document title and meta description
-document.title = route.title;
-```
-
-### PanelManager: State Management with Transition Tracking
-
-**File**: `src/components/Panel.ts`
-
-**Panel States**: `landing` | `app` | `portfolio` | `resume` | `paper` | `not-found`
-
-**Critical Feature**: Transition-aware text update synchronization
-
-**Transition Tracking**:
-```typescript
-private activeTransitions: Set<HTMLElement> = new Set();
-private pendingTimeouts: Set<number> = new Set();
-
-setupTransitionListeners() {
-  panels.forEach(panel => {
-    panel.addEventListener('transitionend', (e) => {
-      // Only track transform transitions (spatial positioning)
-      if (e.propertyName !== 'transform') return;
-
-      this.activeTransitions.delete(panel);
-      this.checkAllStateChangesComplete();
-    });
-  });
-}
-
-checkAllStateChangesComplete() {
-  if (this.activeTransitions.size === 0 &&
-      this.pendingTimeouts.size === 0) {
-    this.onAllTransitionsComplete();
-  }
-}
-
-onAllTransitionsComplete() {
-  // Wait 2 frames for browser to fully render final state
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      textRenderer.setTransitioning(false);
-      textRenderer.forceTextureUpdate();
-      textRenderer.markSceneDirty();
-    });
-  });
-}
-```
-
-**State Transition Flow**:
-```
-1. User navigates (#app)
-2. Router.navigate() called
-3. PanelManager.transitionTo('app')
-4. Block text updates: textRenderer.setTransitioning(true)
-5. Fade out old panel
-6. Wait 300ms
-7. Update visibility
-8. Fade in new panel
-9. Add 'active' class (triggers transform transition)
-10. transitionend fired
-11. Check all transitions complete
-12. Wait 2 frames
-13. Enable text updates: textRenderer.setTransitioning(false)
-14. Force texture update
-```
-
-### NavigationManager: Apple-Style Navbar
-
-**File**: `src/components/Navigation.ts`
-
-**Features**:
-- Glassmorphism styling with WebGL enhancement
-- Keyboard shortcuts (Ctrl+H/P/R, Alt+←/→)
-- Active state tracking
-- Visibility control based on panel state
-
-**Integration with PanelManager**:
-```typescript
-// In main.ts:
-this.panelManager.transitionTo = (newState) => {
-  originalTransitionTo(newState);
-  this.navigationManager.updateVisibilityForPanelState(newState);
-};
-```
-
-**Visibility Rules**:
-- Hidden: Landing, not-found, paper
-- Visible: App, portfolio, resume
+**NavigationManager** (`Navigation.ts`): Navbar with keyboard shortcuts (Ctrl+H/P/R, Alt+←/→), active state tracking, and visibility rules (hidden for landing/not-found/paper, visible for app/portfolio/resume). Integrates with PanelManager via wrapped `transitionTo()` method.
 
 ## Shader Architecture
 
@@ -865,50 +664,7 @@ vec3 calculateRefraction(vec3 incident, vec3 normal, float eta) {
 }
 ```
 
-**Liquid Glass Normal**:
-```glsl
-vec3 calculateLiquidGlassNormal(vec2 uv, float time) {
-  // Multi-scale liquid distortion
-  vec2 flowDir1 = vec2(cos(time * 0.8), sin(time * 1.2));
-  vec2 flowDir2 = vec2(cos(time * 1.3), sin(time * 0.9));
-
-  float h = noise(uv * 15.0 + flowDir1 * 2.0) * 0.08;
-  h += noise(uv * 22.5 + flowDir2 * 1.5) * 0.05;
-  h += noise(uv * 37.5 + time * 0.6) * 0.03;
-
-  // Add ripple patterns
-  float ripple = sin(length(uv - 0.5) * 20.0 - time * 4.0) * 0.02;
-  h += ripple * exp(-length(uv - 0.5) * 3.0);
-
-  // Calculate gradient for normal
-  vec3 normal = normalize(vec3(dhdx, dhdy, 1.0));
-  return normal;
-}
-```
-
-**Distortion Application**:
-```glsl
-vec2 distortedUV = screenUV;
-
-// Refraction offset
-vec2 refractionOffset = refractionDir.xy * u_distortionStrength;
-
-// Liquid flow
-vec2 liquidOffset = vec2(
-  sin(panelUV.y * 12.0 + v_time * 2.5) * 0.04,
-  cos(panelUV.x * 10.0 + v_time * 2.0) * 0.04
-);
-
-// Ripples
-vec2 rippleOffset = normalize(panelUV - 0.5) *
-                    (sin(ripplePhase1) * 0.025 + sin(ripplePhase2) * 0.015);
-
-// Noise
-vec2 noiseOffset = vec2(noise(...), noise(...)) * 0.03;
-
-// Combine
-distortedUV += (refractionOffset + liquidOffset + rippleOffset + noiseOffset) * 2.5;
-```
+**Liquid Distortion**: Multi-scale noise (15.0, 22.5, 37.5 frequencies) with time-varying flow directions creates liquid normal. Radial ripples with exponential decay add surface detail. Final distortion combines: refraction offset (physics-based), liquid flow (sin/cos patterns), ripples (radial sine), and noise. Total amplitude ~2.5× distortionStrength.
 
 ### Text Shader: Adaptive Coloring with Wave-Reactive Glow
 
@@ -954,34 +710,9 @@ for (int ring = 0; ring < 3; ring++) {  // 3 rings
 }
 ```
 
-**Wave Reactivity**:
-```glsl
-// Calculate ocean height at text position
-float oceanHeight = getOceanHeightForGlow(oceanPos, v_time);
+**Wave Reactivity**: Ocean height at text position drives UV distortion (sin/cos patterns scaled by u_glowWaveReactivity × 0.01) and boosts glow intensity (abs(height) × 0.15). Creates dynamic text response to underlying waves.
 
-// Wave distortion for text sampling
-vec2 waveDistortionVec = vec2(
-  sin(oceanPos.y * 0.5 + v_time) * oceanHeight * u_glowWaveReactivity,
-  cos(oceanPos.x * 0.5 + v_time) * oceanHeight * u_glowWaveReactivity
-) * 0.01;
-
-// Boost glow intensity with wave height
-float waveBoost = abs(oceanHeight) * 0.15;
-glowIntensity += waveBoost * glowIntensity;
-```
-
-**Intro Animation**:
-```glsl
-// Wiggly distortion with cubic ease-out
-float eased = cubicEaseOut(u_textIntroProgress);
-float distortionAmount = 1.0 - eased;
-
-float wave1 = sin(screenUV.y * 30.0 + v_time * 8.0) * 0.12;
-float wave2 = sin(screenUV.x * 20.0 - v_time * 6.0) * 0.08;
-float deepWave = sin(screenUV.y * 8.0 + v_time * 3.0) * 0.20;
-
-vec2 distortion = vec2(wave1 + deepWave, wave2) * distortionAmount;
-```
+**Intro Animation**: Three-layer sine waves (frequencies 30, 20, 8) with cubic ease-out create wiggly distortion that fades as u_textIntroProgress → 1.0.
 
 ## Coordinate Systems: Mapping Transformations
 
@@ -1219,331 +950,23 @@ onAllTransitionsComplete() {
 
 ### Canvas2D State Management
 
-**Problem**: Canvas2D state leaks between text elements if not properly reset.
-
-**Solution**: Aggressive state reset and save/restore.
-
-```typescript
-renderTextToCanvas(element, config) {
-  // CRITICAL: Reset ALL Canvas2D context state
-  ctx.save();
-
-  // Reset text properties explicitly
-  ctx.font = `${fontWeight} ${scaledFontSize}px ${fontFamily}`;
-  ctx.textBaseline = baselineMode;
-  ctx.textAlign = alignMode;
-  ctx.fillStyle = 'white';
-  ctx.globalAlpha = 1.0;
-  ctx.globalCompositeOperation = 'source-over';
-
-  // Render text
-  ctx.fillText(line, textX, textY);
-
-  // CRITICAL: Restore context state
-  ctx.restore();
-}
-```
-
-**Before Texture Update**:
-```typescript
-updateTextTexture() {
-  // Aggressively clear canvas
-  ctx.clearRect(0, 0, width, height);
-
-  // Reset global Canvas2D state
-  ctx.save();
-  ctx.globalAlpha = 1.0;
-  ctx.globalCompositeOperation = 'source-over';
-  ctx.imageSmoothingEnabled = false;
-  ctx.restore();
-
-  // Render all text...
-}
-```
+**Critical Pattern**: Wrap each text render in `ctx.save()`/`ctx.restore()` to prevent state leakage. Before texture update, aggressively clear canvas and reset globalAlpha, globalCompositeOperation, and imageSmoothingEnabled to defaults.
 
 ## Application Flow
 
-### Initialization Sequence (main.ts)
+**Initialization Dependencies**: UI components (PanelManager, Router, Navigation) → OceanRenderer → Shader compilation → Render loop start → UI-Renderer connection (enable Glass/Text, bind PanelManager) → Initial animation wait → Controls setup. Critical: TextRenderer blocks updates during landing animation until `animationend` event.
 
-```typescript
-class OceanApp {
-  async init() {
-    // 1. Initialize UI components
-    this.initializeUI();
-    // - PanelManager
-    // - Router (with PanelManager)
-    // - NavigationManager (with Router)
-    // - Connect navigation to panel state changes
+**Render Loop**: Each frame: VesselSystem.update() → renderOceanScene() → FPS update. Scene rendering uses conditional pipeline based on enabled features (see 3-Stage Architecture above). Full pipeline executes 3 ocean draws: (1) capture to GlassRenderer.oceanFramebuffer, (2) capture ocean+glass to TextRenderer.sceneFramebuffer, (3) final composite to screen.
 
-    // 2. Create OceanRenderer
-    this.renderer = new OceanRenderer({ canvas, antialias, alpha });
+**Panel Transition State Machine**: User interaction → Router.navigate() → hashchange → PanelManager.transitionTo() → [Block TextRenderer] → Fade out (300ms) → Toggle .hidden → Fade in (300ms) → Add .active (triggers CSS transform) → transitionend → Wait 2 frames → [Unblock TextRenderer] → Force texture update. Critical: TextRenderer must remain blocked throughout CSS transition to prevent capturing mid-animation positions.
 
-    // 3. Initialize shaders (ocean, glass, text)
-    await this.renderer.initializeShaders(
-      oceanVertexShader, oceanFragmentShader,
-      glassVertexShader, glassFragmentShader,
-      textVertexShader, textFragmentShader
-    );
+## Extension Patterns
 
-    // 4. Start rendering
-    this.renderer.start();
+**Glass Panel API**: Register HTML element with `GlassRenderer.addPanel(id, config)` where config specifies distortionStrength (0.3-0.5), refractionIndex (1.52), and initial size. Positions auto-update via `getBoundingClientRect()` each frame.
 
-    // 5. Connect UI to renderer
-    this.connectUIToRenderer();
-    // - Enable glass rendering
-    // - Enable text rendering
-    // - Connect TextRenderer to PanelManager for visibility updates
+**Text Element API**: Add to `TextRenderer.setupDefaultTextElements()` with selector, id, and panelId. System automatically handles CSS style inheritance, positioning, adaptive coloring, and glow effects.
 
-    // 6. Wait for initial animation
-    this.waitForInitialAnimation();
-    // - Block text rendering during landing panel fadeInUp animation
-    // - Listen for animationend event
-    // - Enable text rendering when animation completes
-
-    // 7. Setup controls
-    this.setupControls();
-  }
-}
-```
-
-### Render Loop (OceanRenderer.render)
-
-```typescript
-private render() {
-  const currentTime = performance.now();
-  const elapsedTime = (currentTime - this.startTime) / 1000;
-  const deltaTime = 1 / 60;
-
-  // 1. Update vessel system
-  this.vesselSystem.update(currentTime, deltaTime);
-
-  // 2. Render ocean scene with conditional pipeline
-  this.renderOceanScene(elapsedTime);
-
-  // 3. Update FPS counter
-  this.updateFPS(currentTime);
-}
-
-private renderOceanScene(elapsedTime: number) {
-  const vesselData = this.vesselSystem.getVesselDataForShader(5, performance.now());
-
-  if (this.textEnabled && this.textRenderer) {
-    if (this.glassEnabled && this.glassRenderer) {
-      // Full pipeline: Ocean → Glass → Text
-
-      // 1. Capture ocean for glass distortion
-      this.glassRenderer.captureOceanScene(() => {
-        gl.clear(...);
-        this.drawOcean(elapsedTime);
-      });
-
-      // 2. Capture ocean+glass for text background analysis
-      this.textRenderer.captureScene(() => {
-        gl.clear(...);
-        this.drawOcean(elapsedTime);
-        this.glassRenderer.render();
-      });
-
-      // 3. Final render with all layers
-      gl.clear(...);
-      this.drawOcean(elapsedTime);
-      this.glassRenderer.render();
-      this.textRenderer.render(vesselData, this.wakesEnabled);
-    } else {
-      // Ocean + Text pipeline (no glass)
-      // ...
-    }
-  } else if (this.glassEnabled && this.glassRenderer) {
-    // Glass pipeline (no text)
-    // ...
-  } else {
-    // Basic ocean rendering
-    gl.clear(...);
-    this.drawOcean(elapsedTime);
-  }
-}
-```
-
-### Panel Transition Flow
-
-```
-1. User clicks navigation button or changes URL hash
-   ↓
-2. Router.navigate(path) called
-   ↓
-3. window.location.hash = path
-   ↓
-4. hashchange event fired
-   ↓
-5. Router.handleNavigation()
-   ↓
-6. Router.navigateToRoute(route)
-   ↓
-7. PanelManager.transitionTo(newState)
-   ↓
-8. TextRenderer.setTransitioning(true)  [Block text updates]
-   ↓
-9. Fade out old panel
-   ↓
-10. setTimeout(300ms)
-   ↓
-11. Update panel visibility (.hidden class)
-   ↓
-12. Fade in new panel
-   ↓
-13. setTimeout(300ms)
-   ↓
-14. Add .active class (triggers transform transition)
-   ↓
-15. CSS transform transition starts
-   ↓
-16. transitionend event fired
-   ↓
-17. Check all transitions complete
-   ↓
-18. requestAnimationFrame() × 2  [Wait 2 frames]
-   ↓
-19. TextRenderer.setTransitioning(false)  [Enable text updates]
-   ↓
-20. TextRenderer.forceTextureUpdate()
-   ↓
-21. TextRenderer.markSceneDirty()
-   ↓
-22. Next render frame: Text positions updated
-```
-
-## Development Patterns
-
-### Adding a New Glass Panel
-
-1. **Create HTML Element**:
-```html
-<div id="my-panel" class="glass-panel hidden">
-  <h2>My Panel</h2>
-  <p>Content here</p>
-</div>
-```
-
-2. **Add to GlassRenderer**:
-```typescript
-// In GlassRenderer.setupDefaultPanels():
-this.addPanel('my-panel', {
-  position: [0.0, 0.0],  // Will be updated dynamically
-  size: [0.4, 0.5],
-  distortionStrength: 0.35,
-  refractionIndex: 1.52
-});
-```
-
-3. **Add to PanelManager**:
-```typescript
-// In Panel.ts:
-private myPanel: HTMLElement;
-
-constructor() {
-  this.myPanel = this.getElement('my-panel');
-}
-
-// Update visibility methods to include myPanel
-```
-
-4. **Update Position Tracking**:
-```typescript
-// In GlassRenderer.updatePanelPositions():
-const myPanelElement = document.getElementById('my-panel');
-if (myPanelElement && !myPanelElement.classList.contains('hidden')) {
-  const rect = myPanelElement.getBoundingClientRect();
-  if (rect.width > 0 && rect.height > 0) {
-    const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
-    this.updatePanel('my-panel', {
-      position: normalizedPos.position,
-      size: normalizedPos.size
-    });
-  }
-}
-```
-
-### Adding Text Elements
-
-1. **HTML Element** (must have selectable element):
-```html
-<h2 id="my-title">My Title</h2>
-```
-
-2. **Add to TextRenderer**:
-```typescript
-// In TextRenderer.setupDefaultTextElements():
-const textElementSelectors = [
-  { selector: '#my-title', id: 'my-title-text', panelId: 'my-panel' },
-  // ...
-];
-```
-
-3. **Text Will Automatically**:
-   - Render to Canvas2D with CSS styles
-   - Position based on `getBoundingClientRect()`
-   - Apply adaptive coloring based on background
-   - Add glow effect
-   - Update on panel visibility changes
-
-### Debugging Rendering Issues
-
-**Ocean Debug Modes** (Press D or 0-4):
-- **0**: Normal rendering
-- **1**: UV coordinates (verify screen-space mapping)
-- **2**: Wave height (verify wave amplitude)
-- **3**: Normals (verify normal calculation)
-- **4**: Wake map (verify vessel wake generation)
-
-**Glass Rendering**:
-- Check `console.debug` logs from `GlassRenderer.updatePanelPositions()`
-- Verify panel boundaries: Look for "GlassRenderer Panel Mapping" logs
-- Check element visibility: `.hidden` class
-- Verify WebGL texture binding: Check `gl.bindTexture` calls
-
-**Text Rendering**:
-- Check transition state: `TextRenderer.isTransitioning()`
-- Verify visible panels: Look for "TextRenderer: Updating text texture for visible panels" log
-- Check button positioning: Look for "Button positioning" debug logs
-- Verify Canvas2D state: Check `textContext` properties after each render
-- Check texture upload: Verify `UNPACK_FLIP_Y_WEBGL` is set
-
-**Coordinate Debugging**:
-```typescript
-// Add to htmlRectToNormalized():
-console.debug(`Element: ${elementRect.width}x${elementRect.height} at (${elementRect.left}, ${elementRect.top})`);
-console.debug(`WebGL Center: (${glX.toFixed(3)}, ${glY.toFixed(3)})`);
-console.debug(`WebGL Size: (${width.toFixed(3)}, ${height.toFixed(3)})`);
-```
-
-**Vessel Wake Debugging**:
-- Press **V** to toggle vessel system
-- Press **4** to see wake intensity map
-- Check console for vessel spawn logs
-- Verify vessel data uniforms in shader
-
-### Performance Optimization Tips
-
-**Uniform Updates**:
-- Cache last set values in `uniformCache`
-- Only update when value changes
-- Group related uniforms together
-
-**Scene Captures**:
-- Throttle captures to max 60fps
-- Use `sceneTextureDirty` flag for invalidation
-- Skip captures when scene hasn't changed
-
-**Text Rendering**:
-- Block updates during transitions
-- Cull text from hidden panels
-- Update texture only when needed
-- Use ResizeObserver instead of continuous polling
-
-**Vessel System**:
-- Adjust `maxVessels` for performance
-- Reduce `wakeTrailLength` on low-end devices
-- Use vessel state system for graceful fade-out
+**Debug Modes** (Keys D/0-4): 0=Normal, 1=UV coords, 2=Wave height, 3=Normals, 4=Wake intensity. Use for verifying coordinate mappings and wave calculations.
 
 ## Keyboard Controls
 
