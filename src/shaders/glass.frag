@@ -108,7 +108,6 @@ vec3 calculateRefraction(vec3 incident, vec3 normal, float eta) {
 void main() {
     // Convert screen position to UV coordinates
     vec2 screenUV = (v_screenPos + 1.0) * 0.5;
-    screenUV.y = 1.0 - screenUV.y; // Flip Y coordinate
 
     // Calculate position relative to panel with corrected coordinate mapping
     vec2 panelCenter = (u_panelPosition + 1.0) * 0.5; // Convert from [-1,1] to [0,1]
@@ -174,8 +173,8 @@ void main() {
         // Combine all distortion effects with enhanced strength
         vec2 totalOffset = refractionOffset + liquidOffset + rippleOffset + noiseOffset;
 
-        // Much stronger distortion for clear visibility
-        totalOffset *= u_distortionStrength * 3.0;
+        // Enhanced distortion balanced with opacity
+        totalOffset *= u_distortionStrength * 2.5;
 
         distortedUV += totalOffset;
     }
@@ -248,17 +247,17 @@ void main() {
     vec3 finalColor = oceanColor * depthTint + reflection + edgeLight + causticLight + scratches + rimLight;
 
     // Enhanced glass opacity with much stronger visibility
-    float alpha = 0.4 + fresnelReflection * 0.15;
+    float alpha = 0.55 + fresnelReflection * 0.15;
 
     // Add flowing opacity variation
     float opacityFlow = sin(panelUV.x * 5.0 + v_time * 1.8) * cos(panelUV.y * 4.0 + v_time * 1.2);
     alpha += opacityFlow * 0.05;
 
     // Much stronger edge opacity for clear borders
-    alpha += edgeGlow * 0.3;
+    alpha += edgeGlow * 0.5;
 
     // Add depth-based opacity
-    alpha += depth * 0.15;
+    alpha += depth * 0.25;
 
     // Add a subtle glass tint to the background
     vec3 glassTint = vec3(0.9, 0.95, 1.0);

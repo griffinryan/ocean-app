@@ -3,7 +3,9 @@
  * Manages panel transitions, routing, and glass effects
  */
 
-export type PanelState = 'landing' | 'app' | 'paper' | 'not-found';
+import type { TextRenderer } from '../renderer/TextRenderer';
+
+export type PanelState = 'landing' | 'app' | 'portfolio' | 'resume' | 'paper' | 'not-found';
 
 export interface PanelTransition {
   duration: number;
@@ -14,8 +16,14 @@ export class PanelManager {
   private currentState: PanelState = 'landing';
   private landingPanel: HTMLElement;
   private appPanel: HTMLElement;
+  private portfolioPanel: HTMLElement;
+  private resumePanel: HTMLElement;
   private paperBtn: HTMLElement;
   private appBtn: HTMLElement;
+  private navbar: HTMLElement;
+
+  // Optional TextRenderer reference for triggering updates
+  private textRenderer: TextRenderer | null = null;
 
   // Default transition settings
   private defaultTransition: PanelTransition = {
@@ -23,13 +31,24 @@ export class PanelManager {
     easing: 'cubic-bezier(0.4, 0, 0.2, 1)'
   };
 
+  // Transition tracking for proper text update timing
+  private activeTransitions: Set<HTMLElement> = new Set();
+  private activeAnimations: Set<HTMLElement> = new Set();
+  private pendingTimeouts: Set<number> = new Set();
+  private transitionTimeout: number | null = null;
+
   constructor() {
     this.landingPanel = this.getElement('landing-panel');
     this.appPanel = this.getElement('app-panel');
+    this.portfolioPanel = this.getElement('portfolio-panel');
+    this.resumePanel = this.getElement('resume-panel');
     this.paperBtn = this.getElement('paper-btn');
     this.appBtn = this.getElement('app-btn');
+    this.navbar = this.getElement('navbar');
 
     this.setupEventListeners();
+    this.setupTransitionListeners();
+    this.setupAnimationListeners();
     this.initializeState();
   }
 
@@ -64,12 +83,142 @@ export class PanelManager {
     });
   }
 
+  /**
+   * Setup transitionend listeners on all panels
+   * Critical for syncing text updates with CSS transition completion
+   */
+  private setupTransitionListeners(): void {
+    const panels = [
+      this.landingPanel,
+      this.appPanel,
+      this.portfolioPanel,
+      this.resumePanel,
+      this.navbar
+    ];
+
+    panels.forEach(panel => {
+      panel.addEventListener('transitionend', (e: TransitionEvent) => {
+        // Only handle transitions on the panel itself, not child elements
+        if (e.target === panel) {
+          this.handleTransitionEnd(panel, e);
+        }
+      });
+    });
+  }
+
+  /**
+   * Setup animationend listeners on all panels
+   * Critical for handling initial page load animations (fadeInUp, etc.)
+   */
+  private setupAnimationListeners(): void {
+    const panels = [
+      this.landingPanel,
+      this.appPanel,
+      this.portfolioPanel,
+      this.resumePanel,
+      this.navbar
+    ];
+
+    panels.forEach(panel => {
+      panel.addEventListener('animationend', (e) => {
+        // Only handle animations on the panel itself, not child elements
+        if (e.target === panel) {
+          this.handleAnimationEnd(panel);
+        }
+      });
+    });
+  }
+
+  /**
+   * Handle transition completion on a panel
+   * CRITICAL: Only track transform transitions (spatial positioning)
+   */
+  private handleTransitionEnd(panel: HTMLElement, event: TransitionEvent): void {
+    // Only care about transform/translate transitions for spatial positioning
+    // Opacity transitions don't affect text position and complete earlier
+    const propertyName = event.propertyName;
+
+    if (propertyName !== 'transform' &&
+        propertyName !== '-webkit-transform' &&
+        !propertyName.startsWith('translate')) {
+      console.debug(`PanelManager: Ignoring ${propertyName} transition on ${panel.id}`);
+      return;
+    }
+
+    // Remove from active transitions set
+    this.activeTransitions.delete(panel);
+
+    console.debug(`PanelManager: Transform transition ended on ${panel.id}, ${this.activeTransitions.size} remaining`);
+
+    // Check if all state changes complete
+    this.checkAllStateChangesComplete();
+  }
+
+  /**
+   * Handle animation completion on a panel
+   */
+  private handleAnimationEnd(panel: HTMLElement): void {
+    // Remove from active animations set
+    this.activeAnimations.delete(panel);
+
+    console.debug(`PanelManager: Animation ended on ${panel.id}, ${this.activeAnimations.size} remaining`);
+
+    // Check if all state changes complete
+    this.checkAllStateChangesComplete();
+  }
+
+  /**
+   * Check if all transitions, animations, and async state changes are complete
+   */
+  private checkAllStateChangesComplete(): void {
+    if (this.activeTransitions.size === 0 &&
+        this.activeAnimations.size === 0 &&
+        this.pendingTimeouts.size === 0) {
+      this.onAllTransitionsComplete();
+    }
+  }
+
+  /**
+   * Called when all CSS transitions are complete
+   */
+  private onAllTransitionsComplete(): void {
+    console.debug('PanelManager: All transitions complete, waiting for render settle...');
+
+    // Clear any pending timeout
+    if (this.transitionTimeout !== null) {
+      clearTimeout(this.transitionTimeout);
+      this.transitionTimeout = null;
+    }
+
+    // CRITICAL: Wait 2 frames for browser to fully render final state
+    // Frame 1: Browser computes final styles after transitionend
+    // Frame 2: Browser renders final painted state
+    // Frame 3: We can safely capture positions
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (this.textRenderer) {
+          console.debug('PanelManager: Render settled, enabling text');
+          this.textRenderer.setTransitioning(false);
+          // Force immediate update
+          this.textRenderer.forceTextureUpdate();
+          this.textRenderer.markSceneDirty();
+        }
+      });
+    });
+  }
+
   private handleHashChange(): void {
     const hash = window.location.hash.slice(1); // Remove #
 
     switch (hash) {
       case 'app':
         this.transitionTo('app');
+        break;
+      case 'portfolio':
+        this.transitionTo('portfolio');
+        break;
+      case 'resume':
+        this.transitionTo('resume');
         break;
       case 'paper':
         this.transitionTo('paper');
@@ -97,18 +246,7 @@ export class PanelManager {
           this.transitionTo('landing');
         }
         break;
-      case '1':
-        // Quick access to app
-        event.preventDefault();
-        window.location.hash = 'app';
-        this.transitionTo('app');
-        break;
-      case '2':
-        // Quick access to paper
-        event.preventDefault();
-        window.location.hash = 'paper';
-        this.transitionTo('paper');
-        break;
+      // Removed keyboard shortcuts 1-4 to prevent conflict with debug mode controls
     }
   }
 
@@ -162,29 +300,51 @@ export class PanelManager {
   private fadeOutCurrentPanel(state: PanelState): void {
     const element = this.getPanelElement(state);
     if (element && !element.classList.contains('hidden')) {
+      // Track fade-out transition
+      this.activeTransitions.add(element);
+
       element.classList.add('fade-out');
 
-      setTimeout(() => {
+      // Track setTimeout callback
+      const timeoutId = window.setTimeout(() => {
         element.classList.add('hidden');
         element.classList.remove('fade-out');
+
+        // Remove from pending timeouts
+        this.pendingTimeouts.delete(timeoutId);
+        this.checkAllStateChangesComplete();
       }, this.defaultTransition.duration / 2);
+
+      this.pendingTimeouts.add(timeoutId);
     }
   }
 
   private fadeInNewPanel(state: PanelState): void {
     const element = this.getPanelElement(state);
     if (element) {
+      // Track fade-in transition
+      this.activeTransitions.add(element);
+
       element.classList.remove('hidden');
       element.classList.add('fade-in');
 
-      setTimeout(() => {
+      // Track setTimeout callback
+      const timeoutId = window.setTimeout(() => {
         element.classList.remove('fade-in');
 
-        // Add active class for app panel
-        if (state === 'app') {
+        // Add active class for content panels (this triggers transform transition)
+        if (state === 'app' || state === 'portfolio' || state === 'resume') {
           element.classList.add('active');
+          // Track the transform transition that follows
+          this.activeTransitions.add(element);
         }
+
+        // Remove from pending timeouts
+        this.pendingTimeouts.delete(timeoutId);
+        this.checkAllStateChangesComplete();
       }, this.defaultTransition.duration / 2);
+
+      this.pendingTimeouts.add(timeoutId);
     }
   }
 
@@ -192,12 +352,39 @@ export class PanelManager {
     // Reset all panels
     this.landingPanel.classList.add('hidden');
     this.appPanel.classList.add('hidden');
+    this.portfolioPanel.classList.add('hidden');
+    this.resumePanel.classList.add('hidden');
     this.appPanel.classList.remove('active');
+    this.portfolioPanel.classList.remove('active');
+    this.resumePanel.classList.remove('active');
 
     // Show current panel
     const currentPanel = this.getPanelElement(this.currentState);
     if (currentPanel) {
       currentPanel.classList.remove('hidden');
+    }
+
+    // CRITICAL: New transition-aware strategy
+    // Block text updates during CSS transitions, only update when complete
+    if (this.textRenderer) {
+      // Block updates during transition
+      this.textRenderer.setTransitioning(true);
+
+      // Track this panel as transitioning
+      if (currentPanel) {
+        this.activeTransitions.add(currentPanel);
+      }
+
+      // Safety timeout: If transitionend doesn't fire, force update anyway
+      if (this.transitionTimeout !== null) {
+        clearTimeout(this.transitionTimeout);
+      }
+
+      this.transitionTimeout = window.setTimeout(() => {
+        console.warn('PanelManager: Transition timeout reached, forcing text update');
+        this.activeTransitions.clear();
+        this.onAllTransitionsComplete();
+      }, this.defaultTransition.duration + 100); // 100ms safety margin
     }
   }
 
@@ -207,6 +394,10 @@ export class PanelManager {
         return this.landingPanel;
       case 'app':
         return this.appPanel;
+      case 'portfolio':
+        return this.portfolioPanel;
+      case 'resume':
+        return this.resumePanel;
       default:
         return null;
     }
@@ -275,12 +466,25 @@ export class PanelManager {
     // Mark panels for WebGL enhancement
     this.landingPanel.classList.add('webgl-enhanced');
     this.appPanel.classList.add('webgl-enhanced');
+    this.portfolioPanel.classList.add('webgl-enhanced');
+    this.resumePanel.classList.add('webgl-enhanced');
+    this.navbar.classList.add('webgl-enhanced');
   }
 
   public disableWebGLDistortion(): void {
     // Remove WebGL enhancement
     this.landingPanel.classList.remove('webgl-enhanced');
     this.appPanel.classList.remove('webgl-enhanced');
+    this.portfolioPanel.classList.remove('webgl-enhanced');
+    this.resumePanel.classList.remove('webgl-enhanced');
+    this.navbar.classList.remove('webgl-enhanced');
+  }
+
+  /**
+   * Set TextRenderer reference for triggering updates on panel transitions
+   */
+  public setTextRenderer(textRenderer: TextRenderer | null): void {
+    this.textRenderer = textRenderer;
   }
 
   public dispose(): void {

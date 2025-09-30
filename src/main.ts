@@ -5,17 +5,21 @@
 import { OceanRenderer } from './renderer/OceanRenderer';
 import { PanelManager } from './components/Panel';
 import { Router } from './components/Router';
+import { NavigationManager } from './components/Navigation';
 
 // Import shaders as strings
 import oceanVertexShader from './shaders/ocean.vert';
 import oceanFragmentShader from './shaders/ocean.frag';
 import glassVertexShader from './shaders/glass.vert';
 import glassFragmentShader from './shaders/glass.frag';
+import textVertexShader from './shaders/text.vert';
+import textFragmentShader from './shaders/text.frag';
 
 class OceanApp {
   public renderer: OceanRenderer | null = null;
   public panelManager: PanelManager | null = null;
   public router: Router | null = null;
+  public navigationManager: NavigationManager | null = null;
 
   async init(): Promise<void> {
     try {
@@ -37,12 +41,14 @@ class OceanApp {
         alpha: false
       });
 
-      // Initialize shaders (ocean and glass)
+      // Initialize shaders (ocean, glass, and text)
       await this.renderer.initializeShaders(
         oceanVertexShader,
         oceanFragmentShader,
         glassVertexShader,
-        glassFragmentShader
+        glassFragmentShader,
+        textVertexShader,
+        textFragmentShader
       );
 
       // Start rendering
@@ -50,6 +56,11 @@ class OceanApp {
 
       // Connect UI to glass renderer
       this.connectUIToRenderer();
+
+      // CRITICAL: Wait for landing panel animation before enabling text rendering
+      // Landing panel has `animation: fadeInUp 1.2s` that moves elements
+      // Text positions must NOT be captured during this animation
+      this.waitForInitialAnimation();
 
       console.log('Ocean Portfolio initialized successfully!');
 
@@ -63,7 +74,7 @@ class OceanApp {
   }
 
   /**
-   * Initialize UI components (panels and router)
+   * Initialize UI components (panels, router, and navigation)
    */
   private initializeUI(): void {
     try {
@@ -73,11 +84,36 @@ class OceanApp {
       // Initialize router with panel manager
       this.router = new Router(this.panelManager);
 
+      // Initialize navigation manager with router
+      this.navigationManager = new NavigationManager(this.router);
+
+      // Connect navigation visibility to panel state changes
+      this.setupNavigationIntegration();
+
       console.log('UI components initialized successfully!');
     } catch (error) {
       console.error('Failed to initialize UI components:', error);
       throw error;
     }
+  }
+
+  /**
+   * Setup navigation integration with panel state changes
+   */
+  private setupNavigationIntegration(): void {
+    if (!this.navigationManager || !this.panelManager) {
+      return;
+    }
+
+    // Listen for panel state changes and update navigation visibility
+    const originalTransitionTo = this.panelManager.transitionTo.bind(this.panelManager);
+    this.panelManager.transitionTo = (newState) => {
+      // Call original transition
+      originalTransitionTo(newState);
+
+      // Update navigation visibility based on panel state
+      this.navigationManager!.updateVisibilityForPanelState(newState);
+    };
   }
 
   /**
@@ -99,6 +135,60 @@ class OceanApp {
       console.log('UI connected to glass renderer successfully!');
     } else {
       console.warn('Glass renderer not available, falling back to CSS-only effects');
+    }
+
+    // Enable text rendering if available
+    const textRenderer = this.renderer.getTextRenderer();
+    if (textRenderer) {
+      this.renderer.setTextEnabled(true);
+
+      // Connect TextRenderer to PanelManager for visibility updates
+      this.panelManager.setTextRenderer(textRenderer);
+
+      console.log('UI connected to text renderer successfully!');
+    } else {
+      console.warn('Text renderer not available, falling back to CSS-only text');
+    }
+  }
+
+  /**
+   * Wait for initial landing page animation before enabling text rendering
+   * Prevents capturing text positions during CSS animation
+   */
+  private waitForInitialAnimation(): void {
+    if (!this.renderer) {
+      return;
+    }
+
+    const textRenderer = this.renderer.getTextRenderer();
+    if (!textRenderer) {
+      return;
+    }
+
+    // Block text rendering during initial animation
+    textRenderer.setTransitioning(true);
+
+    console.log('OceanApp: Waiting for landing panel animation to complete...');
+
+    // Listen for animationend event on landing panel
+    const landingPanel = document.getElementById('landing-panel');
+    if (landingPanel) {
+      landingPanel.addEventListener('animationend', () => {
+        console.log('OceanApp: Landing panel animation complete, enabling text rendering');
+
+        // Enable text rendering now that animation is complete
+        textRenderer.setTransitioning(false);
+        textRenderer.forceTextureUpdate();
+        textRenderer.markSceneDirty();
+      }, { once: true });
+    } else {
+      // Fallback: Enable after timeout if landing panel not found
+      setTimeout(() => {
+        console.warn('OceanApp: Landing panel not found, enabling text after timeout');
+        textRenderer.setTransitioning(false);
+        textRenderer.forceTextureUpdate();
+        textRenderer.markSceneDirty();
+      }, 1300); // 1.2s animation + 100ms safety
     }
   }
 
@@ -133,6 +223,8 @@ class OceanApp {
         case 'd':
         case 'D':
           // Cycle through debug modes
+          event.preventDefault();
+          event.stopPropagation();
           if (this.renderer) {
             const currentMode = this.renderer.getDebugMode();
             const nextMode = (currentMode + 1) % 5; // 0-4 debug modes (added wake debug)
@@ -143,6 +235,8 @@ class OceanApp {
         case 'v':
         case 'V':
           // Toggle vessel wake system
+          event.preventDefault();
+          event.stopPropagation();
           if (this.renderer) {
             this.renderer.toggleWakes();
             this.updateVesselInfo();
@@ -151,10 +245,23 @@ class OceanApp {
         case 'g':
         case 'G':
           // Toggle glass panel rendering
+          event.preventDefault();
+          event.stopPropagation();
           if (this.renderer) {
             const isEnabled = this.renderer.getGlassEnabled();
             this.renderer.setGlassEnabled(!isEnabled);
             this.updateGlassInfo(!isEnabled);
+          }
+          break;
+        case 't':
+        case 'T':
+          // Toggle text rendering
+          event.preventDefault();
+          event.stopPropagation();
+          if (this.renderer) {
+            const isEnabled = this.renderer.getTextEnabled();
+            this.renderer.setTextEnabled(!isEnabled);
+            this.updateTextInfo(!isEnabled);
           }
           break;
         case '1':
@@ -163,6 +270,8 @@ class OceanApp {
         case '4':
         case '0':
           // Direct debug mode selection
+          event.preventDefault();
+          event.stopPropagation();
           if (this.renderer) {
             const mode = parseInt(event.key);
             this.renderer.setDebugMode(mode);
@@ -180,6 +289,7 @@ class OceanApp {
     console.log('  0-4 - Select debug mode directly');
     console.log('  V - Toggle vessel wake system');
     console.log('  G - Toggle glass panel rendering');
+    console.log('  T - Toggle text rendering');
     console.log('  Space - Reserved for future controls');
   }
 
@@ -243,6 +353,24 @@ class OceanApp {
   }
 
   /**
+   * Update text rendering info display
+   */
+  private updateTextInfo(enabled: boolean): void {
+    const infoElement = document.getElementById('info');
+    if (infoElement && this.renderer) {
+      // Update the existing info or add text info
+      let textElement = document.getElementById('text-info');
+      if (!textElement) {
+        textElement = document.createElement('div');
+        textElement.id = 'text-info';
+        infoElement.appendChild(textElement);
+      }
+
+      textElement.innerHTML = `<br>Adaptive Text: ${enabled ? 'ON' : 'OFF'}`;
+    }
+  }
+
+  /**
    * Show error message to user
    */
   private showError(message: string): void {
@@ -281,6 +409,11 @@ class OceanApp {
     if (this.renderer) {
       this.renderer.dispose();
       this.renderer = null;
+    }
+
+    if (this.navigationManager) {
+      this.navigationManager.dispose();
+      this.navigationManager = null;
     }
 
     if (this.panelManager) {

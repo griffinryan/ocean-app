@@ -96,12 +96,13 @@ export class GeometryBuilder {
    */
   static createFullScreenQuad(): GeometryData {
     // Simple quad covering the entire screen in normalized device coordinates
+    // UV coordinates flipped to match Canvas2D orientation (top-left origin)
     const vertices = new Float32Array([
       // Position (x, y, z) + TexCoord (u, v)
-      -1.0, -1.0, 0.0,   0.0, 0.0,  // Bottom-left
-       1.0, -1.0, 0.0,   1.0, 0.0,  // Bottom-right
-       1.0,  1.0, 0.0,   1.0, 1.0,  // Top-right
-      -1.0,  1.0, 0.0,   0.0, 1.0   // Top-left
+      -1.0, -1.0, 0.0,   0.0, 1.0,  // Bottom-left -> UV (0,1)
+       1.0, -1.0, 0.0,   1.0, 1.0,  // Bottom-right -> UV (1,1)
+       1.0,  1.0, 0.0,   1.0, 0.0,  // Top-right -> UV (1,0)
+      -1.0,  1.0, 0.0,   0.0, 0.0   // Top-left -> UV (0,0)
     ]);
 
     const indices = new Uint16Array([
