@@ -61,6 +61,11 @@ export class TextRenderer {
   private isIntroActive: boolean = false;
   private readonly TEXT_INTRO_DURATION = 1000; // milliseconds
 
+  // Glow control properties
+  private glowRadius: number = 8.0;
+  private glowIntensity: number = 0.8;
+  private glowWaveReactivity: number = 0.4;
+
   constructor(gl: WebGL2RenderingContext, _shaderManager: ShaderManager) {
     this.gl = gl;
     this.shaderManager = _shaderManager;
@@ -187,7 +192,19 @@ export class TextRenderer {
         'u_panelPositions',
         'u_panelSizes',
         'u_panelCount',
-        'u_textIntroProgress'
+        'u_textIntroProgress',
+        // Vessel wake uniforms
+        'u_vesselCount',
+        'u_vesselPositions',
+        'u_vesselVelocities',
+        'u_vesselWeights',
+        'u_vesselHullLengths',
+        'u_vesselStates',
+        'u_wakesEnabled',
+        // Glow control uniforms
+        'u_glowRadius',
+        'u_glowIntensity',
+        'u_glowWaveReactivity'
       ];
 
       const attributes = [
@@ -643,9 +660,16 @@ export class TextRenderer {
   }
 
   /**
-   * Render all text elements with per-pixel adaptive coloring (RESTORED)
+   * Render all text elements with per-pixel adaptive coloring and glow
    */
-  public render(): void {
+  public render(vesselData?: {
+    positions: Float32Array;
+    velocities: Float32Array;
+    weights: Float32Array;
+    hullLengths: Float32Array;
+    states: Float32Array;
+    count: number;
+  }, wakesEnabled: boolean = true): void {
     const gl = this.gl;
 
     // CRITICAL: Skip rendering entirely during CSS transitions
@@ -708,6 +732,24 @@ export class TextRenderer {
     this.shaderManager.setUniform2fv(program, 'u_panelPositions', panelInfo.positions);
     this.shaderManager.setUniform2fv(program, 'u_panelSizes', panelInfo.sizes);
     this.shaderManager.setUniform1i(program, 'u_panelCount', panelInfo.count);
+
+    // Set vessel wake uniforms for glow distortion
+    if (vesselData && vesselData.count > 0) {
+      this.shaderManager.setUniform1i(program, 'u_vesselCount', vesselData.count);
+      this.shaderManager.setUniform3fv(program, 'u_vesselPositions', vesselData.positions);
+      this.shaderManager.setUniform3fv(program, 'u_vesselVelocities', vesselData.velocities);
+      this.shaderManager.setUniform1fv(program, 'u_vesselWeights', vesselData.weights);
+      this.shaderManager.setUniform1fv(program, 'u_vesselHullLengths', vesselData.hullLengths);
+      this.shaderManager.setUniform1fv(program, 'u_vesselStates', vesselData.states);
+    } else {
+      this.shaderManager.setUniform1i(program, 'u_vesselCount', 0);
+    }
+    this.shaderManager.setUniform1i(program, 'u_wakesEnabled', wakesEnabled ? 1 : 0);
+
+    // Set glow control uniforms
+    this.shaderManager.setUniform1f(program, 'u_glowRadius', this.glowRadius);
+    this.shaderManager.setUniform1f(program, 'u_glowIntensity', this.glowIntensity);
+    this.shaderManager.setUniform1f(program, 'u_glowWaveReactivity', this.glowWaveReactivity);
 
     // Enable blending for text overlay
     gl.enable(gl.BLEND);
@@ -1066,6 +1108,48 @@ export class TextRenderer {
    */
   public getSceneTexture(): WebGLTexture | null {
     return this.sceneTexture;
+  }
+
+  /**
+   * Set glow radius in pixels
+   */
+  public setGlowRadius(radius: number): void {
+    this.glowRadius = Math.max(0, radius);
+  }
+
+  /**
+   * Get current glow radius
+   */
+  public getGlowRadius(): number {
+    return this.glowRadius;
+  }
+
+  /**
+   * Set glow intensity (0-1 range recommended)
+   */
+  public setGlowIntensity(intensity: number): void {
+    this.glowIntensity = Math.max(0, Math.min(1.5, intensity));
+  }
+
+  /**
+   * Get current glow intensity
+   */
+  public getGlowIntensity(): number {
+    return this.glowIntensity;
+  }
+
+  /**
+   * Set glow wave reactivity (how much waves affect glow)
+   */
+  public setGlowWaveReactivity(reactivity: number): void {
+    this.glowWaveReactivity = Math.max(0, Math.min(1, reactivity));
+  }
+
+  /**
+   * Get current glow wave reactivity
+   */
+  public getGlowWaveReactivity(): number {
+    return this.glowWaveReactivity;
   }
 
   /**
