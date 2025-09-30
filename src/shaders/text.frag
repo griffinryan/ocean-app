@@ -11,6 +11,7 @@ uniform vec2 u_resolution;
 uniform sampler2D u_sceneTexture;   // Combined ocean + glass scene
 uniform sampler2D u_textTexture;    // Text mask texture from Canvas
 uniform float u_adaptiveStrength;   // Strength of adaptive coloring
+uniform float u_textIntroProgress;  // Text intro animation progress (0.0 = start, 1.0 = complete)
 
 out vec4 fragColor;
 
@@ -66,6 +67,34 @@ vec3 calculateAdaptiveTextColor(vec3 backgroundColor, float adaptiveStrength) {
     return mix(LIGHT_TEXT_COLOR, adaptiveColor, adaptiveStrength);
 }
 
+// Cubic ease-out function for smooth intro animation settling
+float cubicEaseOut(float t) {
+    float f = t - 1.0;
+    return f * f * f + 1.0;
+}
+
+// Hash function for procedural noise (from ocean.frag)
+float hash21(vec2 p) {
+    p = fract(p * vec2(127.1, 311.7));
+    p += dot(p, p + 19.19);
+    return fract(p.x * p.y);
+}
+
+// Improved noise function for organic distortion
+float noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+
+    float a = hash21(i);
+    float b = hash21(i + vec2(1.0, 0.0));
+    float c = hash21(i + vec2(0.0, 1.0));
+    float d = hash21(i + vec2(1.0, 1.0));
+
+    vec2 u = f * f * (3.0 - 2.0 * f);
+
+    return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
+}
+
 // Check if current fragment is within any panel boundary (from GlassRenderer)
 bool isWithinPanel(vec2 screenPos, out vec2 panelUV) {
     for (int i = 0; i < u_panelCount && i < 5; i++) {
@@ -100,9 +129,34 @@ void main() {
     // Sample the background scene (ocean + glass combined)
     vec3 backgroundColor = texture(u_sceneTexture, screenUV).rgb;
 
-    // Sample the text texture directly using screen UV coordinates
-    // Text canvas now matches screen canvas dimensions, so screenUV maps directly
-    float textAlpha = texture(u_textTexture, screenUV).a;
+    // ===== TEXT INTRO ANIMATION =====
+    // Calculate distortion amount based on intro progress
+    float eased = cubicEaseOut(u_textIntroProgress);
+    float distortionAmount = 1.0 - eased; // 1.0 at start, 0.0 at end
+
+    // Multi-frequency sine waves for organic wiggly motion
+    float wave1 = sin(screenUV.y * 30.0 + v_time * 8.0) * 0.12;
+    float wave2 = sin(screenUV.x * 20.0 - v_time * 6.0) * 0.08;
+    float wave3 = sin((screenUV.x + screenUV.y) * 25.0 + v_time * 7.0) * 0.06;
+
+    // Low-frequency wave for deep amplitude sway
+    float deepWave = sin(screenUV.y * 8.0 + v_time * 3.0) * 0.20;
+
+    // Organic noise variation
+    float noiseValue = noise(screenUV * 12.0 + v_time * 1.5) * 0.04;
+
+    // Combine all distortions
+    vec2 distortion = vec2(
+        wave1 + wave3 + deepWave + noiseValue,
+        wave2 + wave3 + noiseValue
+    );
+
+    // Apply distortion scaled by animation progress
+    vec2 distortedUV = screenUV + distortion * distortionAmount;
+
+    // Sample the text texture with distorted UV coordinates
+    // Text canvas now matches screen canvas dimensions, so distortedUV maps directly
+    float textAlpha = texture(u_textTexture, distortedUV).a;
 
     // Early discard for areas with no text
     if (textAlpha < 0.01) {
