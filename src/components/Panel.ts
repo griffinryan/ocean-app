@@ -31,6 +31,10 @@ export class PanelManager {
     easing: 'cubic-bezier(0.4, 0, 0.2, 1)'
   };
 
+  // Transition tracking for proper text update timing
+  private activeTransitions: Set<HTMLElement> = new Set();
+  private transitionTimeout: number | null = null;
+
   constructor() {
     this.landingPanel = this.getElement('landing-panel');
     this.appPanel = this.getElement('app-panel');
@@ -41,6 +45,7 @@ export class PanelManager {
     this.navbar = this.getElement('navbar');
 
     this.setupEventListeners();
+    this.setupTransitionListeners();
     this.initializeState();
   }
 
@@ -73,6 +78,65 @@ export class PanelManager {
     document.addEventListener('keydown', (e) => {
       this.handleKeyPress(e);
     });
+  }
+
+  /**
+   * Setup transitionend listeners on all panels
+   * Critical for syncing text updates with CSS transition completion
+   */
+  private setupTransitionListeners(): void {
+    const panels = [
+      this.landingPanel,
+      this.appPanel,
+      this.portfolioPanel,
+      this.resumePanel,
+      this.navbar
+    ];
+
+    panels.forEach(panel => {
+      panel.addEventListener('transitionend', (e) => {
+        // Only handle transitions on the panel itself, not child elements
+        if (e.target === panel) {
+          this.handleTransitionEnd(panel);
+        }
+      });
+    });
+  }
+
+  /**
+   * Handle transition completion on a panel
+   */
+  private handleTransitionEnd(panel: HTMLElement): void {
+    // Remove from active transitions set
+    this.activeTransitions.delete(panel);
+
+    console.debug(`PanelManager: Transition ended on ${panel.id}, ${this.activeTransitions.size} remaining`);
+
+    // If all transitions complete, update text renderer
+    if (this.activeTransitions.size === 0) {
+      this.onAllTransitionsComplete();
+    }
+  }
+
+  /**
+   * Called when all CSS transitions are complete
+   */
+  private onAllTransitionsComplete(): void {
+    console.debug('PanelManager: All transitions complete, updating text');
+
+    // Clear any pending timeout
+    if (this.transitionTimeout !== null) {
+      clearTimeout(this.transitionTimeout);
+      this.transitionTimeout = null;
+    }
+
+    // Update text renderer now that layout is settled
+    if (this.textRenderer) {
+      this.textRenderer.setTransitioning(false);
+      // Force immediate update
+      this.textRenderer.forceTextureUpdate();
+      this.textRenderer.markSceneDirty();
+    }
   }
 
   private handleHashChange(): void {
@@ -168,6 +232,9 @@ export class PanelManager {
   private fadeOutCurrentPanel(state: PanelState): void {
     const element = this.getPanelElement(state);
     if (element && !element.classList.contains('hidden')) {
+      // Track fade-out transition
+      this.activeTransitions.add(element);
+
       element.classList.add('fade-out');
 
       setTimeout(() => {
@@ -180,15 +247,20 @@ export class PanelManager {
   private fadeInNewPanel(state: PanelState): void {
     const element = this.getPanelElement(state);
     if (element) {
+      // Track fade-in transition
+      this.activeTransitions.add(element);
+
       element.classList.remove('hidden');
       element.classList.add('fade-in');
 
       setTimeout(() => {
         element.classList.remove('fade-in');
 
-        // Add active class for content panels
+        // Add active class for content panels (this triggers transform transition)
         if (state === 'app' || state === 'portfolio' || state === 'resume') {
           element.classList.add('active');
+          // Track the transform transition that follows
+          this.activeTransitions.add(element);
         }
       }, this.defaultTransition.duration / 2);
     }
@@ -210,29 +282,27 @@ export class PanelManager {
       currentPanel.classList.remove('hidden');
     }
 
-    // CRITICAL: Double-frame update strategy for TextRenderer
-    // First update: Capture immediate state (may have stale layout)
-    // Second update: Capture after layout settles (correct positions)
+    // CRITICAL: New transition-aware strategy
+    // Block text updates during CSS transitions, only update when complete
     if (this.textRenderer) {
-      // Immediate update (current frame)
-      this.textRenderer.forceTextureUpdate();
-      this.textRenderer.markSceneDirty();
+      // Block updates during transition
+      this.textRenderer.setTransitioning(true);
 
-      // Delayed update (next frame after layout settles)
-      requestAnimationFrame(() => {
-        if (this.textRenderer) {
-          this.textRenderer.forceTextureUpdate();
-          this.textRenderer.markSceneDirty();
-        }
-      });
+      // Track this panel as transitioning
+      if (currentPanel) {
+        this.activeTransitions.add(currentPanel);
+      }
 
-      // Third update for extra safety after CSS transition duration
-      setTimeout(() => {
-        if (this.textRenderer) {
-          this.textRenderer.forceTextureUpdate();
-          this.textRenderer.markSceneDirty();
-        }
-      }, this.defaultTransition.duration);
+      // Safety timeout: If transitionend doesn't fire, force update anyway
+      if (this.transitionTimeout !== null) {
+        clearTimeout(this.transitionTimeout);
+      }
+
+      this.transitionTimeout = window.setTimeout(() => {
+        console.warn('PanelManager: Transition timeout reached, forcing text update');
+        this.activeTransitions.clear();
+        this.onAllTransitionsComplete();
+      }, this.defaultTransition.duration + 100); // 100ms safety margin
     }
   }
 

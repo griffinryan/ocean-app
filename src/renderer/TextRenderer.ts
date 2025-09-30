@@ -53,6 +53,9 @@ export class TextRenderer {
   // Font loading state
   private fontsLoaded: boolean = false;
 
+  // Transition state tracking - block updates during CSS transitions
+  private isTransitioningFlag: boolean = false;
+
   constructor(gl: WebGL2RenderingContext, _shaderManager: ShaderManager) {
     this.gl = gl;
     this.shaderManager = _shaderManager;
@@ -390,8 +393,9 @@ export class TextRenderer {
     const scaledWidth = Math.round(elementRect.width * scaleX);
     const scaledHeight = Math.round(elementRect.height * scaleY);
 
-    // Get text content
-    const text = element.innerText || element.textContent || '';
+    // Get text content with proper multi-line support
+    // CRITICAL: Must use innerText for <br> tag support, with fallback handling
+    const text = this.extractTextWithLineBreaks(element);
     const lines = text.split('\n');
 
     // Calculate text position within element
@@ -527,6 +531,12 @@ export class TextRenderer {
    * Only renders text from visible panels to prevent cross-panel bleeding
    */
   private updateTextTexture(): void {
+    // CRITICAL: Block updates during CSS transitions to prevent capturing mid-animation positions
+    if (this.isTransitioningFlag) {
+      console.debug('TextRenderer: Skipping update during CSS transition');
+      return;
+    }
+
     if (!this.needsTextureUpdate || this.textElements.size === 0 || !this.fontsLoaded) {
       return;
     }
@@ -720,6 +730,26 @@ export class TextRenderer {
    */
   public forceTextureUpdate(): void {
     this.needsTextureUpdate = true;
+  }
+
+  /**
+   * Set transitioning state - blocks text updates during CSS transitions
+   */
+  public setTransitioning(transitioning: boolean): void {
+    this.isTransitioningFlag = transitioning;
+
+    // If transitioning just ended, force immediate update
+    if (!transitioning) {
+      this.needsTextureUpdate = true;
+      this.markSceneDirty();
+    }
+  }
+
+  /**
+   * Check if currently transitioning
+   */
+  public isTransitioning(): boolean {
+    return this.isTransitioningFlag;
   }
 
   /**
@@ -934,6 +964,39 @@ export class TextRenderer {
         });
       }
     });
+  }
+
+  /**
+   * Extract text content with proper line break handling
+   * innerText converts <br> → \n, but textContent does not
+   * This method ensures multi-line text works correctly
+   */
+  private extractTextWithLineBreaks(element: HTMLElement): string {
+    // Try innerText first (handles <br> correctly)
+    let text = element.innerText;
+
+    // If innerText is empty or whitespace, element might be hidden
+    if (!text || !text.trim()) {
+      // Fallback: Parse innerHTML and convert <br> tags to \n
+      const innerHTML = element.innerHTML;
+
+      // Convert <br>, <br/>, <br /> to \n
+      text = innerHTML
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<[^>]+>/g, '') // Remove other HTML tags
+        .replace(/&nbsp;/g, ' ') // Convert &nbsp; to space
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&')
+        .trim();
+    }
+
+    // Final fallback to textContent (won't have line breaks, but better than nothing)
+    if (!text || !text.trim()) {
+      text = element.textContent || '';
+    }
+
+    return text;
   }
 
   /**
