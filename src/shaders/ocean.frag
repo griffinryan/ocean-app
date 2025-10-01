@@ -27,6 +27,9 @@ uniform vec2 u_glassPanelPositions[2];
 uniform vec2 u_glassPanelSizes[2];
 uniform float u_glassDistortionStrengths[2];
 
+// Performance uniforms
+uniform int u_wakeComponents;  // Number of wave components per wake arm (1-2)
+
 out vec4 fragColor;
 
 // Ocean color palette
@@ -227,8 +230,9 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float weight
     if (leftDist < effectiveWidth) {
         float armIntensity = smoothstep(effectiveWidth, effectiveWidth * 0.3, leftDist);
 
-        // Optimized wave components (reduced from 3 to 2 for performance)
+        // Quality-based wave components (1 for low, 2 for medium/high/ultra)
         for (int j = 0; j < 2; j++) {
+            if (j >= u_wakeComponents) break;  // Performance: skip components based on quality
             float wavelength = (2.5 + vesselSpeed * 0.5) * pow(phi, float(j) * 0.5);
             float k = waveNumber(wavelength);
             float omega = waveFrequency(k);
@@ -247,8 +251,9 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float weight
     if (rightDist < effectiveWidth) {
         float armIntensity = smoothstep(effectiveWidth, effectiveWidth * 0.3, rightDist);
 
-        // Optimized wave components (reduced from 3 to 2 for performance)
+        // Quality-based wave components (1 for low, 2 for medium/high/ultra)
         for (int j = 0; j < 2; j++) {
+            if (j >= u_wakeComponents) break;  // Performance: skip components based on quality
             float wavelength = (2.5 + vesselSpeed * 0.5) * pow(phi, float(j) * 0.5);
             float k = waveNumber(wavelength);
             float omega = waveFrequency(k);

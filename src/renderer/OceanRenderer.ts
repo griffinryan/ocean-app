@@ -8,6 +8,7 @@ import { Mat4 } from '../utils/math';
 import { VesselSystem, VesselConfig } from './VesselSystem';
 import { GlassRenderer } from './GlassRenderer';
 import { TextRenderer } from './TextRenderer';
+import { PerformanceSettings } from './PerformanceConfig';
 
 export interface RenderConfig {
   canvas: HTMLCanvasElement;
@@ -54,6 +55,11 @@ export class OceanRenderer {
   // Text renderer for adaptive text overlay
   private textRenderer: TextRenderer | null = null;
   private textEnabled: boolean = false;
+
+  // Performance settings for adaptive rendering
+  private resolutionScale: number = 1.0;
+  private framebufferScale: number = 1.0;
+  private performanceSettings: PerformanceSettings | null = null;
 
   // Pre-cached DOM elements
   private cachedElements = {
@@ -159,15 +165,16 @@ export class OceanRenderer {
   }
 
   /**
-   * Handle canvas resize with device pixel ratio consideration
+   * Handle canvas resize with device pixel ratio and resolution scaling
    */
   private resize(): void {
     const displayWidth = this.canvas.clientWidth;
     const displayHeight = this.canvas.clientHeight;
     const devicePixelRatio = window.devicePixelRatio || 1;
 
-    const canvasWidth = Math.round(displayWidth * devicePixelRatio);
-    const canvasHeight = Math.round(displayHeight * devicePixelRatio);
+    // Apply resolution scale to reduce pixel count for performance
+    const canvasWidth = Math.round(displayWidth * devicePixelRatio * this.resolutionScale);
+    const canvasHeight = Math.round(displayHeight * devicePixelRatio * this.resolutionScale);
 
     // Update canvas resolution
     if (this.canvas.width !== canvasWidth || this.canvas.height !== canvasHeight) {
@@ -180,14 +187,18 @@ export class OceanRenderer {
       // Update projection matrix
       this.updateProjectionMatrix();
 
+      // Calculate framebuffer dimensions (can be different from canvas for additional performance)
+      const framebufferWidth = Math.round(canvasWidth * this.framebufferScale);
+      const framebufferHeight = Math.round(canvasHeight * this.framebufferScale);
+
       // Resize glass renderer framebuffer if enabled
       if (this.glassRenderer) {
-        this.glassRenderer.resizeFramebuffer(canvasWidth, canvasHeight);
+        this.glassRenderer.resizeFramebuffer(framebufferWidth, framebufferHeight);
       }
 
       // Resize text renderer framebuffer if enabled
       if (this.textRenderer) {
-        this.textRenderer.resizeFramebuffer(canvasWidth, canvasHeight);
+        this.textRenderer.resizeFramebuffer(framebufferWidth, framebufferHeight);
       }
     }
   }
@@ -295,7 +306,8 @@ export class OceanRenderer {
       'u_glassPanelCount',
       'u_glassPanelPositions',
       'u_glassPanelSizes',
-      'u_glassDistortionStrengths'
+      'u_glassDistortionStrengths',
+      'u_wakeComponents'  // Performance: 1-2 wave components per wake arm
     ];
 
     const attributes = [
@@ -472,6 +484,10 @@ export class OceanRenderer {
     this.shaderManager.setUniform1i(program, 'u_glassEnabled', 0);
     this.shaderManager.setUniform1i(program, 'u_glassPanelCount', 0);
 
+    // Performance settings - wake quality
+    const wakeComponents = this.performanceSettings?.wakeComponents ?? 2;
+    this.shaderManager.setUniform1i(program, 'u_wakeComponents', wakeComponents);
+
     // Bind geometry and render
     this.bufferManager.bind();
     gl.drawElements(gl.TRIANGLES, this.geometry.indexCount, gl.UNSIGNED_SHORT, 0);
@@ -643,6 +659,42 @@ export class OceanRenderer {
     this.cachedElements.elementsInitialized = true;
   }
 
+  /**
+   * Apply performance settings from PerformanceManager
+   */
+  applyPerformanceSettings(settings: PerformanceSettings): void {
+    console.log('OceanRenderer: Applying performance settings', settings);
+
+    this.performanceSettings = settings;
+    this.resolutionScale = settings.resolutionScale;
+    this.framebufferScale = settings.framebufferScale;
+
+    // Apply feature toggles
+    this.setGlassEnabled(settings.enableGlass);
+    this.setTextEnabled(settings.enableTextGlow);
+    this.wakesEnabled = settings.enableWakes;
+
+    // Update vessel system max vessels
+    if (this.vesselSystem) {
+      this.vesselSystem.setMaxVessels(settings.maxVessels);
+    }
+
+    // Trigger resize to apply new resolution scales
+    this.resize();
+
+    console.log(`  Resolution: ${Math.round(this.resolutionScale * 100)}%`);
+    console.log(`  Framebuffer: ${Math.round(this.framebufferScale * 100)}%`);
+    console.log(`  Glass: ${settings.enableGlass ? 'ON' : 'OFF'}`);
+    console.log(`  Text Glow: ${settings.enableTextGlow ? 'ON' : 'OFF'}`);
+    console.log(`  Wakes: ${settings.enableWakes ? 'ON' : 'OFF'} (max ${settings.maxVessels} vessels)`);
+  }
+
+  /**
+   * Get current performance settings
+   */
+  getPerformanceSettings(): PerformanceSettings | null {
+    return this.performanceSettings;
+  }
 
   /**
    * Clean up resources

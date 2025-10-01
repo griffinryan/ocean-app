@@ -34,6 +34,9 @@ uniform float u_glowRadius;          // Glow radius in pixels (default: 8.0)
 uniform float u_glowIntensity;       // Glow intensity multiplier (default: 0.8)
 uniform float u_glowWaveReactivity;  // How much waves affect glow (default: 0.4)
 
+// Performance uniforms
+uniform int u_glowSampleRings;       // Number of sample rings for glow (1-3)
+
 // Adaptive coloring constants
 const float LUMINANCE_THRESHOLD = 0.5;
 const vec3 DARK_TEXT_COLOR = vec3(0.0, 0.0, 0.0);   // Black for light backgrounds
@@ -261,7 +264,7 @@ float getOceanHeightForGlow(vec2 pos, float time) {
 
 // ===== GLOW SYSTEM FUNCTIONS =====
 
-// Calculate distance field from text
+// Calculate distance field from text with quality-based sampling
 float calculateGlowDistance(vec2 uv, vec2 pixelSize) {
     float minDistance = u_glowRadius;
 
@@ -269,11 +272,16 @@ float calculateGlowDistance(vec2 uv, vec2 pixelSize) {
     const int numSamples = 8;
     const float angleStep = 2.0 * PI / float(numSamples);
 
-    // Multi-radius sampling for smooth falloff
-    const int numRings = 3;
+    // Quality-based multi-radius sampling
+    // Low quality (1 ring): 8 samples total
+    // Medium quality (2 rings): 16 samples total
+    // High/Ultra quality (3 rings): 24 samples total
+    const int maxRings = 3;
     float radii[3] = float[3](1.0, 3.0, 5.0);
 
-    for (int ring = 0; ring < numRings; ring++) {
+    for (int ring = 0; ring < maxRings; ring++) {
+        if (ring >= u_glowSampleRings) break;  // Performance: skip rings based on quality
+
         float radius = radii[ring];
         vec2 radiusOffset = pixelSize * radius;
 

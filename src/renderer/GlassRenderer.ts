@@ -38,6 +38,10 @@ export class GlassRenderer {
   // Animation
   private startTime: number;
 
+  // Performance settings
+  private noiseOctaves: number = 3;              // Number of noise octaves (1-3)
+  private enableChromaticAberration: boolean = true;  // Enable chromatic aberration
+
   constructor(gl: WebGL2RenderingContext, shaderManager: ShaderManager) {
     this.gl = gl;
     this.shaderManager = shaderManager;
@@ -75,7 +79,10 @@ export class GlassRenderer {
         'u_panelPosition',
         'u_panelSize',
         'u_distortionStrength',
-        'u_refractionIndex'
+        'u_refractionIndex',
+        // Performance uniforms
+        'u_noiseOctaves',
+        'u_enableChromaticAberration'
       ];
 
       const attributes = [
@@ -324,6 +331,10 @@ export class GlassRenderer {
     this.shaderManager.setUniform1f(program, 'u_distortionStrength', config.distortionStrength);
     this.shaderManager.setUniform1f(program, 'u_refractionIndex', config.refractionIndex);
 
+    // Performance uniforms
+    this.shaderManager.setUniform1i(program, 'u_noiseOctaves', this.noiseOctaves);
+    this.shaderManager.setUniform1i(program, 'u_enableChromaticAberration', this.enableChromaticAberration ? 1 : 0);
+
     // Bind geometry and render
     this.bufferManager.bind();
     gl.drawElements(gl.TRIANGLES, this.panelGeometry.indexCount, gl.UNSIGNED_SHORT, 0);
@@ -511,6 +522,16 @@ export class GlassRenderer {
    */
   public getOceanTexture(): WebGLTexture | null {
     return this.oceanTexture;
+  }
+
+  /**
+   * Set glass quality (noise octaves and chromatic aberration)
+   * Called by PerformanceManager when quality changes
+   */
+  public setGlassQuality(octaves: number, enableChromatic: boolean): void {
+    this.noiseOctaves = Math.max(1, Math.min(3, octaves)); // Clamp to 1-3
+    this.enableChromaticAberration = enableChromatic;
+    console.log(`GlassRenderer: Quality set to ${this.noiseOctaves} octaves, chromatic: ${enableChromatic ? 'ON' : 'OFF'}`);
   }
 
   /**

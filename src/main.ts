@@ -6,6 +6,7 @@ import { OceanRenderer } from './renderer/OceanRenderer';
 import { PanelManager } from './components/Panel';
 import { Router } from './components/Router';
 import { NavigationManager } from './components/Navigation';
+import { PerformanceManager } from './renderer/PerformanceManager';
 
 // Import shaders as strings
 import oceanVertexShader from './shaders/ocean.vert';
@@ -20,6 +21,7 @@ class OceanApp {
   public panelManager: PanelManager | null = null;
   public router: Router | null = null;
   public navigationManager: NavigationManager | null = null;
+  public performanceManager: PerformanceManager | null = null;
 
   async init(): Promise<void> {
     try {
@@ -51,6 +53,9 @@ class OceanApp {
         textFragmentShader
       );
 
+      // Initialize performance management system
+      this.initializePerformanceManagement();
+
       // Start rendering
       this.renderer.start();
 
@@ -70,6 +75,70 @@ class OceanApp {
     } catch (error) {
       console.error('Failed to initialize Ocean Portfolio:', error);
       this.showError(error instanceof Error ? error.message : 'Unknown error');
+    }
+  }
+
+  /**
+   * Initialize performance management system
+   */
+  private initializePerformanceManagement(): void {
+    if (!this.renderer) {
+      console.warn('PerformanceManager: Cannot initialize - renderer not available');
+      return;
+    }
+
+    try {
+      // Create PerformanceManager
+      const gl = this.renderer['gl']; // Access private gl context
+      this.performanceManager = new PerformanceManager(gl);
+
+      // Register callback for performance changes
+      this.performanceManager.onChange((settings, preset) => {
+        console.log(`PerformanceManager: Quality changed to ${preset}`);
+
+        if (this.renderer) {
+          // Apply settings to renderer
+          this.renderer.applyPerformanceSettings(settings);
+
+          // Apply settings to text renderer
+          const textRenderer = this.renderer.getTextRenderer();
+          if (textRenderer) {
+            textRenderer.setGlowQuality(settings.glowSampleRings);
+          }
+
+          // Apply settings to glass renderer
+          const glassRenderer = this.renderer.getGlassRenderer();
+          if (glassRenderer) {
+            glassRenderer.setGlassQuality(settings.glassNoiseOctaves, settings.enableChromaticAberration);
+          }
+        }
+      });
+
+      // Apply initial settings
+      const initialSettings = this.performanceManager.getCurrentSettings();
+      this.renderer.applyPerformanceSettings(initialSettings);
+
+      const textRenderer = this.renderer.getTextRenderer();
+      if (textRenderer) {
+        textRenderer.setGlowQuality(initialSettings.glowSampleRings);
+      }
+
+      const glassRenderer = this.renderer.getGlassRenderer();
+      if (glassRenderer) {
+        glassRenderer.setGlassQuality(initialSettings.glassNoiseOctaves, initialSettings.enableChromaticAberration);
+      }
+
+      // Start FPS monitoring (hook into render loop via interval)
+      setInterval(() => {
+        if (this.renderer && this.performanceManager) {
+          const fps = this.renderer.getFPS();
+          this.performanceManager.updateFPS(fps);
+        }
+      }, 100); // Update every 100ms
+
+      console.log('PerformanceManager initialized successfully!');
+    } catch (error) {
+      console.error('Failed to initialize PerformanceManager:', error);
     }
   }
 
@@ -264,6 +333,16 @@ class OceanApp {
             this.updateTextInfo(!isEnabled);
           }
           break;
+        case 'q':
+        case 'Q':
+          // Cycle quality preset
+          event.preventDefault();
+          event.stopPropagation();
+          if (this.performanceManager) {
+            const newPreset = this.performanceManager.cycleQuality();
+            this.updateQualityInfo(newPreset);
+          }
+          break;
         case '1':
         case '2':
         case '3':
@@ -284,13 +363,13 @@ class OceanApp {
     // Add some helpful info
     console.log('Controls:');
     console.log('  F - Toggle fullscreen');
-    console.log('  Escape - Exit fullscreen');
+    console.log('  Escape - Exit fullscreen / Return to landing');
+    console.log('  Q - Cycle quality preset (Auto/Low/Medium/High/Ultra)');
     console.log('  D - Cycle debug modes');
     console.log('  0-4 - Select debug mode directly');
     console.log('  V - Toggle vessel wake system');
     console.log('  G - Toggle glass panel rendering');
     console.log('  T - Toggle text rendering');
-    console.log('  Space - Reserved for future controls');
   }
 
   /**
@@ -371,6 +450,28 @@ class OceanApp {
   }
 
   /**
+   * Update quality preset info display
+   */
+  private updateQualityInfo(preset: string): void {
+    const infoElement = document.getElementById('info');
+    if (infoElement && this.performanceManager) {
+      // Update the existing info or add quality info
+      let qualityElement = document.getElementById('quality-info');
+      if (!qualityElement) {
+        qualityElement = document.createElement('div');
+        qualityElement.id = 'quality-info';
+        infoElement.appendChild(qualityElement);
+      }
+
+      const settings = this.performanceManager.getCurrentSettings();
+      const battery = this.performanceManager.getBatteryStatus();
+      const avgFPS = Math.round(this.performanceManager.getAverageFPS());
+
+      qualityElement.innerHTML = `<br>Quality: ${preset.toUpperCase()}<br>Resolution: ${Math.round(settings.resolutionScale * 100)}%<br>FPS: ${avgFPS}<br>Battery: ${battery.charging ? 'Charging' : `${Math.round(battery.level * 100)}%`}`;
+    }
+  }
+
+  /**
    * Show error message to user
    */
   private showError(message: string): void {
@@ -424,6 +525,11 @@ class OceanApp {
     if (this.router) {
       this.router.dispose();
       this.router = null;
+    }
+
+    if (this.performanceManager) {
+      this.performanceManager.dispose();
+      this.performanceManager = null;
     }
   }
 }

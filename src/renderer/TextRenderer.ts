@@ -65,6 +65,7 @@ export class TextRenderer {
   private glowRadius: number = 64.0;
   private glowIntensity: number = 0.8;
   private glowWaveReactivity: number = 0.4;
+  private glowSampleRings: number = 3;  // Performance: 1-3 sample rings
 
   constructor(gl: WebGL2RenderingContext, _shaderManager: ShaderManager) {
     this.gl = gl;
@@ -204,7 +205,9 @@ export class TextRenderer {
         // Glow control uniforms
         'u_glowRadius',
         'u_glowIntensity',
-        'u_glowWaveReactivity'
+        'u_glowWaveReactivity',
+        // Performance uniforms
+        'u_glowSampleRings'
       ];
 
       const attributes = [
@@ -794,6 +797,9 @@ export class TextRenderer {
     this.shaderManager.setUniform1f(program, 'u_glowIntensity', this.glowIntensity);
     this.shaderManager.setUniform1f(program, 'u_glowWaveReactivity', this.glowWaveReactivity);
 
+    // Performance uniforms
+    this.shaderManager.setUniform1i(program, 'u_glowSampleRings', this.glowSampleRings);
+
     // Enable blending for text overlay
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -866,6 +872,15 @@ export class TextRenderer {
    */
   public isTransitioning(): boolean {
     return this.isTransitioningFlag;
+  }
+
+  /**
+   * Set glow quality (number of sample rings)
+   * Called by PerformanceManager when quality changes
+   */
+  public setGlowQuality(sampleRings: number): void {
+    this.glowSampleRings = Math.max(1, Math.min(3, sampleRings)); // Clamp to 1-3
+    console.log(`TextRenderer: Glow quality set to ${this.glowSampleRings} sample rings (${this.glowSampleRings * 8} samples)`);
   }
 
   /**

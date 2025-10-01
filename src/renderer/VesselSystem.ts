@@ -524,6 +524,23 @@ export class VesselSystem {
   }
 
   /**
+   * Set maximum number of vessels (for performance scaling)
+   */
+  setMaxVessels(maxVessels: number): void {
+    this.config.maxVessels = Math.max(1, Math.min(5, maxVessels)); // Clamp to 1-5
+
+    // If we have too many vessels, remove the oldest ones
+    while (this.vessels.size > this.config.maxVessels) {
+      const oldestVessel = Array.from(this.vessels.values())
+        .sort((a, b) => a.spawnTime - b.spawnTime)[0];
+
+      if (oldestVessel) {
+        this.despawnVessel(oldestVessel.id);
+      }
+    }
+  }
+
+  /**
    * Get system statistics
    */
   getStats(): { activeVessels: number; totalWakePoints: number } {
