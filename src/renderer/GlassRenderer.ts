@@ -299,7 +299,13 @@ export class GlassRenderer {
 
       const element = document.getElementById(elementId);
       if (element && !element.classList.contains('hidden')) {
-        this.renderPanel(config, program);
+        // Check if parent scroll container is visible (for portfolio/resume panels)
+        const parent = element.parentElement?.parentElement;
+        const parentHidden = parent?.classList.contains('hidden') ?? false;
+
+        if (!parentHidden) {
+          this.renderPanel(config, program);
+        }
       }
     });
 

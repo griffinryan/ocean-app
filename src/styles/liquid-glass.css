@@ -521,14 +521,27 @@ body {
 .webgl-text-enabled h2,
 .webgl-text-enabled h3,
 .webgl-text-enabled h4,
+.webgl-text-enabled h5,
 .webgl-text-enabled p,
 .webgl-text-enabled a,
 .webgl-text-enabled span,
+.webgl-text-enabled li,
 .webgl-text-enabled .subtitle,
 .webgl-text-enabled .glass-button,
 .webgl-text-enabled .brand-text,
 .webgl-text-enabled .nav-label,
-.webgl-text-enabled .skill-tag {
+.webgl-text-enabled .skill-tag,
+.webgl-text-enabled .tech-tag,
+.webgl-text-enabled .resume-position,
+.webgl-text-enabled .resume-company,
+.webgl-text-enabled .resume-date,
+.webgl-text-enabled .resume-team,
+.webgl-text-enabled .resume-location,
+.webgl-text-enabled .resume-description,
+.webgl-text-enabled .resume-subsection,
+.webgl-text-enabled .project-title,
+.webgl-text-enabled .project-description,
+.webgl-text-enabled .project-section-title {
   color: transparent !important;
   -webkit-text-fill-color: transparent !important;
   text-shadow: none !important;
