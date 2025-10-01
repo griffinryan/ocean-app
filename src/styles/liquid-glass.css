@@ -379,25 +379,6 @@ body {
   letter-spacing: 0.05em;
 }
 
-/* ===== APP PANEL ===== */
-
-.app-panel {
-  top: 90px; /* Adjusted for navbar */
-  left: 2rem;
-  width: 180px;
-  height: 220px;
-  transform: translateY(-100px);
-  opacity: 0;
-  transition: var(--glass-transition);
-  /* Minimal padding for accent panel */
-  padding: 1rem;
-}
-
-.app-panel.active {
-  transform: translateY(0);
-  opacity: 1;
-}
-
 /* ===== GLASS BUTTONS ===== */
 
 .button-group {
@@ -1058,10 +1039,6 @@ body {
   line-height: 1.4;
 }
 
-.resume-content {
-  margin-top: 1.5rem;
-}
-
 .resume-section {
   margin-bottom: 2rem;
 }
@@ -1216,13 +1193,6 @@ body {
   .landing-panel h1 {
     font-size: 2rem;
     letter-spacing: 0.05em;
-  }
-
-  .app-panel {
-    top: 100px; /* More space for mobile navbar */
-    left: 1rem;
-    width: 140px;
-    height: 180px;
   }
 
   .glass-button {

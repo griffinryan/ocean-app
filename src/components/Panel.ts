@@ -15,7 +15,6 @@ export interface PanelTransition {
 export class PanelManager {
   private currentState: PanelState = 'landing';
   private landingPanel: HTMLElement;
-  private appPanel: HTMLElement;
   private appBioPanel: HTMLElement;
   private appProfilePicture: HTMLElement;
   private portfolioPanels: HTMLElement[] = [];
@@ -43,7 +42,6 @@ export class PanelManager {
 
   constructor() {
     this.landingPanel = this.getElement('landing-panel');
-    this.appPanel = this.getElement('app-panel');
     this.appBioPanel = this.getElement('app-bio-panel');
     this.appProfilePicture = this.getElement('app-profile-picture');
 
@@ -118,7 +116,6 @@ export class PanelManager {
   private setupTransitionListeners(): void {
     const panels = [
       this.landingPanel,
-      this.appPanel,
       this.appBioPanel,
       this.appProfilePicture,
       this.portfolioContainer,
@@ -143,7 +140,6 @@ export class PanelManager {
   private setupAnimationListeners(): void {
     const panels = [
       this.landingPanel,
-      this.appPanel,
       this.portfolioContainer,
       this.resumeContainer,
       this.navbar
@@ -402,8 +398,6 @@ export class PanelManager {
   private updatePanelVisibility(): void {
     // Reset all panels and containers
     this.landingPanel.classList.add('hidden');
-    this.appPanel.classList.add('hidden');
-    this.appPanel.classList.remove('active');
     this.appBioPanel.classList.add('hidden');
     this.appBioPanel.classList.remove('active');
     this.appProfilePicture.classList.add('hidden');
@@ -415,7 +409,6 @@ export class PanelManager {
     if (this.currentState === 'landing') {
       this.landingPanel.classList.remove('hidden');
     } else if (this.currentState === 'app') {
-      this.appPanel.classList.remove('hidden');
       this.appBioPanel.classList.remove('hidden');
       this.appProfilePicture.classList.remove('hidden');
     } else if (this.currentState === 'portfolio') {
@@ -462,7 +455,7 @@ export class PanelManager {
       case 'landing':
         return [this.landingPanel];
       case 'app':
-        return [this.appPanel, this.appBioPanel, this.appProfilePicture];
+        return [this.appBioPanel, this.appProfilePicture];
       case 'portfolio':
         return [this.portfolioContainer];
       case 'resume':
@@ -489,7 +482,6 @@ export class PanelManager {
 
     // Fade out current panels
     this.landingPanel.classList.add('hidden');
-    this.appPanel.classList.add('hidden');
 
     // Add click handler for back button
     const backBtn = notFoundPanel.querySelector('.glass-button') as HTMLElement;
@@ -534,7 +526,6 @@ export class PanelManager {
   public enableWebGLDistortion(): void {
     // Mark panels for WebGL enhancement
     this.landingPanel.classList.add('webgl-enhanced');
-    this.appPanel.classList.add('webgl-enhanced');
     this.appBioPanel.classList.add('webgl-enhanced');
     // Note: Don't add to appProfilePicture - it's not a glass panel
     this.portfolioPanels.forEach(panel => panel.classList.add('webgl-enhanced'));
@@ -547,7 +538,6 @@ export class PanelManager {
   public disableWebGLDistortion(): void {
     // Remove WebGL enhancement
     this.landingPanel.classList.remove('webgl-enhanced');
-    this.appPanel.classList.remove('webgl-enhanced');
     this.appBioPanel.classList.remove('webgl-enhanced');
     this.portfolioPanels.forEach(panel => panel.classList.remove('webgl-enhanced'));
     this.resumePanels.forEach(panel => panel.classList.remove('webgl-enhanced'));
