@@ -16,8 +16,10 @@ export class PanelManager {
   private currentState: PanelState = 'landing';
   private landingPanel: HTMLElement;
   private appPanel: HTMLElement;
-  private portfolioPanel: HTMLElement;
-  private resumePanel: HTMLElement;
+  private portfolioPanels: HTMLElement[] = [];
+  private resumePanels: HTMLElement[] = [];
+  private portfolioContainer: HTMLElement;
+  private resumeContainer: HTMLElement;
   private paperBtn: HTMLElement;
   private appBtn: HTMLElement;
   private navbar: HTMLElement;
@@ -40,8 +42,29 @@ export class PanelManager {
   constructor() {
     this.landingPanel = this.getElement('landing-panel');
     this.appPanel = this.getElement('app-panel');
-    this.portfolioPanel = this.getElement('portfolio-panel');
-    this.resumePanel = this.getElement('resume-panel');
+
+    // Get scroll containers
+    this.portfolioContainer = this.getElement('portfolio-container');
+    this.resumeContainer = this.getElement('resume-container');
+
+    // Collect all portfolio panels
+    this.portfolioPanels = [
+      this.getElement('portfolio-lakehouse-panel'),
+      this.getElement('portfolio-encryption-panel'),
+      this.getElement('portfolio-dotereditor-panel'),
+      this.getElement('portfolio-dreamrequiem-panel'),
+      this.getElement('portfolio-greenlightgo-panel')
+    ];
+
+    // Collect all resume panels
+    this.resumePanels = [
+      this.getElement('resume-playember-panel'),
+      this.getElement('resume-meta-panel'),
+      this.getElement('resume-outlier-panel'),
+      this.getElement('resume-uwtutor-panel'),
+      this.getElement('resume-uwedu-panel')
+    ];
+
     this.paperBtn = this.getElement('paper-btn');
     this.appBtn = this.getElement('app-btn');
     this.navbar = this.getElement('navbar');
@@ -49,6 +72,7 @@ export class PanelManager {
     this.setupEventListeners();
     this.setupTransitionListeners();
     this.setupAnimationListeners();
+    this.setupScrollTracking();
     this.initializeState();
   }
 
@@ -91,8 +115,8 @@ export class PanelManager {
     const panels = [
       this.landingPanel,
       this.appPanel,
-      this.portfolioPanel,
-      this.resumePanel,
+      this.portfolioContainer,
+      this.resumeContainer,
       this.navbar
     ];
 
@@ -114,8 +138,8 @@ export class PanelManager {
     const panels = [
       this.landingPanel,
       this.appPanel,
-      this.portfolioPanel,
-      this.resumePanel,
+      this.portfolioContainer,
+      this.resumeContainer,
       this.navbar
     ];
 
@@ -126,6 +150,23 @@ export class PanelManager {
           this.handleAnimationEnd(panel);
         }
       });
+    });
+  }
+
+  /**
+   * Setup scroll event tracking for text/glass renderer updates
+   */
+  private setupScrollTracking(): void {
+    const containers = [this.portfolioContainer, this.resumeContainer];
+
+    containers.forEach(container => {
+      container.addEventListener('scroll', () => {
+        if (this.textRenderer) {
+          // Force text renderer to update positions on scroll
+          this.textRenderer.forceTextureUpdate();
+          this.textRenderer.markSceneDirty();
+        }
+      }, { passive: true });
     });
   }
 
@@ -298,71 +339,85 @@ export class PanelManager {
   }
 
   private fadeOutCurrentPanel(state: PanelState): void {
-    const element = this.getPanelElement(state);
-    if (element && !element.classList.contains('hidden')) {
-      // Track fade-out transition
-      this.activeTransitions.add(element);
+    const elements = this.getPanelElements(state);
+    elements.forEach(element => {
+      if (element && !element.classList.contains('hidden')) {
+        // Track fade-out transition
+        this.activeTransitions.add(element);
 
-      element.classList.add('fade-out');
+        element.classList.add('fade-out');
 
-      // Track setTimeout callback
-      const timeoutId = window.setTimeout(() => {
-        element.classList.add('hidden');
-        element.classList.remove('fade-out');
+        // Track setTimeout callback
+        const timeoutId = window.setTimeout(() => {
+          element.classList.add('hidden');
+          element.classList.remove('fade-out');
 
-        // Remove from pending timeouts
-        this.pendingTimeouts.delete(timeoutId);
-        this.checkAllStateChangesComplete();
-      }, this.defaultTransition.duration / 2);
+          // Remove from pending timeouts
+          this.pendingTimeouts.delete(timeoutId);
+          this.checkAllStateChangesComplete();
+        }, this.defaultTransition.duration / 2);
 
-      this.pendingTimeouts.add(timeoutId);
-    }
+        this.pendingTimeouts.add(timeoutId);
+      }
+    });
   }
 
   private fadeInNewPanel(state: PanelState): void {
-    const element = this.getPanelElement(state);
-    if (element) {
-      // Track fade-in transition
-      this.activeTransitions.add(element);
+    const elements = this.getPanelElements(state);
+    elements.forEach(element => {
+      if (element) {
+        // Track fade-in transition
+        this.activeTransitions.add(element);
 
-      element.classList.remove('hidden');
-      element.classList.add('fade-in');
+        element.classList.remove('hidden');
+        element.classList.add('fade-in');
 
-      // Track setTimeout callback
-      const timeoutId = window.setTimeout(() => {
-        element.classList.remove('fade-in');
+        // Track setTimeout callback
+        const timeoutId = window.setTimeout(() => {
+          element.classList.remove('fade-in');
 
-        // Add active class for content panels (this triggers transform transition)
-        if (state === 'app' || state === 'portfolio' || state === 'resume') {
-          element.classList.add('active');
-          // Track the transform transition that follows
-          this.activeTransitions.add(element);
-        }
+          // Add active class for content panels (this triggers transform transition)
+          if (state === 'app' || state === 'portfolio' || state === 'resume') {
+            element.classList.add('active');
+            // Track the transform transition that follows
+            this.activeTransitions.add(element);
+          }
 
-        // Remove from pending timeouts
-        this.pendingTimeouts.delete(timeoutId);
-        this.checkAllStateChangesComplete();
-      }, this.defaultTransition.duration / 2);
+          // Remove from pending timeouts
+          this.pendingTimeouts.delete(timeoutId);
+          this.checkAllStateChangesComplete();
+        }, this.defaultTransition.duration / 2);
 
-      this.pendingTimeouts.add(timeoutId);
-    }
+        this.pendingTimeouts.add(timeoutId);
+      }
+    });
   }
 
   private updatePanelVisibility(): void {
-    // Reset all panels
+    // Reset all panels and containers
     this.landingPanel.classList.add('hidden');
     this.appPanel.classList.add('hidden');
-    this.portfolioPanel.classList.add('hidden');
-    this.resumePanel.classList.add('hidden');
     this.appPanel.classList.remove('active');
-    this.portfolioPanel.classList.remove('active');
-    this.resumePanel.classList.remove('active');
+    this.portfolioContainer.classList.add('hidden');
+    this.resumeContainer.classList.add('hidden');
 
-    // Show current panel
-    const currentPanel = this.getPanelElement(this.currentState);
-    if (currentPanel) {
-      currentPanel.classList.remove('hidden');
+    // Show current panel(s) or container
+    if (this.currentState === 'landing') {
+      this.landingPanel.classList.remove('hidden');
+    } else if (this.currentState === 'app') {
+      this.appPanel.classList.remove('hidden');
+    } else if (this.currentState === 'portfolio') {
+      this.portfolioContainer.classList.remove('hidden');
+      // Reset scroll position
+      this.portfolioContainer.scrollTop = 0;
+    } else if (this.currentState === 'resume') {
+      this.resumeContainer.classList.remove('hidden');
+      // Reset scroll position
+      this.resumeContainer.scrollTop = 0;
     }
+
+    // Get panels to track for transitions
+    const currentPanels = this.getPanelElements(this.currentState);
 
     // CRITICAL: New transition-aware strategy
     // Block text updates during CSS transitions, only update when complete
@@ -370,10 +425,12 @@ export class PanelManager {
       // Block updates during transition
       this.textRenderer.setTransitioning(true);
 
-      // Track this panel as transitioning
-      if (currentPanel) {
-        this.activeTransitions.add(currentPanel);
-      }
+      // Track these panels as transitioning
+      currentPanels.forEach(panel => {
+        if (panel) {
+          this.activeTransitions.add(panel);
+        }
+      });
 
       // Safety timeout: If transitionend doesn't fire, force update anyway
       if (this.transitionTimeout !== null) {
@@ -388,18 +445,18 @@ export class PanelManager {
     }
   }
 
-  private getPanelElement(state: PanelState): HTMLElement | null {
+  private getPanelElements(state: PanelState): HTMLElement[] {
     switch (state) {
       case 'landing':
-        return this.landingPanel;
+        return [this.landingPanel];
       case 'app':
-        return this.appPanel;
+        return [this.appPanel];
       case 'portfolio':
-        return this.portfolioPanel;
+        return [this.portfolioContainer];
       case 'resume':
-        return this.resumePanel;
+        return [this.resumeContainer];
       default:
-        return null;
+        return [];
     }
   }
 
@@ -466,8 +523,10 @@ export class PanelManager {
     // Mark panels for WebGL enhancement
     this.landingPanel.classList.add('webgl-enhanced');
     this.appPanel.classList.add('webgl-enhanced');
-    this.portfolioPanel.classList.add('webgl-enhanced');
-    this.resumePanel.classList.add('webgl-enhanced');
+    this.portfolioPanels.forEach(panel => panel.classList.add('webgl-enhanced'));
+    this.resumePanels.forEach(panel => panel.classList.add('webgl-enhanced'));
+    this.portfolioContainer.classList.add('webgl-enhanced');
+    this.resumeContainer.classList.add('webgl-enhanced');
     this.navbar.classList.add('webgl-enhanced');
   }
 
@@ -475,8 +534,10 @@ export class PanelManager {
     // Remove WebGL enhancement
     this.landingPanel.classList.remove('webgl-enhanced');
     this.appPanel.classList.remove('webgl-enhanced');
-    this.portfolioPanel.classList.remove('webgl-enhanced');
-    this.resumePanel.classList.remove('webgl-enhanced');
+    this.portfolioPanels.forEach(panel => panel.classList.remove('webgl-enhanced'));
+    this.resumePanels.forEach(panel => panel.classList.remove('webgl-enhanced'));
+    this.portfolioContainer.classList.remove('webgl-enhanced');
+    this.resumeContainer.classList.remove('webgl-enhanced');
     this.navbar.classList.remove('webgl-enhanced');
   }
 

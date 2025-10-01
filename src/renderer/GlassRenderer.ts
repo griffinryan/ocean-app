@@ -294,17 +294,18 @@ export class GlassRenderer {
 
     // Render each visible panel
     this.panels.forEach((config, id) => {
-      // Check if the corresponding HTML element is visible
-      let elementId = id;
-      if (id === 'landing') elementId = 'landing-panel';
-      else if (id === 'app') elementId = 'app-panel';
-      else if (id === 'portfolio') elementId = 'portfolio-panel';
-      else if (id === 'resume') elementId = 'resume-panel';
-      else if (id === 'navbar') elementId = 'navbar';
+      // Dynamically construct element ID: navbar stays as-is, everything else gets -panel suffix
+      const elementId = (id === 'navbar') ? 'navbar' : `${id}-panel`;
 
       const element = document.getElementById(elementId);
       if (element && !element.classList.contains('hidden')) {
-        this.renderPanel(config, program);
+        // Check if parent scroll container is visible (for portfolio/resume panels)
+        const parent = element.parentElement?.parentElement;
+        const parentHidden = parent?.classList.contains('hidden') ?? false;
+
+        if (!parentHidden) {
+          this.renderPanel(config, program);
+        }
       }
     });
 
@@ -337,36 +338,94 @@ export class GlassRenderer {
     this.addPanel('landing', {
       position: [0.0, 0.0],
       size: [0.4, 0.5],
-      distortionStrength: 0.4, // Enhanced distortion for better text visibility
+      distortionStrength: 0.4,
       refractionIndex: 1.52
     });
 
     this.addPanel('app', {
       position: [0.0, 0.0],
       size: [0.35, 0.3],
-      distortionStrength: 0.35, // Enhanced distortion for better text visibility
+      distortionStrength: 0.35,
       refractionIndex: 1.52
     });
 
-    this.addPanel('portfolio', {
+    // Portfolio project panels
+    this.addPanel('portfolio-lakehouse', {
       position: [0.0, 0.0],
-      size: [0.35, 0.3],
-      distortionStrength: 0.35, // Enhanced distortion for better text visibility
+      size: [0.4, 0.5],
+      distortionStrength: 0.35,
       refractionIndex: 1.52
     });
 
-    this.addPanel('resume', {
+    this.addPanel('portfolio-encryption', {
       position: [0.0, 0.0],
-      size: [0.35, 0.3],
-      distortionStrength: 0.35, // Enhanced distortion for better text visibility
+      size: [0.38, 0.48],
+      distortionStrength: 0.35,
+      refractionIndex: 1.52
+    });
+
+    this.addPanel('portfolio-dotereditor', {
+      position: [0.0, 0.0],
+      size: [0.4, 0.5],
+      distortionStrength: 0.35,
+      refractionIndex: 1.52
+    });
+
+    this.addPanel('portfolio-dreamrequiem', {
+      position: [0.0, 0.0],
+      size: [0.38, 0.48],
+      distortionStrength: 0.35,
+      refractionIndex: 1.52
+    });
+
+    this.addPanel('portfolio-greenlightgo', {
+      position: [0.0, 0.0],
+      size: [0.38, 0.48],
+      distortionStrength: 0.35,
+      refractionIndex: 1.52
+    });
+
+    // Resume card panels
+    this.addPanel('resume-playember', {
+      position: [0.0, 0.0],
+      size: [0.45, 0.38],
+      distortionStrength: 0.35,
+      refractionIndex: 1.52
+    });
+
+    this.addPanel('resume-meta', {
+      position: [0.0, 0.0],
+      size: [0.45, 0.38],
+      distortionStrength: 0.35,
+      refractionIndex: 1.52
+    });
+
+    this.addPanel('resume-outlier', {
+      position: [0.0, 0.0],
+      size: [0.45, 0.38],
+      distortionStrength: 0.35,
+      refractionIndex: 1.52
+    });
+
+    this.addPanel('resume-uwtutor', {
+      position: [0.0, 0.0],
+      size: [0.45, 0.32],
+      distortionStrength: 0.35,
+      refractionIndex: 1.52
+    });
+
+    this.addPanel('resume-uwedu', {
+      position: [0.0, 0.0],
+      size: [0.45, 0.32],
+      distortionStrength: 0.35,
       refractionIndex: 1.52
     });
 
     // Navigation bar with minimal distortion for readability
     this.addPanel('navbar', {
-      position: [0.0, 0.9], // Top center
-      size: [2.0, 0.2], // Full width, minimal height
-      distortionStrength: 0.15, // Lower distortion for text readability
+      position: [0.0, 0.9],
+      size: [2.0, 0.2],
+      distortionStrength: 0.15,
       refractionIndex: 1.45
     });
 
@@ -376,6 +435,7 @@ export class GlassRenderer {
 
   /**
    * Update panel positions based on HTML element positions
+   * Dynamically updates all registered panels
    */
   public updatePanelPositions(): void {
     const canvas = this.gl.canvas as HTMLCanvasElement;
@@ -387,80 +447,25 @@ export class GlassRenderer {
       return;
     }
 
-    // Update landing panel position
-    const landingElement = document.getElementById('landing-panel');
-    if (landingElement && !landingElement.classList.contains('hidden')) {
-      const rect = landingElement.getBoundingClientRect();
+    // Dynamically update all registered panels
+    this.panels.forEach((_config, id) => {
+      // Construct element ID: navbar stays as-is, everything else gets -panel suffix
+      const elementId = (id === 'navbar') ? 'navbar' : `${id}-panel`;
 
-      // Only update if element is visible and has valid dimensions
-      if (rect.width > 0 && rect.height > 0) {
-        const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
-        this.updatePanel('landing', {
-          position: normalizedPos.position,
-          size: normalizedPos.size
-        });
+      const element = document.getElementById(elementId);
+      if (element && !element.classList.contains('hidden')) {
+        const rect = element.getBoundingClientRect();
+
+        // Only update if element is visible and has valid dimensions
+        if (rect.width > 0 && rect.height > 0) {
+          const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
+          this.updatePanel(id, {
+            position: normalizedPos.position,
+            size: normalizedPos.size
+          });
+        }
       }
-    }
-
-    // Update app panel position
-    const appElement = document.getElementById('app-panel');
-    if (appElement && !appElement.classList.contains('hidden')) {
-      const rect = appElement.getBoundingClientRect();
-
-      // Only update if element is visible and has valid dimensions
-      if (rect.width > 0 && rect.height > 0) {
-        const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
-        this.updatePanel('app', {
-          position: normalizedPos.position,
-          size: normalizedPos.size
-        });
-      }
-    }
-
-    // Update portfolio panel position
-    const portfolioElement = document.getElementById('portfolio-panel');
-    if (portfolioElement && !portfolioElement.classList.contains('hidden')) {
-      const rect = portfolioElement.getBoundingClientRect();
-
-      // Only update if element is visible and has valid dimensions
-      if (rect.width > 0 && rect.height > 0) {
-        const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
-        this.updatePanel('portfolio', {
-          position: normalizedPos.position,
-          size: normalizedPos.size
-        });
-      }
-    }
-
-    // Update resume panel position
-    const resumeElement = document.getElementById('resume-panel');
-    if (resumeElement && !resumeElement.classList.contains('hidden')) {
-      const rect = resumeElement.getBoundingClientRect();
-
-      // Only update if element is visible and has valid dimensions
-      if (rect.width > 0 && rect.height > 0) {
-        const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
-        this.updatePanel('resume', {
-          position: normalizedPos.position,
-          size: normalizedPos.size
-        });
-      }
-    }
-
-    // Update navbar position (only when visible)
-    const navbarElement = document.getElementById('navbar');
-    if (navbarElement && !navbarElement.classList.contains('hidden')) {
-      const rect = navbarElement.getBoundingClientRect();
-
-      // Only update if element is visible and has valid dimensions
-      if (rect.width > 0 && rect.height > 0) {
-        const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
-        this.updatePanel('navbar', {
-          position: normalizedPos.position,
-          size: normalizedPos.size
-        });
-      }
-    }
+    });
   }
 
   /**

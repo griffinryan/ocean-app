@@ -63,46 +63,222 @@
       </div>
     </div>
 
-    <!-- Portfolio Panel (hidden initially) -->
-    <div id="portfolio-panel" class="glass-panel app-panel hidden">
-      <h2>Portfolio</h2>
-      <p>A detailed view of my projects, case studies, and technical implementations.</p>
-      <div class="portfolio-grid">
-        <div class="project-detail">
-          <h3>Ocean WebGL Renderer</h3>
-          <p>Advanced real-time ocean simulation using WebGL2 shaders and mathematical wave functions.</p>
-        </div>
-        <div class="project-detail">
-          <h3>Liquid Glass UI System</h3>
-          <p>Custom glassmorphism implementation with WebGL distortion effects.</p>
-        </div>
+    <!-- Portfolio Scroll Container -->
+    <div id="portfolio-container" class="content-scroll-container hidden">
+      <div class="scroll-content">
+        <!-- Portfolio: Lakehouse -->
+        <div id="portfolio-lakehouse-panel" class="glass-panel project-panel scrollable-panel">
+      <h3 class="project-title">Lakehouse Concert Experience</h3>
+      <div class="tech-tags">
+        <span class="tech-tag">Three.js</span>
+        <span class="tech-tag">React</span>
+        <span class="tech-tag">WebGL</span>
+        <span class="tech-tag">TypeScript</span>
+      </div>
+      <div class="project-content scrollable-content">
+        <p class="project-description">An interactive concert poster experience for my series of house concerts professionally organized in Seattle. Built with Three.js and React, this immersive WebGL experience combines 3D graphics with interactive elements to create a unique digital poster that engages visitors.</p>
+        <h4 class="project-section-title">Key Features</h4>
+        <ul class="project-features">
+          <li>Real-time 3D scene rendering with Three.js</li>
+          <li>Interactive poster elements with React components</li>
+          <li>Responsive design for all devices</li>
+          <li>Custom shaders for visual effects</li>
+        </ul>
       </div>
     </div>
 
-    <!-- Resume Panel (hidden initially) -->
-    <div id="resume-panel" class="glass-panel app-panel hidden">
-      <h2>Resume</h2>
-      <div class="resume-content">
-        <div class="resume-section">
-          <h3>Experience</h3>
-          <div class="experience-item">
-            <h4>Software Engineer</h4>
-            <p>Specializing in WebGL development, real-time rendering, and interactive web experiences.</p>
-          </div>
-        </div>
-        <div class="resume-section">
-          <h3>Skills</h3>
-          <div class="skills-grid">
-            <span class="skill-tag">TypeScript</span>
-            <span class="skill-tag">WebGL</span>
-            <span class="skill-tag">GLSL</span>
-            <span class="skill-tag">JavaScript</span>
-            <span class="skill-tag">3D Graphics</span>
-            <span class="skill-tag">Real-time Rendering</span>
-          </div>
-        </div>
+    <!-- Portfolio: encryption-suite -->
+    <div id="portfolio-encryption-panel" class="glass-panel project-panel scrollable-panel">
+      <h3 class="project-title">Cryptographic Utilities Suite</h3>
+      <div class="tech-tags">
+        <span class="tech-tag">Java</span>
+        <span class="tech-tag">NIST Standards</span>
+        <span class="tech-tag">Cryptography</span>
+      </div>
+      <div class="project-content scrollable-content">
+        <p class="project-description">A fully-fledged Java utility library for cryptographic functions implemented from NIST standards. Features complete implementations of CSHAKE256, KMACXOF256, and Schnorr and DHIES elliptic curve cryptography.</p>
+        <h4 class="project-section-title">Technical Highlights</h4>
+        <ul class="project-features">
+          <li>CSHAKE256 and KMACXOF256 implementations</li>
+          <li>Schnorr signature scheme</li>
+          <li>DHIES elliptic curve encryption</li>
+          <li>Full NIST compliance and test vectors</li>
+        </ul>
       </div>
     </div>
+
+    <!-- Portfolio: DoterEditor -->
+    <div id="portfolio-dotereditor-panel" class="glass-panel project-panel scrollable-panel">
+      <h3 class="project-title">DoterEditor IDE</h3>
+      <div class="tech-tags">
+        <span class="tech-tag">Java</span>
+        <span class="tech-tag">JavaFX</span>
+        <span class="tech-tag">JDK13</span>
+      </div>
+      <div class="project-content scrollable-content">
+        <p class="project-description">A full-featured code editor inspired by Monaco (VSCode's editor dependency). Built with JDK13 and JavaFX, DoterEditor provides a professional-grade editing experience with multi-file and multi-line support.</p>
+        <h4 class="project-section-title">Features</h4>
+        <ul class="project-features">
+          <li>Multi-file project management</li>
+          <li>Syntax highlighting for 50+ languages</li>
+          <li>Support for C#, TypeScript, Java, Python, and more</li>
+          <li>Monaco-inspired UI/UX design</li>
+          <li>Cross-platform compatibility</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Portfolio: DreamRequiem -->
+    <div id="portfolio-dreamrequiem-panel" class="glass-panel project-panel scrollable-panel">
+      <h3 class="project-title">DreamRequiem Game Engine</h3>
+      <div class="tech-tags">
+        <span class="tech-tag">C#</span>
+        <span class="tech-tag">Monogame</span>
+        <span class="tech-tag">2.5D</span>
+      </div>
+      <div class="project-content scrollable-content">
+        <p class="project-description">A Monogame-based C# game engine leveraging 2.5D rendering techniques for top-down games. Features multi-platform targeting and advanced rendering capabilities.</p>
+        <h4 class="project-section-title">Engine Capabilities</h4>
+        <ul class="project-features">
+          <li>2.5D rendering pipeline with depth sorting</li>
+          <li>Top-down camera system</li>
+          <li>Multi-platform targeting (Windows, Linux, Mac)</li>
+          <li>Custom asset pipeline</li>
+          <li>Entity component system</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Portfolio: GreenLightGo -->
+    <div id="portfolio-greenlightgo-panel" class="glass-panel project-panel scrollable-panel">
+      <h3 class="project-title">GreenLightGo 3D Engine</h3>
+      <div class="tech-tags">
+        <span class="tech-tag">Golang</span>
+        <span class="tech-tag">OpenGL</span>
+        <span class="tech-tag">go-gl</span>
+      </div>
+      <div class="project-content scrollable-content">
+        <p class="project-description">An experimental Golang game engine for 3D rendering using go-gl OpenGL bindings. Explores the capabilities of Go for high-performance graphics programming.</p>
+        <h4 class="project-section-title">Technical Features</h4>
+        <ul class="project-features">
+          <li>Direct OpenGL bindings via go-gl</li>
+          <li>3D mesh rendering and transformation</li>
+          <li>Camera system with movement controls</li>
+          <li>Shader management system</li>
+          <li>Concurrent rendering pipeline</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Resume Scroll Container -->
+    <div id="resume-container" class="content-scroll-container hidden">
+      <div class="scroll-content">
+        <!-- Resume: PlayEmber -->
+        <div id="resume-playember-panel" class="glass-panel resume-card-panel scrollable-panel">
+      <div class="resume-header">
+        <h3 class="resume-position">Full Stack AI Agent Developer</h3>
+        <h4 class="resume-company">PlayEmber</h4>
+      </div>
+      <div class="resume-meta">
+        <span class="resume-date">2024 - Present</span>
+      </div>
+      <div class="resume-content scrollable-content">
+        <p class="resume-description">Leading development of AI-powered agent systems for interactive gaming experiences.</p>
+        <ul class="resume-responsibilities">
+          <li>Architecting full-stack AI agent systems</li>
+          <li>Implementing machine learning models for game AI</li>
+          <li>Building scalable backend infrastructure</li>
+          <li>Developing interactive frontend interfaces</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Resume: Meta -->
+    <div id="resume-meta-panel" class="glass-panel resume-card-panel scrollable-panel">
+      <div class="resume-header">
+        <h3 class="resume-position">Data Labeling Analyst III</h3>
+        <h4 class="resume-company">Meta Platforms, Inc</h4>
+      </div>
+      <div class="resume-meta">
+        <span class="resume-date">2023 - 2024</span>
+        <span class="resume-team">LLaMa 4 Team</span>
+      </div>
+      <div class="resume-content scrollable-content">
+        <p class="resume-description">Contributing to the development and training of Meta's LLaMa 4 large language model through high-quality data labeling and analysis.</p>
+        <ul class="resume-responsibilities">
+          <li>Curating and labeling training data for LLM development</li>
+          <li>Ensuring data quality and consistency standards</li>
+          <li>Collaborating with ML engineers on data pipeline optimization</li>
+          <li>Developing labeling guidelines and best practices</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Resume: Outlier AI -->
+    <div id="resume-outlier-panel" class="glass-panel resume-card-panel scrollable-panel">
+      <div class="resume-header">
+        <h3 class="resume-position">AI Software Engineer</h3>
+        <h4 class="resume-company">Outlier AI</h4>
+      </div>
+      <div class="resume-meta">
+        <span class="resume-date">2022 - 2023</span>
+      </div>
+      <div class="resume-content scrollable-content">
+        <p class="resume-description">Developing AI-powered software solutions and machine learning systems for diverse client applications.</p>
+        <ul class="resume-responsibilities">
+          <li>Building production ML systems and APIs</li>
+          <li>Implementing neural network architectures</li>
+          <li>Optimizing model performance and inference</li>
+          <li>Collaborating on research and development initiatives</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Resume: UW Tutor -->
+    <div id="resume-uwtutor-panel" class="glass-panel resume-card-panel scrollable-panel">
+      <div class="resume-header">
+        <h3 class="resume-position">Computer Science Tutor</h3>
+        <h4 class="resume-company">University of Washington</h4>
+      </div>
+      <div class="resume-meta">
+        <span class="resume-date">2020 - 2022</span>
+      </div>
+      <div class="resume-content scrollable-content">
+        <p class="resume-description">Providing academic support and mentorship to computer science students across various courses and programming languages.</p>
+        <ul class="resume-responsibilities">
+          <li>Tutoring students in data structures, algorithms, and systems</li>
+          <li>Teaching programming fundamentals in Java, Python, and C</li>
+          <li>Developing educational materials and practice problems</li>
+          <li>Mentoring students through complex project work</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Resume: UW Education -->
+    <div id="resume-uwedu-panel" class="glass-panel resume-card-panel scrollable-panel">
+      <div class="resume-header">
+        <h3 class="resume-position">Bachelor of Science</h3>
+        <h4 class="resume-company">University of Washington</h4>
+      </div>
+      <div class="resume-meta">
+        <span class="resume-date">2018 - 2022</span>
+        <span class="resume-location">Seattle, WA</span>
+      </div>
+      <div class="resume-content scrollable-content">
+        <p class="resume-description">Computer Science and Systems</p>
+        <h5 class="resume-subsection">Relevant Coursework</h5>
+        <ul class="resume-responsibilities">
+          <li>Data Structures and Algorithms</li>
+          <li>Computer Graphics and Animation</li>
+          <li>Systems Programming</li>
+          <li>Machine Learning</li>
+          <li>Software Engineering</li>
+          <li>Database Systems</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
 
     <!-- Debug Info Panel -->
     <div id="info">

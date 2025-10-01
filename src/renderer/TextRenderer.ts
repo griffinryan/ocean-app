@@ -623,16 +623,38 @@ export class TextRenderer {
     ctx.fillStyle = 'white';
     ctx.restore(); // Apply clean state
 
-    // Get list of visible panels
+    // Get list of visible panels (all 15: 3 main + 5 portfolio + 5 resume + navbar + app)
     const visiblePanels = new Set<string>();
-    const panelIds = ['landing-panel', 'app-panel', 'portfolio-panel', 'resume-panel', 'navbar'];
+    const panelIds = [
+      'landing-panel',
+      'app-panel',
+      'navbar',
+      // Portfolio panels
+      'portfolio-lakehouse-panel',
+      'portfolio-encryption-panel',
+      'portfolio-dotereditor-panel',
+      'portfolio-dreamrequiem-panel',
+      'portfolio-greenlightgo-panel',
+      // Resume panels
+      'resume-playember-panel',
+      'resume-meta-panel',
+      'resume-outlier-panel',
+      'resume-uwtutor-panel',
+      'resume-uwedu-panel'
+    ];
 
     panelIds.forEach(panelId => {
       const panelElement = document.getElementById(panelId);
       if (panelElement && !panelElement.classList.contains('hidden')) {
-        // Add both full panel ID and short name for matching
-        visiblePanels.add(panelId);
-        visiblePanels.add(panelId.replace('-panel', '')); // e.g., 'landing-panel' → 'landing'
+        // For panels inside scroll containers, also check if parent container is visible
+        const parent = panelElement.parentElement?.parentElement;
+        const parentHidden = parent?.classList.contains('hidden') ?? false;
+
+        if (!parentHidden) {
+          // Add both full panel ID and short name for matching
+          visiblePanels.add(panelId);
+          visiblePanels.add(panelId.replace('-panel', '')); // e.g., 'landing-panel' → 'landing'
+        }
       }
     });
 
@@ -673,28 +695,51 @@ export class TextRenderer {
 
   /**
    * Get panel information for shader uniforms
+   * Returns positions and sizes for all 15 panels
    */
   private getPanelInfo(): { positions: Float32Array, sizes: Float32Array, count: number } {
     const canvas = this.gl.canvas as HTMLCanvasElement;
     const canvasRect = canvas.getBoundingClientRect();
 
-    const panelIds = ['landing-panel', 'app-panel', 'portfolio-panel', 'resume-panel', 'navbar'];
-    const positions = new Float32Array(10); // 5 panels * 2 components (x,y)
-    const sizes = new Float32Array(10);
+    const panelIds = [
+      'landing-panel',
+      'app-panel',
+      'navbar',
+      // Portfolio panels
+      'portfolio-lakehouse-panel',
+      'portfolio-encryption-panel',
+      'portfolio-dotereditor-panel',
+      'portfolio-dreamrequiem-panel',
+      'portfolio-greenlightgo-panel',
+      // Resume panels
+      'resume-playember-panel',
+      'resume-meta-panel',
+      'resume-outlier-panel',
+      'resume-uwtutor-panel',
+      'resume-uwedu-panel'
+    ];
+    const positions = new Float32Array(30); // 15 panels * 2 components (x,y)
+    const sizes = new Float32Array(30);
     let validPanelCount = 0;
 
     panelIds.forEach((panelId) => {
       const element = document.getElementById(panelId);
       if (element && !element.classList.contains('hidden') && canvasRect.width > 0 && canvasRect.height > 0) {
-        const rect = element.getBoundingClientRect();
-        if (rect.width > 0 && rect.height > 0) {
-          const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
+        // For panels inside scroll containers, also check if parent container is visible
+        const parent = element.parentElement?.parentElement;
+        const parentHidden = parent?.classList.contains('hidden') ?? false;
 
-          positions[validPanelCount * 2] = normalizedPos.position[0];
-          positions[validPanelCount * 2 + 1] = normalizedPos.position[1];
-          sizes[validPanelCount * 2] = normalizedPos.size[0];
-          sizes[validPanelCount * 2 + 1] = normalizedPos.size[1];
-          validPanelCount++;
+        if (!parentHidden) {
+          const rect = element.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
+
+            positions[validPanelCount * 2] = normalizedPos.position[0];
+            positions[validPanelCount * 2 + 1] = normalizedPos.position[1];
+            sizes[validPanelCount * 2] = normalizedPos.size[0];
+            sizes[validPanelCount * 2 + 1] = normalizedPos.size[1];
+            validPanelCount++;
+          }
         }
       }
     });
@@ -910,12 +955,63 @@ export class TextRenderer {
       { selector: '#app-panel > h2', id: 'app-title', panelId: 'app-panel' },
       { selector: '#app-panel > p', id: 'app-description', panelId: 'app-panel' },
 
-      // Portfolio Panel
-      { selector: '#portfolio-panel > h2', id: 'portfolio-title', panelId: 'portfolio-panel' },
-      { selector: '#portfolio-panel > p', id: 'portfolio-description', panelId: 'portfolio-panel' },
+      // Portfolio: Lakehouse
+      { selector: '#portfolio-lakehouse-panel .project-title', id: 'portfolio-lakehouse-title', panelId: 'portfolio-lakehouse-panel' },
+      { selector: '#portfolio-lakehouse-panel .project-description', id: 'portfolio-lakehouse-desc', panelId: 'portfolio-lakehouse-panel' },
+      { selector: '#portfolio-lakehouse-panel .project-section-title', id: 'portfolio-lakehouse-section', panelId: 'portfolio-lakehouse-panel' },
 
-      // Resume Panel
-      { selector: '#resume-panel > h2', id: 'resume-title', panelId: 'resume-panel' },
+      // Portfolio: encryption-suite
+      { selector: '#portfolio-encryption-panel .project-title', id: 'portfolio-encryption-title', panelId: 'portfolio-encryption-panel' },
+      { selector: '#portfolio-encryption-panel .project-description', id: 'portfolio-encryption-desc', panelId: 'portfolio-encryption-panel' },
+      { selector: '#portfolio-encryption-panel .project-section-title', id: 'portfolio-encryption-section', panelId: 'portfolio-encryption-panel' },
+
+      // Portfolio: DoterEditor
+      { selector: '#portfolio-dotereditor-panel .project-title', id: 'portfolio-dotereditor-title', panelId: 'portfolio-dotereditor-panel' },
+      { selector: '#portfolio-dotereditor-panel .project-description', id: 'portfolio-dotereditor-desc', panelId: 'portfolio-dotereditor-panel' },
+      { selector: '#portfolio-dotereditor-panel .project-section-title', id: 'portfolio-dotereditor-section', panelId: 'portfolio-dotereditor-panel' },
+
+      // Portfolio: DreamRequiem
+      { selector: '#portfolio-dreamrequiem-panel .project-title', id: 'portfolio-dreamrequiem-title', panelId: 'portfolio-dreamrequiem-panel' },
+      { selector: '#portfolio-dreamrequiem-panel .project-description', id: 'portfolio-dreamrequiem-desc', panelId: 'portfolio-dreamrequiem-panel' },
+      { selector: '#portfolio-dreamrequiem-panel .project-section-title', id: 'portfolio-dreamrequiem-section', panelId: 'portfolio-dreamrequiem-panel' },
+
+      // Portfolio: GreenLightGo
+      { selector: '#portfolio-greenlightgo-panel .project-title', id: 'portfolio-greenlightgo-title', panelId: 'portfolio-greenlightgo-panel' },
+      { selector: '#portfolio-greenlightgo-panel .project-description', id: 'portfolio-greenlightgo-desc', panelId: 'portfolio-greenlightgo-panel' },
+      { selector: '#portfolio-greenlightgo-panel .project-section-title', id: 'portfolio-greenlightgo-section', panelId: 'portfolio-greenlightgo-panel' },
+
+      // Resume: PlayEmber
+      { selector: '#resume-playember-panel .resume-position', id: 'resume-playember-position', panelId: 'resume-playember-panel' },
+      { selector: '#resume-playember-panel .resume-company', id: 'resume-playember-company', panelId: 'resume-playember-panel' },
+      { selector: '#resume-playember-panel .resume-date', id: 'resume-playember-date', panelId: 'resume-playember-panel' },
+      { selector: '#resume-playember-panel .resume-description', id: 'resume-playember-desc', panelId: 'resume-playember-panel' },
+
+      // Resume: Meta
+      { selector: '#resume-meta-panel .resume-position', id: 'resume-meta-position', panelId: 'resume-meta-panel' },
+      { selector: '#resume-meta-panel .resume-company', id: 'resume-meta-company', panelId: 'resume-meta-panel' },
+      { selector: '#resume-meta-panel .resume-date', id: 'resume-meta-date', panelId: 'resume-meta-panel' },
+      { selector: '#resume-meta-panel .resume-team', id: 'resume-meta-team', panelId: 'resume-meta-panel' },
+      { selector: '#resume-meta-panel .resume-description', id: 'resume-meta-desc', panelId: 'resume-meta-panel' },
+
+      // Resume: Outlier
+      { selector: '#resume-outlier-panel .resume-position', id: 'resume-outlier-position', panelId: 'resume-outlier-panel' },
+      { selector: '#resume-outlier-panel .resume-company', id: 'resume-outlier-company', panelId: 'resume-outlier-panel' },
+      { selector: '#resume-outlier-panel .resume-date', id: 'resume-outlier-date', panelId: 'resume-outlier-panel' },
+      { selector: '#resume-outlier-panel .resume-description', id: 'resume-outlier-desc', panelId: 'resume-outlier-panel' },
+
+      // Resume: UW Tutor
+      { selector: '#resume-uwtutor-panel .resume-position', id: 'resume-uwtutor-position', panelId: 'resume-uwtutor-panel' },
+      { selector: '#resume-uwtutor-panel .resume-company', id: 'resume-uwtutor-company', panelId: 'resume-uwtutor-panel' },
+      { selector: '#resume-uwtutor-panel .resume-date', id: 'resume-uwtutor-date', panelId: 'resume-uwtutor-panel' },
+      { selector: '#resume-uwtutor-panel .resume-description', id: 'resume-uwtutor-desc', panelId: 'resume-uwtutor-panel' },
+
+      // Resume: UW Education
+      { selector: '#resume-uwedu-panel .resume-position', id: 'resume-uwedu-position', panelId: 'resume-uwedu-panel' },
+      { selector: '#resume-uwedu-panel .resume-company', id: 'resume-uwedu-company', panelId: 'resume-uwedu-panel' },
+      { selector: '#resume-uwedu-panel .resume-date', id: 'resume-uwedu-date', panelId: 'resume-uwedu-panel' },
+      { selector: '#resume-uwedu-panel .resume-location', id: 'resume-uwedu-location', panelId: 'resume-uwedu-panel' },
+      { selector: '#resume-uwedu-panel .resume-description', id: 'resume-uwedu-desc', panelId: 'resume-uwedu-panel' },
+      { selector: '#resume-uwedu-panel .resume-subsection', id: 'resume-uwedu-subsection', panelId: 'resume-uwedu-panel' },
 
       // Navigation
       { selector: '.brand-text', id: 'nav-brand', panelId: 'navbar' }
@@ -990,62 +1086,50 @@ export class TextRenderer {
       }
     });
 
-    // Project details in portfolio panel
-    const projectDetails = document.querySelectorAll('#portfolio-panel .project-detail');
-    projectDetails.forEach((detail, index) => {
-      const h3 = detail.querySelector('h3');
-      const p = detail.querySelector('p');
+    // Tech tags for all portfolio panels
+    const portfolioPanelIds = [
+      'portfolio-lakehouse-panel',
+      'portfolio-encryption-panel',
+      'portfolio-dotereditor-panel',
+      'portfolio-dreamrequiem-panel',
+      'portfolio-greenlightgo-panel'
+    ];
 
-      if (h3) {
-        this.addTextElement(`project-detail-title-${index}`, {
-          selector: `#portfolio-panel .project-detail:nth-child(${index + 1}) h3`,
-          panelId: 'portfolio-panel'
+    portfolioPanelIds.forEach(panelId => {
+      const techTags = document.querySelectorAll(`#${panelId} .tech-tag`);
+      techTags.forEach((_tag, index) => {
+        this.addTextElement(`${panelId}-tech-${index}`, {
+          selector: `#${panelId} .tech-tags .tech-tag:nth-child(${index + 1})`,
+          panelId: panelId
         });
-      }
+      });
 
-      if (p) {
-        this.addTextElement(`project-detail-desc-${index}`, {
-          selector: `#portfolio-panel .project-detail:nth-child(${index + 1}) p`,
-          panelId: 'portfolio-panel'
+      // Project features list items
+      const features = document.querySelectorAll(`#${panelId} .project-features li`);
+      features.forEach((_feature, index) => {
+        this.addTextElement(`${panelId}-feature-${index}`, {
+          selector: `#${panelId} .project-features li:nth-child(${index + 1})`,
+          panelId: panelId
         });
-      }
+      });
     });
 
-    // Resume sections
-    const resumeSections = document.querySelectorAll('#resume-panel .resume-section');
-    resumeSections.forEach((section, index) => {
-      const h3 = section.querySelector('h3');
-      const h4 = section.querySelector('h4');
-      const p = section.querySelector('p');
+    // Resume responsibilities list items
+    const resumePanelIds = [
+      'resume-playember-panel',
+      'resume-meta-panel',
+      'resume-outlier-panel',
+      'resume-uwtutor-panel',
+      'resume-uwedu-panel'
+    ];
 
-      if (h3) {
-        this.addTextElement(`resume-section-title-${index}`, {
-          selector: `#resume-panel .resume-section:nth-child(${index + 1}) h3`,
-          panelId: 'resume-panel'
+    resumePanelIds.forEach(panelId => {
+      const responsibilities = document.querySelectorAll(`#${panelId} .resume-responsibilities li`);
+      responsibilities.forEach((_item, index) => {
+        this.addTextElement(`${panelId}-resp-${index}`, {
+          selector: `#${panelId} .resume-responsibilities li:nth-child(${index + 1})`,
+          panelId: panelId
         });
-      }
-
-      if (h4) {
-        this.addTextElement(`resume-section-subtitle-${index}`, {
-          selector: `#resume-panel .resume-section:nth-child(${index + 1}) h4`,
-          panelId: 'resume-panel'
-        });
-      }
-
-      if (p) {
-        this.addTextElement(`resume-section-desc-${index}`, {
-          selector: `#resume-panel .resume-section:nth-child(${index + 1}) p`,
-          panelId: 'resume-panel'
-        });
-      }
-    });
-
-    // Skill tags
-    const skillTags = document.querySelectorAll('#resume-panel .skill-tag');
-    skillTags.forEach((_tag, index) => {
-      this.addTextElement(`skill-tag-${index}`, {
-        selector: `#resume-panel .skill-tag:nth-child(${index + 1})`,
-        panelId: 'resume-panel'
       });
     });
 
@@ -1061,14 +1145,31 @@ export class TextRenderer {
 
   /**
    * Set up mutation observer to track content changes
+   * Observes all 15 panels for DOM mutations
    */
   private setupMutationObserver(): void {
     const observer = new MutationObserver(() => {
       this.needsTextureUpdate = true;
     });
 
-    // Observe changes in text content
-    const observeTargets = ['#landing-panel', '#app-panel', '#portfolio-panel', '#resume-panel', '#navbar'];
+    // Observe changes in text content for all panels
+    const observeTargets = [
+      '#landing-panel',
+      '#app-panel',
+      '#navbar',
+      // Portfolio panels
+      '#portfolio-lakehouse-panel',
+      '#portfolio-encryption-panel',
+      '#portfolio-dotereditor-panel',
+      '#portfolio-dreamrequiem-panel',
+      '#portfolio-greenlightgo-panel',
+      // Resume panels
+      '#resume-playember-panel',
+      '#resume-meta-panel',
+      '#resume-outlier-panel',
+      '#resume-uwtutor-panel',
+      '#resume-uwedu-panel'
+    ];
 
     observeTargets.forEach(selector => {
       const element = document.querySelector(selector);
@@ -1186,17 +1287,34 @@ export class TextRenderer {
 
   /**
    * Set up resize observer for responsive text positioning
+   * Observes all 15 panels for size changes
    */
   private setupResizeObserver(): void {
     this.resizeObserver = new ResizeObserver(() => {
       this.updateTextPositions();
     });
 
-    // Observe the canvas and key text containers
+    // Observe the canvas and all text containers
     const canvas = this.gl.canvas as HTMLCanvasElement;
     this.resizeObserver.observe(canvas);
 
-    const observeTargets = ['#landing-panel', '#app-panel', '#portfolio-panel', '#resume-panel', '#navbar'];
+    const observeTargets = [
+      '#landing-panel',
+      '#app-panel',
+      '#navbar',
+      // Portfolio panels
+      '#portfolio-lakehouse-panel',
+      '#portfolio-encryption-panel',
+      '#portfolio-dotereditor-panel',
+      '#portfolio-dreamrequiem-panel',
+      '#portfolio-greenlightgo-panel',
+      // Resume panels
+      '#resume-playember-panel',
+      '#resume-meta-panel',
+      '#resume-outlier-panel',
+      '#resume-uwtutor-panel',
+      '#resume-uwedu-panel'
+    ];
 
     observeTargets.forEach(selector => {
       const element = document.querySelector(selector);
