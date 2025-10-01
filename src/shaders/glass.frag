@@ -246,18 +246,18 @@ void main() {
     // Combine all effects with proper layering
     vec3 finalColor = oceanColor * depthTint + reflection + edgeLight + causticLight + scratches + rimLight;
 
-    // Enhanced glass opacity with much stronger visibility
-    float alpha = 0.55 + fresnelReflection * 0.15;
+    // Increased opacity for cleaner glass panels (reduced ocean bleed-through)
+    float alpha = 0.85 + fresnelReflection * 0.15;
 
     // Add flowing opacity variation
     float opacityFlow = sin(panelUV.x * 5.0 + v_time * 1.8) * cos(panelUV.y * 4.0 + v_time * 1.2);
     alpha += opacityFlow * 0.05;
 
-    // Much stronger edge opacity for clear borders
-    alpha += edgeGlow * 0.5;
+    // Reduced edge opacity addition for cleaner look
+    alpha += edgeGlow * 0.15;
 
-    // Add depth-based opacity
-    alpha += depth * 0.25;
+    // Reduced depth-based opacity
+    alpha += depth * 0.1;
 
     // Add a subtle glass tint to the background
     vec3 glassTint = vec3(0.9, 0.95, 1.0);
@@ -270,8 +270,8 @@ void main() {
     // Apply edge fade to final alpha for smooth boundaries
     alpha *= edgeFade;
 
-    // Ensure minimum visibility only within bounds
-    alpha = max(alpha, 0.2 * edgeFade);
+    // Ensure high minimum visibility (85% opaque minimum)
+    alpha = max(alpha, 0.85 * edgeFade);
 
     fragColor = vec4(finalColor, alpha);
 }

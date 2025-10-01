@@ -520,41 +520,8 @@ void main() {
     vec3 baseColor;
 
     if (glassIntensity > 0.1) {
-        // Enhanced crystalline color palette with higher contrast
-        vec3 glassColors[4] = vec3[4](
-            vec3(0.1, 0.2, 0.6),     // Deep crystalline blue
-            vec3(0.2, 0.4, 0.8),     // Medium crystal blue
-            vec3(0.4, 0.7, 1.0),     // Bright crystal blue
-            vec3(0.8, 0.9, 1.0)      // Crystal white highlight
-        );
-
-        // Apply Bayer dithering for quantization
-        float dither = bayerDither4x4(gl_FragCoord.xy);
-        float animatedNoise = cheapNoise(oceanPos * 6.0 + v_time * 0.2);
-
-        // Quantize height to 4 levels with enhanced dithering
-        float normalizedHeight = (height + 0.6) / 1.2; // Normalize to [0,1] range
-        float level = normalizedHeight * 3.0 + dither * 0.8 + animatedNoise * 0.5;
-        int colorIndex = clamp(int(level), 0, 3);
-
-        // Select color from enhanced crystalline palette
-        baseColor = glassColors[colorIndex];
-
-        // Enhanced stippling effect for more texture
-        float stipple = step(0.5, fract(gl_FragCoord.x * 0.5) + fract(gl_FragCoord.y * 0.5));
-        baseColor *= 0.7 + stipple * 0.3;
-
-        // Simple lighting for crystalline effect
-        float simpleLighting = max(0.4, dot(normal, normalize(vec3(0.5, 1.0, 0.3))));
-        baseColor *= simpleLighting;
-
-        // Enhanced crystalline sparkles
-        float sparkle = step(0.9, cheapNoise(oceanPos * 15.0 + v_time * 1.2));
-        baseColor += vec3(sparkle * 0.5);
-
-        // Add crystalline edge highlights
-        float edgeHighlight = step(0.8, fract(gl_FragCoord.x * 0.25) + fract(gl_FragCoord.y * 0.25));
-        baseColor += vec3(edgeHighlight * 0.2);
+        // Simple solid color for minimal visual noise under glass panels
+        baseColor = vec3(0.08, 0.12, 0.25);
 
     } else {
         // Standard ocean rendering
