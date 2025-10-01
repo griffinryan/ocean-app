@@ -294,13 +294,8 @@ export class GlassRenderer {
 
     // Render each visible panel
     this.panels.forEach((config, id) => {
-      // Check if the corresponding HTML element is visible
-      let elementId = id;
-      if (id === 'landing') elementId = 'landing-panel';
-      else if (id === 'app') elementId = 'app-panel';
-      else if (id === 'portfolio') elementId = 'portfolio-panel';
-      else if (id === 'resume') elementId = 'resume-panel';
-      else if (id === 'navbar') elementId = 'navbar';
+      // Dynamically construct element ID: navbar stays as-is, everything else gets -panel suffix
+      const elementId = (id === 'navbar') ? 'navbar' : `${id}-panel`;
 
       const element = document.getElementById(elementId);
       if (element && !element.classList.contains('hidden')) {
@@ -434,6 +429,7 @@ export class GlassRenderer {
 
   /**
    * Update panel positions based on HTML element positions
+   * Dynamically updates all registered panels
    */
   public updatePanelPositions(): void {
     const canvas = this.gl.canvas as HTMLCanvasElement;
@@ -445,80 +441,25 @@ export class GlassRenderer {
       return;
     }
 
-    // Update landing panel position
-    const landingElement = document.getElementById('landing-panel');
-    if (landingElement && !landingElement.classList.contains('hidden')) {
-      const rect = landingElement.getBoundingClientRect();
+    // Dynamically update all registered panels
+    this.panels.forEach((_config, id) => {
+      // Construct element ID: navbar stays as-is, everything else gets -panel suffix
+      const elementId = (id === 'navbar') ? 'navbar' : `${id}-panel`;
 
-      // Only update if element is visible and has valid dimensions
-      if (rect.width > 0 && rect.height > 0) {
-        const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
-        this.updatePanel('landing', {
-          position: normalizedPos.position,
-          size: normalizedPos.size
-        });
+      const element = document.getElementById(elementId);
+      if (element && !element.classList.contains('hidden')) {
+        const rect = element.getBoundingClientRect();
+
+        // Only update if element is visible and has valid dimensions
+        if (rect.width > 0 && rect.height > 0) {
+          const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
+          this.updatePanel(id, {
+            position: normalizedPos.position,
+            size: normalizedPos.size
+          });
+        }
       }
-    }
-
-    // Update app panel position
-    const appElement = document.getElementById('app-panel');
-    if (appElement && !appElement.classList.contains('hidden')) {
-      const rect = appElement.getBoundingClientRect();
-
-      // Only update if element is visible and has valid dimensions
-      if (rect.width > 0 && rect.height > 0) {
-        const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
-        this.updatePanel('app', {
-          position: normalizedPos.position,
-          size: normalizedPos.size
-        });
-      }
-    }
-
-    // Update portfolio panel position
-    const portfolioElement = document.getElementById('portfolio-panel');
-    if (portfolioElement && !portfolioElement.classList.contains('hidden')) {
-      const rect = portfolioElement.getBoundingClientRect();
-
-      // Only update if element is visible and has valid dimensions
-      if (rect.width > 0 && rect.height > 0) {
-        const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
-        this.updatePanel('portfolio', {
-          position: normalizedPos.position,
-          size: normalizedPos.size
-        });
-      }
-    }
-
-    // Update resume panel position
-    const resumeElement = document.getElementById('resume-panel');
-    if (resumeElement && !resumeElement.classList.contains('hidden')) {
-      const rect = resumeElement.getBoundingClientRect();
-
-      // Only update if element is visible and has valid dimensions
-      if (rect.width > 0 && rect.height > 0) {
-        const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
-        this.updatePanel('resume', {
-          position: normalizedPos.position,
-          size: normalizedPos.size
-        });
-      }
-    }
-
-    // Update navbar position (only when visible)
-    const navbarElement = document.getElementById('navbar');
-    if (navbarElement && !navbarElement.classList.contains('hidden')) {
-      const rect = navbarElement.getBoundingClientRect();
-
-      // Only update if element is visible and has valid dimensions
-      if (rect.width > 0 && rect.height > 0) {
-        const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
-        this.updatePanel('navbar', {
-          position: normalizedPos.position,
-          size: normalizedPos.size
-        });
-      }
-    }
+    });
   }
 
   /**
