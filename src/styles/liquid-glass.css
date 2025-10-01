@@ -614,20 +614,98 @@ body {
 }
 
 .scroll-content {
-  min-height: 100%;
+  min-height: 100vh;  /* Changed from 100% to 100vh for explicit viewport height */
   padding: 3rem 2rem;
   /* Layout defined per-container (grid for portfolio, flex for resume) */
 }
 
-/* Override base glass-panel positioning for scroll containers */
+/* Complete glass panel styling for scroll containers */
+/* Combines positioning overrides, visual styling, and animation */
 .content-scroll-container .glass-panel {
-  position: relative !important;  /* Override absolute from base class */
-  /* Remove any inherited positioning */
+  /* Position overrides - change from absolute to relative for scroll layout */
+  position: relative !important;
   top: auto !important;
   left: auto !important;
   right: auto !important;
   bottom: auto !important;
-  transform: none !important;  /* Remove transforms from base */
+  transform: none !important;
+
+  /* Complete glass panel visual styling */
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  background: linear-gradient(
+    135deg,
+    var(--glass-tint) 0%,
+    rgba(255, 255, 255, 0.05) 100%
+  );
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-radius: var(--panel-radius);
+  box-shadow:
+    var(--glass-shadow),
+    /* Beveled edge effects */
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    inset 1px 0 0 rgba(255, 255, 255, 0.2),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.2),
+    inset -1px 0 0 rgba(0, 0, 0, 0.1),
+    inset 0 2px 4px rgba(255, 255, 255, 0.1);
+  padding: var(--panel-padding);
+  z-index: 100;
+
+  /* Performance optimizations */
+  will-change: transform, filter;
+  transform-style: preserve-3d;
+  transition: var(--glass-transition);
+
+  /* Fade-in animation */
+  animation: simpleFadeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+/* Pseudo-element styling for scroll container glass panels */
+/* These create the beveled edge and inner glow effects */
+.content-scroll-container .glass-panel::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: var(--panel-radius);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.15) 0%,
+    rgba(255, 255, 255, 0.03) 50%,
+    rgba(255, 255, 255, 0.12) 100%
+  );
+  box-shadow:
+    /* Enhanced beveled highlights */
+    inset 0 1px 2px rgba(255, 255, 255, 0.3),
+    inset 1px 0 1px rgba(255, 255, 255, 0.2);
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* Enhanced edge masking and inner glow for scroll container panels */
+.content-scroll-container .glass-panel::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  right: 2px;
+  bottom: 2px;
+  border-radius: calc(var(--panel-radius) - 2px);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.15) 0%,
+    transparent 50%
+  );
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  box-shadow:
+    /* Inner rim light */
+    0 0 8px rgba(255, 255, 255, 0.2),
+    /* Outer masking shadow */
+    0 0 0 3px rgba(255, 255, 255, 0.1);
+  pointer-events: none;
+  z-index: 1; /* Above content to provide masking */
 }
 
 /* ===== SCROLLABLE PANEL SYSTEM ===== */
@@ -904,6 +982,7 @@ body {
   padding: 3rem 2rem;
   max-width: 600px;       /* Constrain width */
   margin: 0 auto;         /* Center container */
+  height: auto;           /* Explicit height: auto to ensure flex sizing */
 }
 
 /* ===== RESUME LAYOUT ===== */
@@ -917,6 +996,7 @@ body {
   padding: 3rem 2rem;
   max-width: 600px;       /* Constrain width */
   margin: 0 auto;         /* Center container */
+  height: auto;           /* Explicit height: auto to ensure flex sizing */
 }
 
 /* ===== SCROLL PANEL ANIMATIONS ===== */
