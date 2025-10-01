@@ -337,36 +337,94 @@ export class GlassRenderer {
     this.addPanel('landing', {
       position: [0.0, 0.0],
       size: [0.4, 0.5],
-      distortionStrength: 0.4, // Enhanced distortion for better text visibility
+      distortionStrength: 0.4,
       refractionIndex: 1.52
     });
 
     this.addPanel('app', {
       position: [0.0, 0.0],
       size: [0.35, 0.3],
-      distortionStrength: 0.35, // Enhanced distortion for better text visibility
+      distortionStrength: 0.35,
       refractionIndex: 1.52
     });
 
-    this.addPanel('portfolio', {
+    // Portfolio project panels
+    this.addPanel('portfolio-lakehouse', {
       position: [0.0, 0.0],
-      size: [0.35, 0.3],
-      distortionStrength: 0.35, // Enhanced distortion for better text visibility
+      size: [0.4, 0.5],
+      distortionStrength: 0.35,
       refractionIndex: 1.52
     });
 
-    this.addPanel('resume', {
+    this.addPanel('portfolio-encryption', {
       position: [0.0, 0.0],
-      size: [0.35, 0.3],
-      distortionStrength: 0.35, // Enhanced distortion for better text visibility
+      size: [0.38, 0.48],
+      distortionStrength: 0.35,
+      refractionIndex: 1.52
+    });
+
+    this.addPanel('portfolio-dotereditor', {
+      position: [0.0, 0.0],
+      size: [0.4, 0.5],
+      distortionStrength: 0.35,
+      refractionIndex: 1.52
+    });
+
+    this.addPanel('portfolio-dreamrequiem', {
+      position: [0.0, 0.0],
+      size: [0.38, 0.48],
+      distortionStrength: 0.35,
+      refractionIndex: 1.52
+    });
+
+    this.addPanel('portfolio-greenlightgo', {
+      position: [0.0, 0.0],
+      size: [0.38, 0.48],
+      distortionStrength: 0.35,
+      refractionIndex: 1.52
+    });
+
+    // Resume card panels
+    this.addPanel('resume-playember', {
+      position: [0.0, 0.0],
+      size: [0.45, 0.38],
+      distortionStrength: 0.35,
+      refractionIndex: 1.52
+    });
+
+    this.addPanel('resume-meta', {
+      position: [0.0, 0.0],
+      size: [0.45, 0.38],
+      distortionStrength: 0.35,
+      refractionIndex: 1.52
+    });
+
+    this.addPanel('resume-outlier', {
+      position: [0.0, 0.0],
+      size: [0.45, 0.38],
+      distortionStrength: 0.35,
+      refractionIndex: 1.52
+    });
+
+    this.addPanel('resume-uwtutor', {
+      position: [0.0, 0.0],
+      size: [0.45, 0.32],
+      distortionStrength: 0.35,
+      refractionIndex: 1.52
+    });
+
+    this.addPanel('resume-uwedu', {
+      position: [0.0, 0.0],
+      size: [0.45, 0.32],
+      distortionStrength: 0.35,
       refractionIndex: 1.52
     });
 
     // Navigation bar with minimal distortion for readability
     this.addPanel('navbar', {
-      position: [0.0, 0.9], // Top center
-      size: [2.0, 0.2], // Full width, minimal height
-      distortionStrength: 0.15, // Lower distortion for text readability
+      position: [0.0, 0.9],
+      size: [2.0, 0.2],
+      distortionStrength: 0.15,
       refractionIndex: 1.45
     });
 

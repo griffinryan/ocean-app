@@ -546,7 +546,383 @@ body {
   animation: fadeOut 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* ===== CONTENT PANELS STYLING ===== */
+/* ===== CONTENT SCROLL CONTAINER SYSTEM ===== */
+
+.content-scroll-container {
+  position: fixed;
+  top: 80px;           /* Below navbar */
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow-y: auto;     /* Enable vertical scrolling */
+  overflow-x: hidden;
+  z-index: 50;          /* Above ocean (1), below navbar (200) */
+
+  /* Performance optimizations */
+  -webkit-overflow-scrolling: touch;
+  will-change: scroll-position;
+
+  /* Smooth scrolling */
+  scroll-behavior: smooth;
+}
+
+/* Custom Scrollbar for Scroll Container (Glass Theme) */
+.content-scroll-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.content-scroll-container::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.3);
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.content-scroll-container::-webkit-scrollbar-thumb {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.4) 0%,
+    rgba(255, 255, 255, 0.2) 100%
+  );
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.content-scroll-container::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.6) 0%,
+    rgba(255, 255, 255, 0.3) 100%
+  );
+}
+
+/* Firefox scrollbar */
+.content-scroll-container {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.3) rgba(0, 0, 0, 0.3);
+}
+
+.scroll-content {
+  min-height: 100%;
+  padding: 3rem 2rem;
+  /* Layout defined per-container (grid for portfolio, flex for resume) */
+}
+
+/* ===== SCROLLABLE PANEL SYSTEM ===== */
+
+.scrollable-panel {
+  position: relative;   /* Changed from fixed - flows in document */
+  overflow: hidden;     /* Parent panel doesn't scroll */
+  will-change: transform; /* Performance optimization */
+}
+
+.scrollable-content {
+  max-height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 8px; /* Space for scrollbar */
+
+  /* Smooth scrolling */
+  scroll-behavior: smooth;
+
+  /* Optimize scroll performance */
+  -webkit-overflow-scrolling: touch;
+  will-change: scroll-position;
+}
+
+/* Custom Scrollbar Styling (Glass Theme) */
+.scrollable-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.scrollable-content::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+  margin: 4px 0;
+}
+
+.scrollable-content::-webkit-scrollbar-thumb {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.4) 0%,
+    rgba(255, 255, 255, 0.2) 100%
+  );
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.scrollable-content::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.6) 0%,
+    rgba(255, 255, 255, 0.3) 100%
+  );
+}
+
+/* Firefox scrollbar */
+.scrollable-content {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.3) rgba(0, 0, 0, 0.2);
+}
+
+/* ===== PROJECT PANEL STYLING ===== */
+
+.project-panel {
+  /* Base dimensions (will be overridden by specific positioning) */
+  width: 420px;
+  max-height: 550px;
+  padding: 2rem;
+
+  /* Ensure content is properly contained */
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.project-title {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  font-weight: normal;
+  margin: 0;
+  letter-spacing: 0.05em;
+  color: var(--text-primary);
+}
+
+.tech-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.tech-tag {
+  padding: 0.25rem 0.75rem;
+  background: rgba(0, 122, 255, 0.2);
+  border: 1px solid rgba(0, 122, 255, 0.3);
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: var(--font-weight-medium);
+  color: rgba(255, 255, 255, 0.9);
+  letter-spacing: 0.02em;
+}
+
+.project-content {
+  flex: 1;
+  min-height: 0; /* Important for flex scrolling */
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.project-description {
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.project-section-title {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: normal;
+  margin: 0.5rem 0 0.25rem 0;
+  letter-spacing: 0.05em;
+  color: var(--text-primary);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 0.25rem;
+}
+
+.project-features {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.project-features li {
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  padding-left: 1rem;
+  position: relative;
+}
+
+.project-features li::before {
+  content: '→';
+  position: absolute;
+  left: 0;
+  color: rgba(0, 122, 255, 0.6);
+}
+
+/* ===== RESUME CARD PANEL STYLING ===== */
+
+.resume-card-panel {
+  /* Base dimensions */
+  width: 450px;
+  max-height: 380px;
+  padding: 2rem;
+
+  /* Flex layout for content sections */
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.resume-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  padding-bottom: 0.75rem;
+}
+
+.resume-position {
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  font-weight: normal;
+  margin: 0;
+  letter-spacing: 0.05em;
+  color: var(--text-primary);
+}
+
+.resume-company {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: normal;
+  margin: 0;
+  letter-spacing: 0.05em;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.resume-meta {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.resume-date,
+.resume-team,
+.resume-location {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.6);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.05em;
+}
+
+.resume-team::before,
+.resume-location::before {
+  content: '•';
+  margin-right: 0.5rem;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.resume-content {
+  flex: 1;
+  min-height: 0; /* Important for flex scrolling */
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.resume-description {
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  margin: 0;
+  font-style: italic;
+}
+
+.resume-subsection {
+  font-family: var(--font-display);
+  font-size: 0.9rem;
+  font-weight: normal;
+  margin: 0.5rem 0 0.25rem 0;
+  letter-spacing: 0.05em;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.resume-responsibilities {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.resume-responsibilities li {
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  padding-left: 1rem;
+  position: relative;
+}
+
+.resume-responsibilities li::before {
+  content: '▸';
+  position: absolute;
+  left: 0;
+  color: rgba(0, 122, 255, 0.5);
+}
+
+/* ===== PORTFOLIO GRID LAYOUT ===== */
+/* 2-column responsive grid for portfolio projects */
+
+#portfolio-container .scroll-content {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(380px, 500px));
+  gap: 2rem;
+  justify-content: center;
+  align-items: start;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* Individual portfolio panel sizing */
+.project-panel {
+  width: 100%;
+  max-width: 500px;
+  min-height: 450px;
+
+  /* Entry animation - fade in */
+  animation: fadeInUp 0.6s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+/* Staggered animation delays */
+#portfolio-lakehouse-panel { animation-delay: 0s; }
+#portfolio-encryption-panel { animation-delay: 0.05s; }
+#portfolio-dotereditor-panel { animation-delay: 0.1s; }
+#portfolio-dreamrequiem-panel { animation-delay: 0.15s; }
+#portfolio-greenlightgo-panel { animation-delay: 0.2s; }
+
+/* ===== RESUME COLUMN LAYOUT ===== */
+/* Single centered column for resume timeline */
+
+#resume-container .scroll-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2rem;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.resume-card-panel {
+  width: 100%;
+  max-width: 550px;
+
+  /* Entry animation - fade in */
+  animation: fadeInUp 0.6s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+/* Staggered animation delays */
+#resume-playember-panel { animation-delay: 0s; }
+#resume-meta-panel { animation-delay: 0.05s; }
+#resume-outlier-panel { animation-delay: 0.1s; }
+#resume-uwtutor-panel { animation-delay: 0.15s; }
+#resume-uwedu-panel { animation-delay: 0.2s; }
+
+/* ===== CONTENT PANELS STYLING (Legacy - kept for app panel) ===== */
 
 .portfolio-preview,
 .portfolio-grid {
@@ -780,6 +1156,50 @@ body {
   .skill-tag {
     font-size: 0.75rem;
     padding: 0.2rem 0.6rem;
+  }
+
+  /* Scroll containers - adjust for mobile navbar */
+  .content-scroll-container {
+    top: 70px; /* Smaller navbar on mobile */
+  }
+
+  /* Portfolio grid - single column on mobile */
+  #portfolio-container .scroll-content {
+    grid-template-columns: 1fr;
+    padding: 2rem 1rem;
+  }
+
+  .project-panel {
+    max-width: 100%;
+  }
+
+  /* Resume - full width on mobile */
+  #resume-container .scroll-content {
+    padding: 2rem 1rem;
+    max-width: 100%;
+  }
+
+  .resume-card-panel {
+    max-width: 100%;
+  }
+
+  /* Reduce panel padding on mobile */
+  .project-panel,
+  .resume-card-panel {
+    padding: 1.5rem;
+  }
+
+  /* Smaller text on mobile */
+  .project-title {
+    font-size: 1.2rem;
+  }
+
+  .resume-position {
+    font-size: 1.1rem;
+  }
+
+  .resume-company {
+    font-size: 0.95rem;
   }
 }
 
