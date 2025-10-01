@@ -606,6 +606,17 @@ body {
   /* Layout defined per-container (grid for portfolio, flex for resume) */
 }
 
+/* Override base glass-panel positioning for scroll containers */
+.content-scroll-container .glass-panel {
+  position: relative !important;  /* Override absolute from base class */
+  /* Remove any inherited positioning */
+  top: auto !important;
+  left: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+  transform: none !important;  /* Remove transforms from base */
+}
+
 /* ===== SCROLLABLE PANEL SYSTEM ===== */
 
 .scrollable-panel {
@@ -666,10 +677,12 @@ body {
 /* ===== PROJECT PANEL STYLING ===== */
 
 .project-panel {
-  /* Base dimensions (will be overridden by specific positioning) */
+  /* Clean consistent sizing like landing panel */
   width: 420px;
+  max-width: 100%;      /* Responsive cap */
   max-height: 550px;
   padding: 2rem;
+  margin: 0 auto;       /* Center horizontally */
 
   /* Ensure content is properly contained */
   display: flex;
@@ -756,10 +769,12 @@ body {
 /* ===== RESUME CARD PANEL STYLING ===== */
 
 .resume-card-panel {
-  /* Base dimensions */
-  width: 450px;
-  max-height: 380px;
+  /* Clean consistent sizing to match portfolio */
+  width: 420px;
+  max-width: 100%;      /* Responsive cap */
+  max-height: 450px;
   padding: 2rem;
+  margin: 0 auto;       /* Center horizontally */
 
   /* Flex layout for content sections */
   display: flex;
@@ -865,62 +880,57 @@ body {
   color: rgba(0, 122, 255, 0.5);
 }
 
-/* ===== PORTFOLIO GRID LAYOUT ===== */
-/* 2-column responsive grid for portfolio projects */
+/* ===== PORTFOLIO LAYOUT ===== */
+/* Simple vertical stack for clarity */
 
 #portfolio-container .scroll-content {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(380px, 500px));
-  gap: 2rem;
-  justify-content: center;
-  align-items: start;
-  max-width: 1400px;
-  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3rem;              /* Generous spacing between panels */
+  padding: 3rem 2rem;
+  max-width: 600px;       /* Constrain width */
+  margin: 0 auto;         /* Center container */
 }
 
-/* Individual portfolio panel sizing */
-.project-panel {
-  width: 100%;
-  max-width: 500px;
-  min-height: 450px;
-
-  /* Entry animation - fade in */
-  animation: fadeInUp 0.6s cubic-bezier(0.4, 0, 0.2, 1) both;
-}
-
-/* Staggered animation delays */
-#portfolio-lakehouse-panel { animation-delay: 0s; }
-#portfolio-encryption-panel { animation-delay: 0.05s; }
-#portfolio-dotereditor-panel { animation-delay: 0.1s; }
-#portfolio-dreamrequiem-panel { animation-delay: 0.15s; }
-#portfolio-greenlightgo-panel { animation-delay: 0.2s; }
-
-/* ===== RESUME COLUMN LAYOUT ===== */
-/* Single centered column for resume timeline */
+/* ===== RESUME LAYOUT ===== */
+/* Simple vertical stack for clarity */
 
 #resume-container .scroll-content {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2rem;
-  max-width: 600px;
-  margin: 0 auto;
+  gap: 3rem;              /* Generous spacing between panels */
+  padding: 3rem 2rem;
+  max-width: 600px;       /* Constrain width */
+  margin: 0 auto;         /* Center container */
 }
 
-.resume-card-panel {
-  width: 100%;
-  max-width: 550px;
+/* ===== SCROLL PANEL ANIMATIONS ===== */
 
-  /* Entry animation - fade in */
-  animation: fadeInUp 0.6s cubic-bezier(0.4, 0, 0.2, 1) both;
+/* Simple fade animation without transforms */
+.content-scroll-container .glass-panel {
+  animation: simpleFadeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
-/* Staggered animation delays */
+@keyframes simpleFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Staggered animation delays for portfolio */
+#portfolio-lakehouse-panel { animation-delay: 0s; }
+#portfolio-encryption-panel { animation-delay: 0.1s; }
+#portfolio-dotereditor-panel { animation-delay: 0.2s; }
+#portfolio-dreamrequiem-panel { animation-delay: 0.3s; }
+#portfolio-greenlightgo-panel { animation-delay: 0.4s; }
+
+/* Staggered animation delays for resume */
 #resume-playember-panel { animation-delay: 0s; }
-#resume-meta-panel { animation-delay: 0.05s; }
-#resume-outlier-panel { animation-delay: 0.1s; }
-#resume-uwtutor-panel { animation-delay: 0.15s; }
-#resume-uwedu-panel { animation-delay: 0.2s; }
+#resume-meta-panel { animation-delay: 0.1s; }
+#resume-outlier-panel { animation-delay: 0.2s; }
+#resume-uwtutor-panel { animation-delay: 0.3s; }
+#resume-uwedu-panel { animation-delay: 0.4s; }
 
 /* ===== CONTENT PANELS STYLING (Legacy - kept for app panel) ===== */
 
@@ -1163,29 +1173,19 @@ body {
     top: 70px; /* Smaller navbar on mobile */
   }
 
-  /* Portfolio grid - single column on mobile */
-  #portfolio-container .scroll-content {
-    grid-template-columns: 1fr;
-    padding: 2rem 1rem;
-  }
-
-  .project-panel {
-    max-width: 100%;
-  }
-
-  /* Resume - full width on mobile */
+  /* Portfolio and Resume - adjust spacing on mobile */
+  #portfolio-container .scroll-content,
   #resume-container .scroll-content {
     padding: 2rem 1rem;
+    gap: 2rem;          /* Reduced spacing on mobile */
     max-width: 100%;
   }
 
-  .resume-card-panel {
-    max-width: 100%;
-  }
-
-  /* Reduce panel padding on mobile */
+  /* Panel sizing on mobile */
   .project-panel,
   .resume-card-panel {
+    width: 100%;
+    max-width: 400px;   /* Slightly narrower on mobile */
     padding: 1.5rem;
   }
 
