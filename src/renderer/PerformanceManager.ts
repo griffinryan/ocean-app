@@ -88,7 +88,7 @@ export class PerformanceManager {
    * Validate quality preset string
    */
   private isValidPreset(preset: string): boolean {
-    return ['auto', 'low', 'medium', 'high', 'ultra'].includes(preset);
+    return ['auto', 'low', 'high'].includes(preset);
   }
 
   /**
@@ -230,7 +230,7 @@ export class PerformanceManager {
    */
   private downgradeQuality(): void {
     const currentQuality = this.getActualQuality();
-    const qualityLevels: Array<Exclude<QualityPreset, 'auto'>> = ['low', 'medium', 'high', 'ultra'];
+    const qualityLevels: Array<Exclude<QualityPreset, 'auto'>> = ['low', 'high'];
     const currentIndex = qualityLevels.indexOf(currentQuality);
 
     if (currentIndex > 0) {
@@ -249,7 +249,7 @@ export class PerformanceManager {
    */
   private upgradeQuality(): void {
     const currentQuality = this.getActualQuality();
-    const qualityLevels: Array<Exclude<QualityPreset, 'auto'>> = ['low', 'medium', 'high', 'ultra'];
+    const qualityLevels: Array<Exclude<QualityPreset, 'auto'>> = ['low', 'high'];
     const currentIndex = qualityLevels.indexOf(currentQuality);
 
     if (currentIndex < qualityLevels.length - 1) {
@@ -272,7 +272,7 @@ export class PerformanceManager {
           return preset as Exclude<QualityPreset, 'auto'>;
         }
       }
-      return 'medium'; // Fallback
+      return 'high'; // Fallback to high quality
     }
     return this.currentPreset as Exclude<QualityPreset, 'auto'>;
   }
@@ -312,7 +312,7 @@ export class PerformanceManager {
    * Cycle to next quality preset (for keyboard shortcut)
    */
   cycleQuality(): QualityPreset {
-    const presets: QualityPreset[] = ['auto', 'low', 'medium', 'high', 'ultra'];
+    const presets: QualityPreset[] = ['auto', 'low', 'high'];
     const currentIndex = presets.indexOf(this.currentPreset);
     const nextIndex = (currentIndex + 1) % presets.length;
     const nextPreset = presets[nextIndex];

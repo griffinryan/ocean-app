@@ -467,7 +467,7 @@ class OceanApp {
       const battery = this.performanceManager.getBatteryStatus();
       const avgFPS = Math.round(this.performanceManager.getAverageFPS());
 
-      qualityElement.innerHTML = `<br>Quality: ${preset.toUpperCase()}<br>Resolution: ${Math.round(settings.resolutionScale * 100)}%<br>FPS: ${avgFPS}<br>Battery: ${battery.charging ? 'Charging' : `${Math.round(battery.level * 100)}%`}`;
+      qualityElement.innerHTML = `<br>Quality: ${preset.toUpperCase()}<br>Resolution: ${Math.round(settings.resolutionScale * 100)}%<br>FPS: ${avgFPS}<br>Battery: ${battery.charging ? 'Charging' : 'On Battery'}`;
     }
   }
 

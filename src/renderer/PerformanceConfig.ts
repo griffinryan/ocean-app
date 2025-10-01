@@ -3,7 +3,7 @@
  * Defines quality presets and performance settings for adaptive rendering
  */
 
-export type QualityPreset = 'low' | 'medium' | 'high' | 'ultra' | 'auto';
+export type QualityPreset = 'low' | 'high' | 'auto';
 
 export interface PerformanceSettings {
   // Resolution scaling
@@ -29,6 +29,7 @@ export interface PerformanceSettings {
 
 /**
  * Quality preset configurations
+ * Simplified to two tiers: low (battery mode) and high (full quality)
  */
 export const QUALITY_PRESETS: Record<Exclude<QualityPreset, 'auto'>, PerformanceSettings> = {
   low: {
@@ -53,52 +54,8 @@ export const QUALITY_PRESETS: Record<Exclude<QualityPreset, 'auto'>, Performance
     minFPS: 24
   },
 
-  medium: {
-    // Resolution - balanced scaling
-    resolutionScale: 0.75,
-    framebufferScale: 0.75,
-
-    // Features - balanced
-    enableGlass: true,
-    enableTextGlow: true,
-    enableWakes: true,
-    maxVessels: 3,
-
-    // Shader quality - moderate
-    glowSampleRings: 2,             // 16 samples total
-    wakeComponents: 2,              // Full wake detail
-    glassNoiseOctaves: 2,           // 2 octaves
-    enableChromaticAberration: true,
-
-    // Performance targets
-    targetFPS: 45,
-    minFPS: 35
-  },
-
   high: {
-    // Resolution - near full quality
-    resolutionScale: 1.0,
-    framebufferScale: 0.85,         // Slight framebuffer optimization
-
-    // Features - all enabled
-    enableGlass: true,
-    enableTextGlow: true,
-    enableWakes: true,
-    maxVessels: 5,
-
-    // Shader quality - high detail
-    glowSampleRings: 3,             // 24 samples total
-    wakeComponents: 2,
-    glassNoiseOctaves: 3,           // Full detail
-    enableChromaticAberration: true,
-
-    // Performance targets
-    targetFPS: 55,
-    minFPS: 45
-  },
-
-  ultra: {
-    // Resolution - maximum quality (current default)
+    // Resolution - maximum quality (no compromises)
     resolutionScale: 1.0,
     framebufferScale: 1.0,
 
@@ -108,10 +65,10 @@ export const QUALITY_PRESETS: Record<Exclude<QualityPreset, 'auto'>, Performance
     enableWakes: true,
     maxVessels: 5,
 
-    // Shader quality - maximum
-    glowSampleRings: 3,
+    // Shader quality - maximum (full text quality)
+    glowSampleRings: 3,             // 24 samples total
     wakeComponents: 2,
-    glassNoiseOctaves: 3,
+    glassNoiseOctaves: 3,           // Full detail
     enableChromaticAberration: true,
 
     // Performance targets
@@ -179,28 +136,20 @@ export function detectGPUTier(gl: WebGL2RenderingContext): GPUTier {
 
 /**
  * Recommended quality based on device capabilities
+ * Simplified to two tiers: low (battery) or high (AC power)
  */
 export function getRecommendedQuality(
-  gpuTier: GPUTier,
+  _gpuTier: GPUTier,
   isBatteryPowered: boolean,
-  batteryLevel: number
+  _batteryLevel: number
 ): Exclude<QualityPreset, 'auto'> {
-  // Battery mode always goes low on laptops
-  if (isBatteryPowered && batteryLevel < 0.8) {
+  // Battery mode → low quality for power savings
+  if (isBatteryPowered) {
     return 'low';
   }
 
-  // GPU tier based recommendations
-  switch (gpuTier.tier) {
-    case 'low':
-      return isBatteryPowered ? 'low' : 'medium';
-    case 'medium':
-      return isBatteryPowered ? 'medium' : 'high';
-    case 'high':
-      return isBatteryPowered ? 'high' : 'ultra';
-    default:
-      return 'medium';
-  }
+  // AC power → high quality (full experience)
+  return 'high';
 }
 
 /**
