@@ -768,14 +768,13 @@ body {
 /* ===== PROJECT PANEL STYLING ===== */
 
 .project-panel {
-  /* Clean consistent sizing like landing panel */
+  /* Layout-only styling - all glass effects come from .content-scroll-container .glass-panel */
   width: 420px;
   max-width: 100%;      /* Responsive cap */
   max-height: 550px;
-  padding: 2rem;
   margin: 0 auto;       /* Center horizontally */
 
-  /* Ensure content is properly contained */
+  /* Flex layout for content */
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -860,11 +859,10 @@ body {
 /* ===== RESUME CARD PANEL STYLING ===== */
 
 .resume-card-panel {
-  /* Clean consistent sizing to match portfolio */
+  /* Layout-only styling - all glass effects come from .content-scroll-container .glass-panel */
   width: 420px;
   max-width: 100%;      /* Responsive cap */
   max-height: 450px;
-  padding: 2rem;
   margin: 0 auto;       /* Center horizontally */
 
   /* Flex layout for content sections */
@@ -1000,11 +998,6 @@ body {
 }
 
 /* ===== SCROLL PANEL ANIMATIONS ===== */
-
-/* Simple fade animation without transforms */
-.content-scroll-container .glass-panel {
-  animation: simpleFadeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1) both;
-}
 
 @keyframes simpleFadeIn {
   from { opacity: 0; }
