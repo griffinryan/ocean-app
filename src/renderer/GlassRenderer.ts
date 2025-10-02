@@ -342,9 +342,10 @@ export class GlassRenderer {
       refractionIndex: 1.52
     });
 
-    this.addPanel('app', {
+    // Bio panel with medium distortion for readability
+    this.addPanel('app-bio', {
       position: [0.0, 0.0],
-      size: [0.35, 0.3],
+      size: [0.6, 0.35],
       distortionStrength: 0.35,
       refractionIndex: 1.52
     });

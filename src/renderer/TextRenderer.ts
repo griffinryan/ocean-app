@@ -623,11 +623,12 @@ export class TextRenderer {
     ctx.fillStyle = 'white';
     ctx.restore(); // Apply clean state
 
-    // Get list of visible panels (all 15: 3 main + 5 portfolio + 5 resume + navbar + app)
+    // Get list of visible panels (all 16: 3 main + 5 portfolio + 5 resume + navbar + app + app-bio)
     const visiblePanels = new Set<string>();
     const panelIds = [
       'landing-panel',
       'app-panel',
+      'app-bio-panel',
       'navbar',
       // Portfolio panels
       'portfolio-lakehouse-panel',
@@ -704,6 +705,7 @@ export class TextRenderer {
     const panelIds = [
       'landing-panel',
       'app-panel',
+      'app-bio-panel',
       'navbar',
       // Portfolio panels
       'portfolio-lakehouse-panel',
@@ -718,8 +720,8 @@ export class TextRenderer {
       'resume-uwtutor-panel',
       'resume-uwedu-panel'
     ];
-    const positions = new Float32Array(30); // 15 panels * 2 components (x,y)
-    const sizes = new Float32Array(30);
+    const positions = new Float32Array(32); // 16 panels * 2 components (x,y)
+    const sizes = new Float32Array(32);
     let validPanelCount = 0;
 
     panelIds.forEach((panelId) => {
@@ -951,9 +953,9 @@ export class TextRenderer {
       { selector: '#paper-btn', id: 'paper-button', panelId: 'landing-panel' },
       { selector: '#app-btn', id: 'app-button', panelId: 'landing-panel' },
 
-      // App Panel
-      { selector: '#app-panel > h2', id: 'app-title', panelId: 'app-panel' },
-      { selector: '#app-panel > p', id: 'app-description', panelId: 'app-panel' },
+      // App Bio Panel
+      { selector: '#app-bio-panel .bio-text:nth-child(1)', id: 'app-bio-p1', panelId: 'app-bio-panel' },
+      { selector: '#app-bio-panel .bio-text:nth-child(2)', id: 'app-bio-p2', panelId: 'app-bio-panel' },
 
       // Portfolio: Lakehouse
       { selector: '#portfolio-lakehouse-panel .project-title', id: 'portfolio-lakehouse-title', panelId: 'portfolio-lakehouse-panel' },
@@ -1065,27 +1067,6 @@ export class TextRenderer {
    * Setup text tracking for elements that appear multiple times
    */
   private setupMultiInstanceElements(): void {
-    // Project cards in app panel
-    const projectCards = document.querySelectorAll('#app-panel .project-card');
-    projectCards.forEach((card, index) => {
-      const h3 = card.querySelector('h3');
-      const p = card.querySelector('p');
-
-      if (h3) {
-        this.addTextElement(`project-card-title-${index}`, {
-          selector: `#app-panel .project-card:nth-child(${index + 1}) h3`,
-          panelId: 'app-panel'
-        });
-      }
-
-      if (p) {
-        this.addTextElement(`project-card-desc-${index}`, {
-          selector: `#app-panel .project-card:nth-child(${index + 1}) p`,
-          panelId: 'app-panel'
-        });
-      }
-    });
-
     // Tech tags for all portfolio panels
     const portfolioPanelIds = [
       'portfolio-lakehouse-panel',
@@ -1145,7 +1126,7 @@ export class TextRenderer {
 
   /**
    * Set up mutation observer to track content changes
-   * Observes all 15 panels for DOM mutations
+   * Observes all 16 panels for DOM mutations
    */
   private setupMutationObserver(): void {
     const observer = new MutationObserver(() => {
@@ -1156,6 +1137,7 @@ export class TextRenderer {
     const observeTargets = [
       '#landing-panel',
       '#app-panel',
+      '#app-bio-panel',
       '#navbar',
       // Portfolio panels
       '#portfolio-lakehouse-panel',
@@ -1301,6 +1283,7 @@ export class TextRenderer {
     const observeTargets = [
       '#landing-panel',
       '#app-panel',
+      '#app-bio-panel',
       '#navbar',
       // Portfolio panels
       '#portfolio-lakehouse-panel',

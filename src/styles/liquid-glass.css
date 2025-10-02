@@ -3,7 +3,7 @@
 /* ===== CUSTOM FONTS ===== */
 @font-face {
   font-family: 'Alagard';
-  src: url('/assets/fonts/alagard.ttf') format('truetype');
+  src: url('/fonts/alagard.ttf') format('truetype');
   font-weight: normal;
   font-style: normal;
   font-display: swap;
@@ -376,30 +376,6 @@ body {
   z-index: 1;
   font-family: var(--font-display);
   font-weight: normal;
-  letter-spacing: 0.05em;
-}
-
-/* ===== APP PANEL ===== */
-
-.app-panel {
-  top: 90px; /* Adjusted for navbar */
-  left: 2rem;
-  width: 320px;
-  transform: translateY(-100px);
-  opacity: 0;
-  transition: var(--glass-transition);
-}
-
-.app-panel.active {
-  transform: translateY(0);
-  opacity: 1;
-}
-
-.app-panel h2 {
-  font-family: var(--font-display);
-  font-size: 1.8rem;
-  font-weight: normal;
-  margin-bottom: 1rem;
   letter-spacing: 0.05em;
 }
 
@@ -1063,10 +1039,6 @@ body {
   line-height: 1.4;
 }
 
-.resume-content {
-  margin-top: 1.5rem;
-}
-
 .resume-section {
   margin-bottom: 2rem;
 }
@@ -1223,13 +1195,6 @@ body {
     letter-spacing: 0.05em;
   }
 
-  .app-panel {
-    top: 100px; /* More space for mobile navbar */
-    left: 1rem;
-    right: 1rem;
-    width: auto;
-  }
-
   .glass-button {
     width: 100%;
     margin: 0.25rem 0;
@@ -1355,5 +1320,85 @@ body {
 @supports not (backdrop-filter: blur(1px)) {
   .glass-panel {
     background: rgba(0, 0, 0, 0.4);
+  }
+}
+
+/* ===== PROFILE PICTURE ===== */
+
+.profile-picture-container {
+  position: absolute;
+  top: 100px; /* Below navbar */
+  left: 50%;
+  transform: translateX(-50%);
+  width: 150px;
+  height: 150px;
+  z-index: 200; /* Above canvas, below navbar */
+  opacity: 0;
+  transition: var(--glass-transition);
+}
+
+.profile-picture-container.active {
+  opacity: 1;
+}
+
+.profile-picture {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid rgba(255, 255, 255, 0.4);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  /* Subtle glow effect */
+  filter: drop-shadow(0 0 20px rgba(255, 255, 255, 0.1));
+}
+
+/* ===== BIO PANEL ===== */
+
+.bio-panel {
+  top: 280px; /* Below profile picture (100 + 150 + 30 margin) */
+  left: 50%;
+  transform: translateX(-50%) translateY(-100px);
+  width: 600px;
+  max-width: 85vw; /* Responsive */
+  opacity: 0;
+  transition: var(--glass-transition);
+  padding: 2rem;
+}
+
+.bio-panel.active {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+}
+
+.bio-text {
+  font-size: 0.95rem;
+  line-height: 1.7;
+  color: var(--text-secondary);
+  margin-bottom: 1.25rem;
+  text-align: left;
+}
+
+.bio-text:last-child {
+  margin-bottom: 0;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .profile-picture-container {
+    top: 80px;
+    width: 120px;
+    height: 120px;
+  }
+
+  .bio-panel {
+    top: 230px; /* Adjusted for smaller profile pic */
+    width: 90vw;
+    padding: 1.5rem;
+  }
+
+  .bio-text {
+    font-size: 0.9rem;
   }
 }
