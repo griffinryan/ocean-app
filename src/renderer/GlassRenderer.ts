@@ -38,6 +38,14 @@ export class GlassRenderer {
   // Animation
   private startTime: number;
 
+  // Blur map texture reference (owned by TextRenderer)
+  private blurMapTexture: WebGLTexture | null = null;
+
+  // Blur effect control
+  private blurMapEnabled: boolean = false;
+  private blurOpacityBoost: number = 0.15; // How much to increase opacity in text regions (0.0-0.5)
+  private blurDistortionBoost: number = 0.3; // How much to reduce distortion in text regions (0.0-1.0)
+
   constructor(gl: WebGL2RenderingContext, shaderManager: ShaderManager) {
     this.gl = gl;
     this.shaderManager = shaderManager;
@@ -75,7 +83,11 @@ export class GlassRenderer {
         'u_panelPosition',
         'u_panelSize',
         'u_distortionStrength',
-        'u_refractionIndex'
+        'u_refractionIndex',
+        'u_blurMapTexture',
+        'u_blurMapEnabled',
+        'u_blurOpacityBoost',
+        'u_blurDistortionBoost'
       ];
 
       const attributes = [
@@ -284,6 +296,18 @@ export class GlassRenderer {
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.oceanTexture);
     this.shaderManager.setUniform1i(program, 'u_oceanTexture', 0);
+
+    // Bind blur map texture if enabled
+    if (this.blurMapEnabled && this.blurMapTexture) {
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, this.blurMapTexture);
+      this.shaderManager.setUniform1i(program, 'u_blurMapTexture', 1);
+      this.shaderManager.setUniform1i(program, 'u_blurMapEnabled', 1);
+      this.shaderManager.setUniform1f(program, 'u_blurOpacityBoost', this.blurOpacityBoost);
+      this.shaderManager.setUniform1f(program, 'u_blurDistortionBoost', this.blurDistortionBoost);
+    } else {
+      this.shaderManager.setUniform1i(program, 'u_blurMapEnabled', 0);
+    }
 
     // Enable blending for transparency
     gl.enable(gl.BLEND);
@@ -517,6 +541,58 @@ export class GlassRenderer {
    */
   public getOceanTexture(): WebGLTexture | null {
     return this.oceanTexture;
+  }
+
+  /**
+   * Set blur map texture from TextRenderer
+   */
+  public setBlurMapTexture(texture: WebGLTexture | null): void {
+    this.blurMapTexture = texture;
+    this.blurMapEnabled = texture !== null;
+  }
+
+  /**
+   * Enable/disable blur map effect
+   */
+  public setBlurMapEnabled(enabled: boolean): void {
+    this.blurMapEnabled = enabled && this.blurMapTexture !== null;
+  }
+
+  /**
+   * Get blur map enabled state
+   */
+  public getBlurMapEnabled(): boolean {
+    return this.blurMapEnabled;
+  }
+
+  /**
+   * Set blur opacity boost (how much to increase opacity in text regions)
+   * @param boost - Value from 0.0 to 0.5 (0-50%)
+   */
+  public setBlurOpacityBoost(boost: number): void {
+    this.blurOpacityBoost = Math.max(0, Math.min(0.5, boost));
+  }
+
+  /**
+   * Get current blur opacity boost
+   */
+  public getBlurOpacityBoost(): number {
+    return this.blurOpacityBoost;
+  }
+
+  /**
+   * Set blur distortion boost (how much to reduce distortion in text regions)
+   * @param boost - Value from 0.0 to 1.0 (0-100%)
+   */
+  public setBlurDistortionBoost(boost: number): void {
+    this.blurDistortionBoost = Math.max(0, Math.min(1.0, boost));
+  }
+
+  /**
+   * Get current blur distortion boost
+   */
+  public getBlurDistortionBoost(): number {
+    return this.blurDistortionBoost;
   }
 
   /**

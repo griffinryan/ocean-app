@@ -14,6 +14,12 @@ uniform vec2 u_panelSize;         // Panel size in screen space
 uniform float u_distortionStrength; // How strong the distortion is
 uniform float u_refractionIndex;    // Index of refraction for glass
 
+// Blur map uniforms for frosted glass effect around text
+uniform sampler2D u_blurMapTexture;
+uniform bool u_blurMapEnabled;
+uniform float u_blurOpacityBoost;      // How much to increase opacity (0.0-0.5)
+uniform float u_blurDistortionBoost;   // How much to reduce distortion (0.0-1.0)
+
 out vec4 fragColor;
 
 // Glass properties
@@ -109,6 +115,12 @@ void main() {
     // Convert screen position to UV coordinates
     vec2 screenUV = (v_screenPos + 1.0) * 0.5;
 
+    // Sample blur map EARLY (before boundary check for efficiency)
+    float blurIntensity = 0.0;
+    if (u_blurMapEnabled) {
+        blurIntensity = texture(u_blurMapTexture, screenUV).r;
+    }
+
     // Calculate position relative to panel with corrected coordinate mapping
     vec2 panelCenter = (u_panelPosition + 1.0) * 0.5; // Convert from [-1,1] to [0,1]
     vec2 panelHalfSize = u_panelSize * 0.5; // Half-size for center-based calculation
@@ -145,12 +157,20 @@ void main() {
     // Calculate refraction direction
     vec3 refractionDir = calculateRefraction(viewDir, glassNormal, 1.0 / u_refractionIndex);
 
+    // MODULATE DISTORTION based on blur intensity
+    // In text regions: reduce distortion for cleaner frosted effect
+    float effectiveDistortion = u_distortionStrength;
+    if (u_blurMapEnabled && blurIntensity > 0.01) {
+        // Reduce distortion in text regions
+        effectiveDistortion *= (1.0 - blurIntensity * u_blurDistortionBoost);
+    }
+
     // Calculate uniform distorted UV coordinates with consistent liquid warping
     vec2 distortedUV = screenUV;
 
     if (length(refractionDir) > 0.0) {
-        // Apply uniform refraction offset
-        vec2 refractionOffset = refractionDir.xy * u_distortionStrength;
+        // Apply uniform refraction offset with MODULATED distortion
+        vec2 refractionOffset = refractionDir.xy * effectiveDistortion;
 
         // Enhanced flowing liquid distortion patterns
         vec2 liquidOffset = vec2(
@@ -173,8 +193,8 @@ void main() {
         // Combine all distortion effects with enhanced strength
         vec2 totalOffset = refractionOffset + liquidOffset + rippleOffset + noiseOffset;
 
-        // Enhanced distortion balanced with opacity
-        totalOffset *= u_distortionStrength * 2.5;
+        // Enhanced distortion balanced with opacity (use effectiveDistortion)
+        totalOffset *= effectiveDistortion * 2.5;
 
         distortedUV += totalOffset;
     }
@@ -266,6 +286,17 @@ void main() {
     // Add visible crystalline patterns
     float crystalPattern = sin(panelUV.x * 30.0) * sin(panelUV.y * 30.0) * 0.1;
     finalColor += vec3(crystalPattern * 0.15);
+
+    // MODULATE OPACITY and add FROST TINT based on blur intensity
+    if (u_blurMapEnabled && blurIntensity > 0.01) {
+        // Boost opacity in text regions for stronger frosted effect
+        alpha += blurIntensity * u_blurOpacityBoost;
+
+        // Add subtle blue-white frost tint in high-blur regions
+        float frostTint = blurIntensity * 0.08;
+        vec3 frostColor = vec3(0.92, 0.96, 1.0);
+        finalColor = mix(finalColor, frostColor, frostTint);
+    }
 
     // Apply edge fade to final alpha for smooth boundaries
     alpha *= edgeFade;

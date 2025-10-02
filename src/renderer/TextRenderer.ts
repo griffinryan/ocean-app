@@ -32,6 +32,17 @@ export class TextRenderer {
   private textContext!: CanvasRenderingContext2D;
   private textTexture: WebGLTexture | null = null;
 
+  // Blur map framebuffer for frosted glass effect
+  private blurMapFramebuffer: WebGLFramebuffer | null = null;
+  private blurMapTexture: WebGLTexture | null = null;
+  private blurMapDepthBuffer: WebGLRenderbuffer | null = null;
+
+  // Blur map shader program
+  private blurMapProgram: ShaderProgram | null = null;
+
+  // Blur map update flag
+  private needsBlurMapUpdate: boolean = false;
+
   // Matrix uniforms
   private projectionMatrix: Mat4;
   private viewMatrix: Mat4;
@@ -66,6 +77,10 @@ export class TextRenderer {
   private glowIntensity: number = 0.8;
   private glowWaveReactivity: number = 0.4;
 
+  // Blur control properties
+  private blurRadius: number = 128.0; // pixels
+  private blurFalloffPower: number = 1.5; // 1.0 = linear, >1.0 = sharper
+
   constructor(gl: WebGL2RenderingContext, _shaderManager: ShaderManager) {
     this.gl = gl;
     this.shaderManager = _shaderManager;
@@ -87,6 +102,9 @@ export class TextRenderer {
 
     // Initialize framebuffer for scene capture
     this.initializeFramebuffer();
+
+    // Initialize blur map framebuffer for frosted glass effect
+    this.initializeBlurMapFramebuffer();
 
     // Wait for fonts to load
     this.waitForFonts();
@@ -175,6 +193,77 @@ export class TextRenderer {
   }
 
   /**
+   * Initialize blur map framebuffer for frosted glass effect around text
+   */
+  private initializeBlurMapFramebuffer(): void {
+    const gl = this.gl;
+
+    // Create framebuffer
+    this.blurMapFramebuffer = gl.createFramebuffer();
+    if (!this.blurMapFramebuffer) {
+      throw new Error('Failed to create blur map framebuffer');
+    }
+
+    // Create texture (single channel R for blur intensity)
+    this.blurMapTexture = gl.createTexture();
+    if (!this.blurMapTexture) {
+      throw new Error('Failed to create blur map texture');
+    }
+
+    // Create depth renderbuffer
+    this.blurMapDepthBuffer = gl.createRenderbuffer();
+    if (!this.blurMapDepthBuffer) {
+      throw new Error('Failed to create blur map depth buffer');
+    }
+
+    // Setup will be completed in resize method
+    this.resizeBlurMapFramebuffer(gl.canvas.width, gl.canvas.height);
+  }
+
+  /**
+   * Resize blur map framebuffer to match canvas size
+   */
+  private resizeBlurMapFramebuffer(width: number, height: number): void {
+    const gl = this.gl;
+
+    if (!this.blurMapFramebuffer || !this.blurMapTexture || !this.blurMapDepthBuffer) {
+      return;
+    }
+
+    // Bind framebuffer
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.blurMapFramebuffer);
+
+    // Setup color texture (R8 format for single channel)
+    gl.bindTexture(gl.TEXTURE_2D, this.blurMapTexture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, width, height, 0, gl.RED, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    // Attach color texture
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.blurMapTexture, 0);
+
+    // Setup depth buffer
+    gl.bindRenderbuffer(gl.RENDERBUFFER, this.blurMapDepthBuffer);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, width, height);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, this.blurMapDepthBuffer);
+
+    // Check framebuffer completeness
+    const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+    if (status !== gl.FRAMEBUFFER_COMPLETE) {
+      console.error('Blur map framebuffer incomplete:', status);
+    }
+
+    // Unbind
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    gl.bindRenderbuffer(gl.RENDERBUFFER, null);
+
+    this.needsBlurMapUpdate = true;
+  }
+
+  /**
    * Initialize text shaders (RESTORED)
    */
   async initializeShaders(vertexShader: string, fragmentShader: string): Promise<void> {
@@ -237,6 +326,50 @@ export class TextRenderer {
   }
 
   /**
+   * Initialize blur map shaders for frosted glass effect
+   */
+  async initializeBlurMapShaders(vertexShader: string, fragmentShader: string): Promise<void> {
+    try {
+      // Define uniforms and attributes for blur map shader
+      const uniforms = [
+        'u_projectionMatrix',
+        'u_viewMatrix',
+        'u_resolution',
+        'u_textTexture',
+        'u_blurRadius',
+        'u_blurFalloffPower'
+      ];
+
+      const attributes = [
+        'a_position',
+        'a_uv'
+      ];
+
+      // Create blur map shader program
+      this.blurMapProgram = this.shaderManager.createProgram(
+        'blurmap',
+        vertexShader,
+        fragmentShader,
+        uniforms,
+        attributes
+      );
+
+      // Set up vertex attributes for blur map rendering
+      const positionLocation = this.blurMapProgram.attributeLocations.get('a_position');
+      const uvLocation = this.blurMapProgram.attributeLocations.get('a_uv');
+
+      if (positionLocation !== undefined && uvLocation !== undefined) {
+        this.bufferManager.setupAttributes(positionLocation, uvLocation);
+      }
+
+      console.log('Blur map shaders initialized successfully!');
+    } catch (error) {
+      console.error('Failed to initialize blur map shaders:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Resize framebuffer to match canvas size
    */
   public resizeFramebuffer(width: number, height: number): void {
@@ -284,6 +417,9 @@ export class TextRenderer {
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.bindTexture(gl.TEXTURE_2D, null);
     gl.bindRenderbuffer(gl.RENDERBUFFER, null);
+
+    // Resize blur map framebuffer
+    this.resizeBlurMapFramebuffer(width, height);
 
     // Mark scene as dirty after resize
     this.markSceneDirty();
@@ -750,6 +886,70 @@ export class TextRenderer {
   }
 
   /**
+   * Generate blur map from text texture for frosted glass effect
+   */
+  private generateBlurMap(): void {
+    const gl = this.gl;
+
+    // Skip if transitioning or no program
+    if (this.isTransitioningFlag || !this.blurMapProgram || !this.blurMapFramebuffer || !this.textTexture) {
+      return;
+    }
+
+    if (!this.needsBlurMapUpdate) {
+      return;
+    }
+
+    // Store current viewport
+    const viewport = gl.getParameter(gl.VIEWPORT);
+
+    // Bind blur map framebuffer
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.blurMapFramebuffer);
+    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+
+    // Clear framebuffer (black = no blur)
+    gl.clearColor(0.0, 0.0, 0.0, 1.0);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    // Use blur map shader
+    const program = this.shaderManager.useProgram('blurmap');
+
+    // Set matrices
+    this.shaderManager.setUniformMatrix4fv(program, 'u_projectionMatrix', this.projectionMatrix.data);
+    this.shaderManager.setUniformMatrix4fv(program, 'u_viewMatrix', this.viewMatrix.data);
+
+    // Set resolution
+    this.shaderManager.setUniform2f(program, 'u_resolution', gl.canvas.width, gl.canvas.height);
+
+    // Set blur parameters
+    this.shaderManager.setUniform1f(program, 'u_blurRadius', this.blurRadius);
+    this.shaderManager.setUniform1f(program, 'u_blurFalloffPower', this.blurFalloffPower);
+
+    // Bind text texture
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.textTexture);
+    this.shaderManager.setUniform1i(program, 'u_textTexture', 0);
+
+    // Disable depth test, enable blending
+    gl.disable(gl.DEPTH_TEST);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+    // Render full-screen quad
+    this.bufferManager.bind();
+    gl.drawElements(gl.TRIANGLES, this.quadGeometry.indexCount, gl.UNSIGNED_SHORT, 0);
+
+    // Re-enable depth test
+    gl.enable(gl.DEPTH_TEST);
+
+    // Restore screen framebuffer
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+
+    this.needsBlurMapUpdate = false;
+  }
+
+  /**
    * Render all text elements with per-pixel adaptive coloring and glow
    */
   public render(vesselData?: {
@@ -774,6 +974,9 @@ export class TextRenderer {
 
     // Update text texture if needed
     this.updateTextTexture();
+
+    // Generate blur map after text texture is updated
+    this.generateBlurMap();
 
     // Use text shader program
     const program = this.shaderManager.useProgram('text');
@@ -888,6 +1091,7 @@ export class TextRenderer {
    */
   public forceTextureUpdate(): void {
     this.needsTextureUpdate = true;
+    this.needsBlurMapUpdate = true;
   }
 
   /**
@@ -899,6 +1103,7 @@ export class TextRenderer {
     // If transitioning just ended, force immediate update and trigger intro animation
     if (!transitioning) {
       this.needsTextureUpdate = true;
+      this.needsBlurMapUpdate = true;
       this.markSceneDirty();
 
       // Trigger text intro animation
@@ -1366,6 +1571,53 @@ export class TextRenderer {
   }
 
   /**
+   * Get blur map texture for external use (e.g., GlassRenderer)
+   */
+  public getBlurMapTexture(): WebGLTexture | null {
+    return this.blurMapTexture;
+  }
+
+  /**
+   * Set blur radius in pixels
+   */
+  public setBlurRadius(radius: number): void {
+    this.blurRadius = Math.max(0, Math.min(256, radius));
+    this.needsBlurMapUpdate = true;
+  }
+
+  /**
+   * Get current blur radius
+   */
+  public getBlurRadius(): number {
+    return this.blurRadius;
+  }
+
+  /**
+   * Set blur falloff power (controls how sharply blur fades with distance)
+   * - power < 1.0: softer falloff, more spread
+   * - power = 1.0: linear falloff
+   * - power > 1.0: sharper falloff, tighter around text
+   */
+  public setBlurFalloffPower(power: number): void {
+    this.blurFalloffPower = Math.max(0.5, Math.min(3.0, power));
+    this.needsBlurMapUpdate = true;
+  }
+
+  /**
+   * Get current blur falloff power
+   */
+  public getBlurFalloffPower(): number {
+    return this.blurFalloffPower;
+  }
+
+  /**
+   * Mark blur map as dirty to force regeneration on next render
+   */
+  public markBlurMapDirty(): void {
+    this.needsBlurMapUpdate = true;
+  }
+
+  /**
    * Clean up resources
    */
   public dispose(): void {
@@ -1390,6 +1642,22 @@ export class TextRenderer {
     if (this.textTexture) {
       gl.deleteTexture(this.textTexture);
       this.textTexture = null;
+    }
+
+    // Clean up blur map framebuffer
+    if (this.blurMapFramebuffer) {
+      gl.deleteFramebuffer(this.blurMapFramebuffer);
+      this.blurMapFramebuffer = null;
+    }
+
+    if (this.blurMapTexture) {
+      gl.deleteTexture(this.blurMapTexture);
+      this.blurMapTexture = null;
+    }
+
+    if (this.blurMapDepthBuffer) {
+      gl.deleteRenderbuffer(this.blurMapDepthBuffer);
+      this.blurMapDepthBuffer = null;
     }
 
     // Clean up resize observer

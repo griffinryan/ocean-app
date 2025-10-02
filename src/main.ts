@@ -14,6 +14,8 @@ import glassVertexShader from './shaders/glass.vert';
 import glassFragmentShader from './shaders/glass.frag';
 import textVertexShader from './shaders/text.vert';
 import textFragmentShader from './shaders/text.frag';
+import blurMapVertexShader from './shaders/blurmap.vert';
+import blurMapFragmentShader from './shaders/blurmap.frag';
 
 class OceanApp {
   public renderer: OceanRenderer | null = null;
@@ -41,14 +43,16 @@ class OceanApp {
         alpha: false
       });
 
-      // Initialize shaders (ocean, glass, and text)
+      // Initialize shaders (ocean, glass, text, and blur map)
       await this.renderer.initializeShaders(
         oceanVertexShader,
         oceanFragmentShader,
         glassVertexShader,
         glassFragmentShader,
         textVertexShader,
-        textFragmentShader
+        textFragmentShader,
+        blurMapVertexShader,
+        blurMapFragmentShader
       );
 
       // Start rendering
@@ -264,6 +268,17 @@ class OceanApp {
             this.updateTextInfo(!isEnabled);
           }
           break;
+        case 'b':
+        case 'B':
+          // Toggle blur map effect (frosted glass around text)
+          event.preventDefault();
+          event.stopPropagation();
+          if (this.renderer) {
+            const isEnabled = this.renderer.getBlurMapEnabled();
+            this.renderer.setBlurMapEnabled(!isEnabled);
+            this.updateBlurMapInfo(!isEnabled);
+          }
+          break;
         case '1':
         case '2':
         case '3':
@@ -367,6 +382,24 @@ class OceanApp {
       }
 
       textElement.innerHTML = `<br>Adaptive Text: ${enabled ? 'ON' : 'OFF'}`;
+    }
+  }
+
+  /**
+   * Update blur map info display
+   */
+  private updateBlurMapInfo(enabled: boolean): void {
+    const infoElement = document.getElementById('info');
+    if (infoElement && this.renderer) {
+      // Update the existing info or add blur map info
+      let blurElement = document.getElementById('blur-map-info');
+      if (!blurElement) {
+        blurElement = document.createElement('div');
+        blurElement.id = 'blur-map-info';
+        infoElement.appendChild(blurElement);
+      }
+
+      blurElement.innerHTML = `<br>Frosted Glass: ${enabled ? 'ON' : 'OFF'}`;
     }
   }
 
