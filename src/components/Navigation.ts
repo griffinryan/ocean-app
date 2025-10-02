@@ -74,10 +74,10 @@ export class NavigationManager {
       });
     });
 
-    // Brand/logo click - go to home
+    // Brand/logo click - go to landing page
     this.brandElement.addEventListener('click', (e) => {
       e.preventDefault();
-      this.navigateToSection('home');
+      this.router.goHome();
     });
 
     // Scroll detection for navbar styling
