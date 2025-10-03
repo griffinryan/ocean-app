@@ -78,8 +78,8 @@ export class TextRenderer {
   private glowWaveReactivity: number = 0.4;
 
   // Blur control properties
-  private blurRadius: number = 128.0; // pixels
-  private blurFalloffPower: number = 1.5; // 1.0 = linear, >1.0 = sharper
+  private blurRadius: number = 384.0; // pixels (3x larger for visible halo)
+  private blurFalloffPower: number = 1.0; // 1.0 = linear falloff for smoother, wider spread
 
   constructor(gl: WebGL2RenderingContext, _shaderManager: ShaderManager) {
     this.gl = gl;

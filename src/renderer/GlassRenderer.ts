@@ -43,8 +43,8 @@ export class GlassRenderer {
 
   // Blur effect control
   private blurMapEnabled: boolean = false;
-  private blurOpacityBoost: number = 0.15; // How much to increase opacity in text regions (0.0-0.5)
-  private blurDistortionBoost: number = 0.3; // How much to reduce distortion in text regions (0.0-1.0)
+  private blurOpacityBoost: number = 0.25; // Stronger frosted effect for visibility (0.0-0.5)
+  private blurDistortionBoost: number = 0.5; // Stronger distortion reduction for clarity (0.0-1.0)
 
   constructor(gl: WebGL2RenderingContext, shaderManager: ShaderManager) {
     this.gl = gl;

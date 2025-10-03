@@ -15,22 +15,24 @@ out vec4 fragColor;
 const float PI = 3.14159265359;
 
 /**
- * Calculate distance to nearest text using multi-ring distance field sampling
- * Reuses the same approach as glow calculation in text.frag for consistency
+ * Calculate distance to nearest text using proportional multi-ring sampling
+ * Uses ring radii that scale with blur radius for accurate large-radius measurements
  */
 float calculateTextDistance(vec2 uv, vec2 pixelSize) {
     float minDistance = u_blurRadius;
 
-    // Multi-ring sampling for smooth distance field
-    // 3 rings at different radii for accurate distance estimation
+    // Proportional multi-ring sampling that scales with blur radius
+    // Rings at 20%, 40%, 70%, and 100% of blur radius
+    // For 384px blur: rings at [77px, 154px, 269px, 384px]
     const int numSamples = 8;
     const float angleStep = 2.0 * PI / float(numSamples);
-    const int numRings = 3;
-    float radii[3] = float[3](1.0, 3.0, 5.0);
+    const int numRings = 4;
+    float ringProportions[4] = float[4](0.2, 0.4, 0.7, 1.0);
 
     for (int ring = 0; ring < numRings; ring++) {
-        float radius = radii[ring];
-        vec2 radiusOffset = pixelSize * radius;
+        // Calculate ring radius as proportion of blur radius
+        float ringRadiusPixels = u_blurRadius * ringProportions[ring];
+        vec2 radiusOffset = vec2(ringRadiusPixels) / u_resolution;
 
         for (int i = 0; i < numSamples; i++) {
             float angle = float(i) * angleStep;
@@ -41,8 +43,8 @@ float calculateTextDistance(vec2 uv, vec2 pixelSize) {
             float sampleAlpha = texture(u_textTexture, sampleUV).a;
 
             if (sampleAlpha > 0.01) {
-                // Found text - calculate distance
-                float dist = length(direction * radiusOffset * u_resolution.x);
+                // Found text - calculate actual pixel distance
+                float dist = length(direction * ringRadiusPixels);
                 minDistance = min(minDistance, dist);
             }
         }
