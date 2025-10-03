@@ -17,8 +17,9 @@ const float PI = 3.14159265359;
 /**
  * Calculate distance to nearest text using dense multi-ring sampling
  * Uses 16 rings with logarithmic spacing for smooth gradient over large radius
+ * Creates circular blur by accounting for aspect ratio
  */
-float calculateTextDistance(vec2 uv, vec2 pixelSize) {
+float calculateTextDistance(vec2 uv) {
     float minDistance = u_blurRadius;
 
     // Dense multi-ring sampling: 16 rings with power curve spacing
@@ -28,6 +29,11 @@ float calculateTextDistance(vec2 uv, vec2 pixelSize) {
     const float angleStep = 2.0 * PI / float(numSamples);
     const int numRings = 16;
 
+    // Calculate uniform pixel size for circular blur (not elliptical)
+    // Use larger dimension to ensure sampling stays within [0,1] range
+    float maxDim = max(u_resolution.x, u_resolution.y);
+    vec2 circularPixelSize = vec2(1.0) / maxDim;
+
     for (int ring = 0; ring < numRings; ring++) {
         // Calculate ring proportion using power curve
         // t^1.5 creates logarithmic spacing: dense near text, sparse far away
@@ -36,19 +42,25 @@ float calculateTextDistance(vec2 uv, vec2 pixelSize) {
 
         // Calculate ring radius in pixels
         float ringRadiusPixels = u_blurRadius * ringProportion;
-        vec2 radiusOffset = vec2(ringRadiusPixels) / u_resolution;
 
         for (int i = 0; i < numSamples; i++) {
             float angle = float(i) * angleStep;
             vec2 direction = vec2(cos(angle), sin(angle));
-            vec2 sampleUV = uv + direction * radiusOffset;
 
-            // Sample text alpha
-            float sampleAlpha = texture(u_textTexture, sampleUV).a;
+            // Calculate UV offset using circular pixel size (aspect-ratio aware)
+            vec2 radiusOffset = direction * ringRadiusPixels * circularPixelSize;
+            vec2 sampleUV = uv + radiusOffset;
+
+            // Treat out-of-bounds samples as no text (alpha = 0)
+            // This prevents edge clamping artifacts without skipping samples
+            float sampleAlpha = 0.0;
+            if (sampleUV.x >= 0.0 && sampleUV.x <= 1.0 && sampleUV.y >= 0.0 && sampleUV.y <= 1.0) {
+                sampleAlpha = texture(u_textTexture, sampleUV).a;
+            }
 
             if (sampleAlpha > 0.01) {
                 // Found text - calculate actual pixel distance
-                float dist = length(direction * ringRadiusPixels);
+                float dist = ringRadiusPixels;
                 minDistance = min(minDistance, dist);
             }
         }
@@ -70,9 +82,8 @@ void main() {
         // Inside text: maximum blur intensity
         blurIntensity = 1.0;
     } else {
-        // Outside text: calculate distance-based blur falloff
-        vec2 pixelSize = 1.0 / u_resolution;
-        float distance = calculateTextDistance(screenUV, pixelSize);
+        // Outside text: calculate distance-based blur falloff with circular distance field
+        float distance = calculateTextDistance(screenUV);
 
         if (distance < u_blurRadius) {
             // Convert distance to blur intensity [0,1]
