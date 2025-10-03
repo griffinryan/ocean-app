@@ -15,23 +15,27 @@ out vec4 fragColor;
 const float PI = 3.14159265359;
 
 /**
- * Calculate distance to nearest text using proportional multi-ring sampling
- * Uses ring radii that scale with blur radius for accurate large-radius measurements
+ * Calculate distance to nearest text using dense multi-ring sampling
+ * Uses 16 rings with logarithmic spacing for smooth gradient over large radius
  */
 float calculateTextDistance(vec2 uv, vec2 pixelSize) {
     float minDistance = u_blurRadius;
 
-    // Proportional multi-ring sampling that scales with blur radius
-    // Rings at 20%, 40%, 70%, and 100% of blur radius
-    // For 384px blur: rings at [77px, 154px, 269px, 384px]
+    // Dense multi-ring sampling: 16 rings with power curve spacing
+    // Denser near text (where detail matters), sparser far away
+    // For 384px blur: rings at [0, 10, 21, 33, 46, 60, 74, 90, 107, 125, 143, 163, 183, 205, 227, 384]px
     const int numSamples = 8;
     const float angleStep = 2.0 * PI / float(numSamples);
-    const int numRings = 4;
-    float ringProportions[4] = float[4](0.2, 0.4, 0.7, 1.0);
+    const int numRings = 16;
 
     for (int ring = 0; ring < numRings; ring++) {
-        // Calculate ring radius as proportion of blur radius
-        float ringRadiusPixels = u_blurRadius * ringProportions[ring];
+        // Calculate ring proportion using power curve
+        // t^1.5 creates logarithmic spacing: dense near text, sparse far away
+        float t = float(ring) / float(numRings - 1);
+        float ringProportion = pow(t, 1.5);
+
+        // Calculate ring radius in pixels
+        float ringRadiusPixels = u_blurRadius * ringProportion;
         vec2 radiusOffset = vec2(ringRadiusPixels) / u_resolution;
 
         for (int i = 0; i < numSamples; i++) {
@@ -81,8 +85,8 @@ void main() {
             // power > 1.0: sharper falloff, tighter around text
             blurIntensity = 1.0 - pow(normalizedDist, u_blurFalloffPower);
 
-            // Smooth the transition for clean gradient
-            blurIntensity = smoothstep(0.0, 1.0, blurIntensity);
+            // Clamp to valid range (smoothstep removed - relied on natural falloff)
+            blurIntensity = clamp(blurIntensity, 0.0, 1.0);
         }
     }
 
