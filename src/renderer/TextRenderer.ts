@@ -1529,6 +1529,32 @@ export class TextRenderer {
   }
 
   /**
+   * Update quality settings
+   */
+  public updateQualitySettings(settings: any): void {
+    // Update text canvas resolution based on quality settings
+    if (settings.textCanvasResolution) {
+      const newWidth = settings.textCanvasResolution;
+      const newHeight = Math.round(newWidth * (this.gl.canvas.height / this.gl.canvas.width));
+
+      if (this.textCanvas.width !== newWidth || this.textCanvas.height !== newHeight) {
+        this.textCanvas.width = newWidth;
+        this.textCanvas.height = newHeight;
+
+        // Re-apply text rendering settings after resize
+        this.textContext.textBaseline = 'top';
+        this.textContext.fillStyle = 'white';
+        this.textContext.imageSmoothingEnabled = false;
+
+        this.needsTextureUpdate = true;
+        this.needsBlurMapUpdate = true;
+
+        console.log(`TextRenderer: Canvas resolution updated to ${newWidth}×${newHeight}`);
+      }
+    }
+  }
+
+  /**
    * Set glow radius in pixels
    */
   public setGlowRadius(radius: number): void {

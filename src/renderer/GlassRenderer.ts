@@ -544,6 +544,14 @@ export class GlassRenderer {
   }
 
   /**
+   * Update quality settings (stub for future quality-based optimizations)
+   */
+  public updateQualitySettings(_settings: any): void {
+    // Future: Adjust glass distortion quality based on settings
+    // For now, resolution scaling is handled by OceanRenderer
+  }
+
+  /**
    * Set blur map texture from TextRenderer
    */
   public setBlurMapTexture(texture: WebGLTexture | null): void {

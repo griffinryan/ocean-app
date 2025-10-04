@@ -8,6 +8,8 @@ import { Mat4 } from '../utils/math';
 import { VesselSystem, VesselConfig } from './VesselSystem';
 import { GlassRenderer } from './GlassRenderer';
 import { TextRenderer } from './TextRenderer';
+import { QualityManager, QualitySettings } from '../config/QualityPresets';
+import { PerformanceMonitor } from '../utils/PerformanceMonitor';
 
 export interface RenderConfig {
   canvas: HTMLCanvasElement;
@@ -55,6 +57,25 @@ export class OceanRenderer {
   private textRenderer: TextRenderer | null = null;
   private textEnabled: boolean = false;
 
+  // Quality and performance management
+  private qualityManager: QualityManager;
+  private performanceMonitor: PerformanceMonitor;
+  private currentQuality: QualitySettings;
+
+  // Upscaling system
+  private upscaleFramebuffer: WebGLFramebuffer | null = null;
+  private upscaleTexture: WebGLTexture | null = null;
+  private upscaleDepthBuffer: WebGLRenderbuffer | null = null;
+  private upscaleProgram: ShaderProgram | null = null;
+  private upscaleGeometry: GeometryData;
+  private upscaleBufferManager: BufferManager;
+
+  // Resolution scaling
+  private displayWidth: number = 0;
+  private displayHeight: number = 0;
+  private renderWidth: number = 0;
+  private renderHeight: number = 0;
+
   // Pre-cached DOM elements
   private cachedElements = {
     fpsElement: null as HTMLElement | null,
@@ -92,12 +113,30 @@ export class OceanRenderer {
     this.gl = gl;
     this.shaderManager = new ShaderManager(gl);
 
+    // Initialize quality and performance systems
+    this.qualityManager = new QualityManager();
+    this.performanceMonitor = new PerformanceMonitor(this.qualityManager);
+    this.currentQuality = this.qualityManager.getSettings();
+
+    // Listen for quality changes
+    this.qualityManager.onChange((settings) => {
+      this.currentQuality = settings;
+      this.onQualityChanged(settings);
+    });
+
     // Create full-screen quad geometry for screen-space rendering
     this.geometry = GeometryBuilder.createFullScreenQuad();
     this.bufferManager = new BufferManager(gl, this.geometry);
 
+    // Create upscaling quad geometry
+    this.upscaleGeometry = GeometryBuilder.createFullScreenQuad();
+    this.upscaleBufferManager = new BufferManager(gl, this.upscaleGeometry);
+
     // Set up WebGL state
     this.setupWebGL();
+
+    // Initialize upscaling framebuffer
+    this.initializeUpscaleFramebuffer();
 
     // Set up responsive resizing
     this.setupResizing();
@@ -113,6 +152,11 @@ export class OceanRenderer {
 
     // Initialize text renderer
     this.initializeTextRenderer();
+
+    // Initialize GPU timing for performance monitoring
+    this.performanceMonitor.initializeGPUTiming(gl);
+
+    console.log(`OceanRenderer: Initialized with quality preset "${this.qualityManager.getPreset()}"`);
   }
 
   /**
@@ -159,6 +203,93 @@ export class OceanRenderer {
   }
 
   /**
+   * Initialize upscaling framebuffer
+   */
+  private initializeUpscaleFramebuffer(): void {
+    const gl = this.gl;
+
+    // Create framebuffer
+    this.upscaleFramebuffer = gl.createFramebuffer();
+    if (!this.upscaleFramebuffer) {
+      throw new Error('Failed to create upscale framebuffer');
+    }
+
+    // Create texture for color attachment
+    this.upscaleTexture = gl.createTexture();
+    if (!this.upscaleTexture) {
+      throw new Error('Failed to create upscale texture');
+    }
+
+    // Create depth renderbuffer
+    this.upscaleDepthBuffer = gl.createRenderbuffer();
+    if (!this.upscaleDepthBuffer) {
+      throw new Error('Failed to create upscale depth buffer');
+    }
+
+    console.log('OceanRenderer: Upscaling framebuffer initialized');
+  }
+
+  /**
+   * Resize upscaling framebuffer
+   */
+  private resizeUpscaleFramebuffer(width: number, height: number): void {
+    const gl = this.gl;
+
+    if (!this.upscaleFramebuffer || !this.upscaleTexture || !this.upscaleDepthBuffer) {
+      return;
+    }
+
+    // Bind framebuffer
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.upscaleFramebuffer);
+
+    // Setup color texture
+    gl.bindTexture(gl.TEXTURE_2D, this.upscaleTexture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    // Attach color texture
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.upscaleTexture, 0);
+
+    // Setup depth buffer
+    gl.bindRenderbuffer(gl.RENDERBUFFER, this.upscaleDepthBuffer);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, width, height);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, this.upscaleDepthBuffer);
+
+    // Check framebuffer completeness
+    const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+    if (status !== gl.FRAMEBUFFER_COMPLETE) {
+      console.error('Upscale framebuffer incomplete:', status);
+    }
+
+    // Unbind
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    gl.bindRenderbuffer(gl.RENDERBUFFER, null);
+  }
+
+  /**
+   * Handle quality settings change
+   */
+  private onQualityChanged(settings: QualitySettings): void {
+    console.log(`OceanRenderer: Quality changed, updating resolution scaling`);
+
+    // Trigger resize to update render resolutions
+    this.resize();
+
+    // Update sub-renderers
+    if (this.glassRenderer) {
+      this.glassRenderer.updateQualitySettings(settings);
+    }
+
+    if (this.textRenderer) {
+      this.textRenderer.updateQualitySettings(settings);
+    }
+  }
+
+  /**
    * Handle canvas resize with device pixel ratio consideration
    */
   private resize(): void {
@@ -166,29 +297,46 @@ export class OceanRenderer {
     const displayHeight = this.canvas.clientHeight;
     const devicePixelRatio = window.devicePixelRatio || 1;
 
-    const canvasWidth = Math.round(displayWidth * devicePixelRatio);
-    const canvasHeight = Math.round(displayHeight * devicePixelRatio);
+    // Store display resolution
+    this.displayWidth = Math.round(displayWidth * devicePixelRatio);
+    this.displayHeight = Math.round(displayHeight * devicePixelRatio);
 
-    // Update canvas resolution
-    if (this.canvas.width !== canvasWidth || this.canvas.height !== canvasHeight) {
-      this.canvas.width = canvasWidth;
-      this.canvas.height = canvasHeight;
+    // Calculate render resolution based on quality settings
+    const finalPassScale = this.currentQuality.finalPassResolution;
+    this.renderWidth = Math.round(this.displayWidth * finalPassScale);
+    this.renderHeight = Math.round(this.displayHeight * finalPassScale);
 
-      // Update WebGL viewport
-      this.gl.viewport(0, 0, canvasWidth, canvasHeight);
+    // Update canvas to display resolution (for final upscale target)
+    if (this.canvas.width !== this.displayWidth || this.canvas.height !== this.displayHeight) {
+      this.canvas.width = this.displayWidth;
+      this.canvas.height = this.displayHeight;
 
-      // Update projection matrix
-      this.updateProjectionMatrix();
+      console.log(`OceanRenderer: Display ${this.displayWidth}×${this.displayHeight}, Render ${this.renderWidth}×${this.renderHeight} (${(finalPassScale * 100).toFixed(0)}%)`);
+    }
 
-      // Resize glass renderer framebuffer if enabled
-      if (this.glassRenderer) {
-        this.glassRenderer.resizeFramebuffer(canvasWidth, canvasHeight);
-      }
+    // Update WebGL viewport to render resolution
+    this.gl.viewport(0, 0, this.renderWidth, this.renderHeight);
 
-      // Resize text renderer framebuffer if enabled
-      if (this.textRenderer) {
-        this.textRenderer.resizeFramebuffer(canvasWidth, canvasHeight);
-      }
+    // Update projection matrix
+    this.updateProjectionMatrix();
+
+    // Resize upscale framebuffer to render resolution
+    this.resizeUpscaleFramebuffer(this.renderWidth, this.renderHeight);
+
+    // Resize glass renderer framebuffer with scaled resolution
+    if (this.glassRenderer) {
+      const glassScale = this.currentQuality.glassResolution;
+      const glassWidth = Math.round(this.renderWidth * glassScale);
+      const glassHeight = Math.round(this.renderHeight * glassScale);
+      this.glassRenderer.resizeFramebuffer(glassWidth, glassHeight);
+    }
+
+    // Resize text renderer framebuffer with scaled resolution
+    if (this.textRenderer) {
+      const textScale = this.currentQuality.oceanCaptureResolution; // Scene capture resolution
+      const textWidth = Math.round(this.renderWidth * textScale);
+      const textHeight = Math.round(this.renderHeight * textScale);
+      this.textRenderer.resizeFramebuffer(textWidth, textHeight);
     }
   }
 
@@ -267,7 +415,7 @@ export class OceanRenderer {
   }
 
   /**
-   * Initialize ocean shader program, glass shaders, text shaders, and blur map shaders
+   * Initialize ocean shader program, glass shaders, text shaders, blur map shaders, and upscaling shaders
    */
   async initializeShaders(
     oceanVertexSource: string,
@@ -277,7 +425,9 @@ export class OceanRenderer {
     textVertexSource?: string,
     textFragmentSource?: string,
     blurMapVertexSource?: string,
-    blurMapFragmentSource?: string
+    blurMapFragmentSource?: string,
+    upscaleVertexSource?: string,
+    upscaleFragmentSource?: string
   ): Promise<void> {
     // Define uniforms and attributes for ocean shader
     const uniforms = [
@@ -353,6 +503,41 @@ export class OceanRenderer {
         console.error('Failed to initialize blur map shaders:', error);
       }
     }
+
+    // Initialize upscaling shaders if provided
+    if (upscaleVertexSource && upscaleFragmentSource) {
+      try {
+        const upscaleUniforms = [
+          'u_sourceTexture',
+          'u_sourceResolution',
+          'u_targetResolution',
+          'u_sharpness',
+          'u_upscaleMethod'
+        ];
+
+        const upscaleAttributes = [
+          'a_position',
+          'a_uv'
+        ];
+
+        this.upscaleProgram = this.shaderManager.createProgram(
+          'upscale',
+          upscaleVertexSource,
+          upscaleFragmentSource,
+          upscaleUniforms,
+          upscaleAttributes
+        );
+
+        // Set up vertex attributes for upscaling
+        const positionLocation = this.upscaleProgram.attributeLocations.get('a_position')!;
+        const uvLocation = this.upscaleProgram.attributeLocations.get('a_uv')!;
+        this.upscaleBufferManager.setupAttributes(positionLocation, uvLocation);
+
+        console.log('Upscaling shaders initialized successfully!');
+      } catch (error) {
+        console.error('Failed to initialize upscaling shaders:', error);
+      }
+    }
   }
 
   /**
@@ -363,6 +548,15 @@ export class OceanRenderer {
 
     // Get vessel data for text renderer glow distortion
     const vesselData = this.vesselSystem.getVesselDataForShader(5, performance.now());
+
+    // Determine if we need upscaling
+    const needsUpscale = this.currentQuality.finalPassResolution < 1.0 && this.upscaleProgram;
+
+    // Bind upscale framebuffer if upscaling is needed
+    if (needsUpscale) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.upscaleFramebuffer);
+      gl.viewport(0, 0, this.renderWidth, this.renderHeight);
+    }
 
     if (this.textEnabled && this.textRenderer) {
       // Full pipeline: Ocean -> Glass -> Text Color Analysis
@@ -426,6 +620,61 @@ export class OceanRenderer {
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
       this.drawOcean(elapsedTime);
     }
+
+    // Apply upscaling if needed
+    if (needsUpscale) {
+      this.applyUpscaling();
+    }
+  }
+
+  /**
+   * Apply upscaling from render resolution to display resolution
+   */
+  private applyUpscaling(): void {
+    const gl = this.gl;
+
+    if (!this.upscaleProgram || !this.upscaleTexture) {
+      return;
+    }
+
+    // Restore screen framebuffer
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, this.displayWidth, this.displayHeight);
+
+    // Use upscale shader
+    const program = this.shaderManager.useProgram('upscale');
+
+    // Bind source texture (rendered scene at lower resolution)
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.upscaleTexture);
+    this.shaderManager.setUniform1i(program, 'u_sourceTexture', 0);
+
+    // Set resolutions
+    this.shaderManager.setUniform2f(program, 'u_sourceResolution', this.renderWidth, this.renderHeight);
+    this.shaderManager.setUniform2f(program, 'u_targetResolution', this.displayWidth, this.displayHeight);
+
+    // Set upscaling parameters from quality settings
+    this.shaderManager.setUniform1f(program, 'u_sharpness', this.currentQuality.upscaleSharpness);
+
+    // Map upscale method to integer
+    const methodMap: Record<string, number> = {
+      'bilinear': 0,
+      'bicubic': 1,
+      'fsr': 2,
+      'lanczos': 3
+    };
+    const upscaleMethod = methodMap[this.currentQuality.upscaleMethod] || 0;
+    this.shaderManager.setUniform1i(program, 'u_upscaleMethod', upscaleMethod);
+
+    // Disable depth test for upscaling
+    gl.disable(gl.DEPTH_TEST);
+
+    // Render full-screen quad with upscaling
+    this.upscaleBufferManager.bind();
+    gl.drawElements(gl.TRIANGLES, this.upscaleGeometry.indexCount, gl.UNSIGNED_SHORT, 0);
+
+    // Re-enable depth test
+    gl.enable(gl.DEPTH_TEST);
   }
 
   /**
@@ -501,6 +750,9 @@ export class OceanRenderer {
   private render(): void {
     if (!this.oceanProgram) return;
 
+    // Begin performance monitoring
+    this.performanceMonitor.beginFrame();
+
     const currentTime = performance.now();
     const elapsedTime = (currentTime - this.startTime) / 1000; // Convert to seconds
     const deltaTime = 1 / 60; // Approximate 60 FPS for vessel updates
@@ -510,6 +762,9 @@ export class OceanRenderer {
 
     // Render ocean scene with integrated glass distortion and per-pixel adaptive text
     this.renderOceanScene(elapsedTime);
+
+    // End performance monitoring
+    this.performanceMonitor.endFrame();
 
     // Update FPS counter
     this.updateFPS(currentTime);
@@ -668,6 +923,48 @@ export class OceanRenderer {
   }
 
   /**
+   * Get quality manager instance
+   */
+  getQualityManager(): QualityManager {
+    return this.qualityManager;
+  }
+
+  /**
+   * Get performance monitor instance
+   */
+  getPerformanceMonitor(): PerformanceMonitor {
+    return this.performanceMonitor;
+  }
+
+  /**
+   * Get current quality settings
+   */
+  getQualitySettings(): QualitySettings {
+    return this.currentQuality;
+  }
+
+  /**
+   * Set quality preset
+   */
+  setQualityPreset(preset: 'ultra' | 'high' | 'medium' | 'low' | 'potato' | 'custom'): void {
+    this.qualityManager.setPreset(preset);
+  }
+
+  /**
+   * Enable/disable dynamic quality scaling
+   */
+  setDynamicQuality(enabled: boolean): void {
+    this.performanceMonitor.setDynamicQuality(enabled);
+  }
+
+  /**
+   * Get performance report
+   */
+  getPerformanceReport(): string {
+    return this.performanceMonitor.generateReport();
+  }
+
+  /**
    * Initialize cached DOM elements for performance
    */
   private initializeCachedElements(): void {
@@ -685,7 +982,26 @@ export class OceanRenderer {
     this.stop();
     this.resizeObserver.disconnect();
     this.bufferManager.dispose();
+    this.upscaleBufferManager.dispose();
     this.shaderManager.dispose();
+
+    const gl = this.gl;
+
+    // Clean up upscale framebuffer
+    if (this.upscaleFramebuffer) {
+      gl.deleteFramebuffer(this.upscaleFramebuffer);
+      this.upscaleFramebuffer = null;
+    }
+
+    if (this.upscaleTexture) {
+      gl.deleteTexture(this.upscaleTexture);
+      this.upscaleTexture = null;
+    }
+
+    if (this.upscaleDepthBuffer) {
+      gl.deleteRenderbuffer(this.upscaleDepthBuffer);
+      this.upscaleDepthBuffer = null;
+    }
 
     // Clean up glass renderer
     if (this.glassRenderer) {
