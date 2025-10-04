@@ -307,43 +307,7 @@ float calculateGlowIntensity(float distance) {
     return coreBoost * u_glowIntensity;
 }
 
-// Calculate glow color with sharp quantized transitions (inverse of text)
-vec3 calculateGlowColor(vec3 backgroundColor, float glowIntensity, float oceanHeight, vec2 fragCoord) {
-    // Define color stops: White → Blue → Ochre-yellow (inverse of text)
-    vec3 whiteGlow = vec3(1.0, 1.0, 1.0);        // Low waves (inverse of dark text)
-    vec3 blueGlow = vec3(0.2, 0.4, 0.8);         // Mid waves
-    vec3 ochreGlow = vec3(0.8, 0.6, 0.2);        // High waves (inverse of white text)
-
-    // Normalize wave height to 0-1 range
-    // Wave heights typically range from -1.5 to 1.5
-    float normalizedWave = clamp((oceanHeight + 1.5) / 3.0, 0.0, 1.0);
-
-    // Apply Bayer dithering for stylized quantization (matching text aesthetic)
-    float dither = bayerDither4x4(fragCoord);
-    float ditheredWave = normalizedWave + (dither - 0.5) * 0.2;
-
-    // Sharp step transitions at 0.33 and 0.66 thresholds
-    float lowStep = step(0.33, ditheredWave);   // 0 if wave < 0.33, 1 if >= 0.33
-    float highStep = step(0.66, ditheredWave);  // 0 if wave < 0.66, 1 if >= 0.66
-
-    // Select color based on steps (sharp transitions)
-    vec3 glowColor;
-    if (highStep > 0.5) {
-        // High waves: ochre-yellow
-        glowColor = ochreGlow;
-    } else if (lowStep > 0.5) {
-        // Mid waves: blue
-        glowColor = blueGlow;
-    } else {
-        // Low waves: white
-        glowColor = whiteGlow;
-    }
-
-    // Apply quantization to 8 levels (matching text quantization)
-    glowColor = quantizeColor(glowColor, 8);
-
-    return glowColor;
-}
+// calculateGlowColor() function removed - no longer rendering colored glow around text
 
 // Check if current fragment is within any panel boundary (from GlassRenderer)
 bool isWithinPanel(vec2 screenPos, out vec2 panelUV) {
@@ -430,7 +394,7 @@ void main() {
     float finalAlpha;
 
     if (textAlpha > 0.01) {
-        // ===== TEXT RENDERING PATH (EXISTING LOGIC) =====
+        // ===== TEXT RENDERING PATH =====
 
         // Calculate adaptive text color based on background
         vec3 adaptiveTextColor = calculateAdaptiveTextColor(backgroundColor, u_adaptiveStrength);
@@ -445,36 +409,9 @@ void main() {
         finalAlpha = smoothstep(0.1, 0.5, textAlpha);
 
     } else {
-        // ===== GLOW RENDERING PATH (NEW LOGIC) =====
-
-        // Calculate pixel size for distance field sampling
-        vec2 pixelSize = 1.0 / u_resolution;
-
-        // Calculate distance to nearest text with wave distortion
-        float glowDistance = calculateGlowDistance(distortedUV, pixelSize);
-
-        // Check if within glow radius
-        if (glowDistance < u_glowRadius) {
-            // Calculate glow intensity with Gaussian falloff
-            float glowIntensity = calculateGlowIntensity(glowDistance);
-
-            // Add wave reactivity to glow intensity
-            float waveBoost = abs(oceanHeight) * 0.15;
-            glowIntensity += waveBoost * glowIntensity;
-
-            // Calculate glow color based on wave height with dithered color range
-            vec3 glowColor = calculateGlowColor(backgroundColor, glowIntensity, oceanHeight, gl_FragCoord.xy);
-
-            // Apply intro animation to glow (slightly offset from text)
-            float glowAnimationFactor = 1.0 - cubicEaseOut(max(0.0, u_textIntroProgress - 0.1));
-            glowIntensity *= (1.0 - glowAnimationFactor * 0.5);
-
-            finalColor = glowColor;
-            finalAlpha = glowIntensity;
-        } else {
-            // Outside glow radius - discard
-            discard;
-        }
+        // ===== NO GLOW - DISCARD NON-TEXT PIXELS =====
+        // Let the blur map (frosted glass effect) handle visual interest around text
+        discard;
     }
 
     // ===== APPLY PANEL EDGE FADE =====

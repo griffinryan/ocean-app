@@ -292,8 +292,8 @@ void main() {
         // Boost opacity in text regions for stronger frosted effect
         alpha += blurIntensity * u_blurOpacityBoost;
 
-        // Add subtle blue-white frost tint in high-blur regions
-        float frostTint = blurIntensity * 0.08;
+        // Add blue-white frost tint in high-blur regions (increased for more prominence)
+        float frostTint = blurIntensity * 0.12;
         vec3 frostColor = vec3(0.92, 0.96, 1.0);
         finalColor = mix(finalColor, frostColor, frostTint);
     }

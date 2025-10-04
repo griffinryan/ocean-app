@@ -78,7 +78,7 @@ export class TextRenderer {
   private glowWaveReactivity: number = 0.4;
 
   // Blur control properties
-  private blurRadius: number = 192.0; // pixels
+  private blurRadius: number = 240.0; // pixels (increased for more prominent frosted effect)
   private blurFalloffPower: number = 1.5; // 1.0 = linear, >1.0 = sharper
 
   constructor(gl: WebGL2RenderingContext, _shaderManager: ShaderManager) {
