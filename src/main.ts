@@ -16,6 +16,8 @@ import textVertexShader from './shaders/text.vert';
 import textFragmentShader from './shaders/text.frag';
 import blurMapVertexShader from './shaders/blurmap.vert';
 import blurMapFragmentShader from './shaders/blurmap.frag';
+import upscaleVertexShader from './shaders/upscale.vert';
+import upscaleFragmentShader from './shaders/upscale.frag';
 
 class OceanApp {
   public renderer: OceanRenderer | null = null;
@@ -43,7 +45,7 @@ class OceanApp {
         alpha: false
       });
 
-      // Initialize shaders (ocean, glass, text, and blur map)
+      // Initialize shaders (ocean, glass, text, blur map, and upscaling)
       await this.renderer.initializeShaders(
         oceanVertexShader,
         oceanFragmentShader,
@@ -52,7 +54,9 @@ class OceanApp {
         textVertexShader,
         textFragmentShader,
         blurMapVertexShader,
-        blurMapFragmentShader
+        blurMapFragmentShader,
+        upscaleVertexShader,
+        upscaleFragmentShader
       );
 
       // Start rendering
@@ -284,28 +288,106 @@ class OceanApp {
         case '3':
         case '4':
         case '0':
-          // Direct debug mode selection
+          // Direct debug mode selection (without modifier keys)
+          if (!event.ctrlKey && !event.altKey && !event.shiftKey) {
+            event.preventDefault();
+            event.stopPropagation();
+            if (this.renderer) {
+              const mode = parseInt(event.key);
+              this.renderer.setDebugMode(mode);
+              this.updateDebugInfo(mode);
+            }
+          }
+          break;
+        case 'q':
+        case 'Q':
+          // Quality preset: Ultra
           event.preventDefault();
           event.stopPropagation();
           if (this.renderer) {
-            const mode = parseInt(event.key);
-            this.renderer.setDebugMode(mode);
-            this.updateDebugInfo(mode);
+            this.renderer.setQualityPreset('ultra');
+            this.updateQualityInfo('ultra');
+          }
+          break;
+        case 'w':
+        case 'W':
+          // Quality preset: High
+          event.preventDefault();
+          event.stopPropagation();
+          if (this.renderer) {
+            this.renderer.setQualityPreset('high');
+            this.updateQualityInfo('high');
+          }
+          break;
+        case 'e':
+        case 'E':
+          // Quality preset: Medium
+          event.preventDefault();
+          event.stopPropagation();
+          if (this.renderer) {
+            this.renderer.setQualityPreset('medium');
+            this.updateQualityInfo('medium');
+          }
+          break;
+        case 'r':
+        case 'R':
+          // Quality preset: Low
+          event.preventDefault();
+          event.stopPropagation();
+          if (this.renderer) {
+            this.renderer.setQualityPreset('low');
+            this.updateQualityInfo('low');
+          }
+          break;
+        case 'a':
+        case 'A':
+          // Toggle dynamic quality scaling
+          event.preventDefault();
+          event.stopPropagation();
+          if (this.renderer) {
+            const perfMonitor = this.renderer.getPerformanceMonitor();
+            // Toggle dynamic quality (get current state from config)
+            const currentState = (perfMonitor as any).config?.enableDynamicQuality || false;
+            this.renderer.setDynamicQuality(!currentState);
+            this.updateDynamicQualityInfo(!currentState);
+          }
+          break;
+        case 'p':
+        case 'P':
+          // Print performance report
+          event.preventDefault();
+          event.stopPropagation();
+          if (this.renderer) {
+            console.log(this.renderer.getPerformanceReport());
           }
           break;
       }
     });
 
     // Add some helpful info
-    console.log('Controls:');
+    console.log('=== CONTROLS ===');
+    console.log('General:');
     console.log('  F - Toggle fullscreen');
-    console.log('  Escape - Exit fullscreen');
+    console.log('  Escape - Exit fullscreen / Return to landing');
+    console.log('');
+    console.log('Debug:');
     console.log('  D - Cycle debug modes');
     console.log('  0-4 - Select debug mode directly');
+    console.log('');
+    console.log('Effects:');
     console.log('  V - Toggle vessel wake system');
     console.log('  G - Toggle glass panel rendering');
     console.log('  T - Toggle text rendering');
-    console.log('  Space - Reserved for future controls');
+    console.log('  B - Toggle blur map (frosted glass)');
+    console.log('');
+    console.log('Quality:');
+    console.log('  Q - Ultra quality');
+    console.log('  W - High quality');
+    console.log('  E - Medium quality');
+    console.log('  R - Low quality');
+    console.log('  A - Toggle dynamic quality scaling');
+    console.log('  P - Print performance report');
+    console.log('================');
   }
 
   /**
@@ -400,6 +482,51 @@ class OceanApp {
       }
 
       blurElement.innerHTML = `<br>Frosted Glass: ${enabled ? 'ON' : 'OFF'}`;
+    }
+  }
+
+  /**
+   * Update quality preset info display
+   */
+  private updateQualityInfo(preset: string): void {
+    const infoElement = document.getElementById('info');
+    if (infoElement && this.renderer) {
+      const settings = this.renderer.getQualitySettings();
+      let qualityElement = document.getElementById('quality-info');
+      if (!qualityElement) {
+        qualityElement = document.createElement('div');
+        qualityElement.id = 'quality-info';
+        infoElement.appendChild(qualityElement);
+      }
+
+      const resScale = (settings.finalPassResolution * 100).toFixed(0);
+      qualityElement.innerHTML = `<br>Quality: ${preset.toUpperCase()} (${resScale}% resolution)`;
+
+      console.log(`Quality set to ${preset}`);
+      console.log(`  Resolution scale: ${resScale}%`);
+      console.log(`  Upscale method: ${settings.upscaleMethod}`);
+      console.log(`  Sharpness: ${settings.upscaleSharpness}`);
+    }
+  }
+
+  /**
+   * Update dynamic quality info display
+   */
+  private updateDynamicQualityInfo(enabled: boolean): void {
+    const infoElement = document.getElementById('info');
+    if (infoElement) {
+      let dynamicElement = document.getElementById('dynamic-quality-info');
+      if (!dynamicElement) {
+        dynamicElement = document.createElement('div');
+        dynamicElement.id = 'dynamic-quality-info';
+        infoElement.appendChild(dynamicElement);
+      }
+      dynamicElement.innerHTML = `<br>Dynamic Quality: ${enabled ? 'ON' : 'OFF'}`;
+
+      console.log(`Dynamic quality scaling ${enabled ? 'enabled' : 'disabled'}`);
+      if (enabled) {
+        console.log('  System will automatically adjust quality to maintain target FPS');
+      }
     }
   }
 
