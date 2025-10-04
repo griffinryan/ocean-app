@@ -342,10 +342,6 @@ vec3 calculateGlowColor(vec3 backgroundColor, float glowIntensity, float oceanHe
     // Apply quantization to 8 levels (matching text quantization)
     glowColor = quantizeColor(glowColor, 8);
 
-    // Add edge highlighting for bright core neon effect
-    float edgeBoost = pow(glowIntensity, 2.0) * 0.3;
-    glowColor += vec3(edgeBoost);
-
     return glowColor;
 }
 
@@ -439,26 +435,11 @@ void main() {
         // Calculate adaptive text color based on background
         vec3 adaptiveTextColor = calculateAdaptiveTextColor(backgroundColor, u_adaptiveStrength);
 
-        // Apply Bayer dithering for stylized quantization (like ocean.frag)
-        float dither = bayerDither4x4(gl_FragCoord.xy);
-
         // Quantize the adaptive color to match ocean's stylized look
         vec3 quantizedColor = quantizeColor(adaptiveTextColor, 8);
 
-        // Add subtle dithering for smooth gradients
-        vec2 ditherPos = gl_FragCoord.xy * 0.75;
-        float animatedDither = fract(sin(dot(ditherPos, vec2(12.9898, 78.233))) * 43758.5453);
-        quantizedColor += vec3((animatedDither - 0.5) * 0.02);
-
-        // Create range from black to white based on background luminance
-        float luminance = calculateLuminance(backgroundColor);
-        float colorLevel = luminance + dither * 0.3 + animatedDither * 0.2;
-
-        // Map to black-white range with dithering
-        vec3 ditherColor = vec3(clamp(colorLevel, 0.0, 1.0));
-
-        // Mix between quantized adaptive color and dithered grayscale
-        finalColor = mix(quantizedColor, ditherColor, 0.3);
+        // Use clean quantized color without dithering
+        finalColor = quantizedColor;
 
         // Gentle anti-aliasing for text edges
         finalAlpha = smoothstep(0.1, 0.5, textAlpha);
