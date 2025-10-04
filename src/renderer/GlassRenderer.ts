@@ -6,6 +6,7 @@
 import { ShaderManager, ShaderProgram } from './ShaderManager';
 import { GeometryBuilder, BufferManager, GeometryData } from './Geometry';
 import { Mat4 } from '../utils/math';
+import { DOMCache } from '../utils/DOMCache';
 
 export interface GlassPanelConfig {
   position: [number, number]; // Screen position in normalized coordinates
@@ -46,6 +47,26 @@ export class GlassRenderer {
   private blurOpacityBoost: number = 0.35; // How much to increase opacity in text regions (0.0-0.5)
   private blurDistortionBoost: number = 0.6; // How much to reduce distortion in text regions (0.0-1.0)
 
+  // DOM position cache for performance
+  private domCache: DOMCache;
+
+  // Panel IDs to track
+  private readonly panelIds: string[] = [
+    'landing',
+    'app-bio',
+    'portfolio-lakehouse',
+    'portfolio-encryption',
+    'portfolio-dotereditor',
+    'portfolio-dreamrequiem',
+    'portfolio-greenlightgo',
+    'resume-playember',
+    'resume-meta',
+    'resume-outlier',
+    'resume-uwtutor',
+    'resume-uwedu',
+    'navbar'
+  ];
+
   constructor(gl: WebGL2RenderingContext, shaderManager: ShaderManager) {
     this.gl = gl;
     this.shaderManager = shaderManager;
@@ -62,6 +83,9 @@ export class GlassRenderer {
     // Set up projection matrix for screen-space rendering
     this.projectionMatrix.identity();
     this.viewMatrix.identity();
+
+    // Initialize DOM cache for performance
+    this.domCache = new DOMCache(gl.canvas as HTMLCanvasElement);
 
     // Initialize framebuffer
     this.initializeFramebuffer();
@@ -265,7 +289,7 @@ export class GlassRenderer {
   }
 
   /**
-   * Render all glass panels
+   * Render all glass panels using DOMCache for performance
    */
   public render(): void {
     const gl = this.gl;
@@ -274,7 +298,7 @@ export class GlassRenderer {
       return;
     }
 
-    // Update panel positions before rendering
+    // Update panel positions from cache (no DOM queries per frame)
     this.updatePanelPositions();
 
     // Use glass shader program
@@ -316,20 +340,11 @@ export class GlassRenderer {
     // Disable depth testing for glass panels
     gl.disable(gl.DEPTH_TEST);
 
-    // Render each visible panel
+    // Render each visible panel from cache
     this.panels.forEach((config, id) => {
-      // Dynamically construct element ID: navbar stays as-is, everything else gets -panel suffix
-      const elementId = (id === 'navbar') ? 'navbar' : `${id}-panel`;
-
-      const element = document.getElementById(elementId);
-      if (element && !element.classList.contains('hidden')) {
-        // Check if parent scroll container is visible (for portfolio/resume panels)
-        const parent = element.parentElement?.parentElement;
-        const parentHidden = parent?.classList.contains('hidden') ?? false;
-
-        if (!parentHidden) {
-          this.renderPanel(config, program);
-        }
+      const cacheEntry = this.domCache.getPanel(id);
+      if (cacheEntry && cacheEntry.visible) {
+        this.renderPanel(config, program);
       }
     });
 
@@ -459,36 +474,20 @@ export class GlassRenderer {
   }
 
   /**
-   * Update panel positions based on HTML element positions
-   * Dynamically updates all registered panels
+   * Update panel positions using DOMCache (OPTIMIZED - no DOM queries per frame)
    */
   public updatePanelPositions(): void {
-    const canvas = this.gl.canvas as HTMLCanvasElement;
-    const canvasRect = canvas.getBoundingClientRect();
+    // Update cache (happens only on resize or manual invalidation, not every frame)
+    this.domCache.updatePanels(this.panelIds);
 
-    // Ensure canvas has valid dimensions
-    if (canvasRect.width === 0 || canvasRect.height === 0) {
-      console.warn('GlassRenderer: Canvas has invalid dimensions, skipping panel position update');
-      return;
-    }
-
-    // Dynamically update all registered panels
+    // Update panel configurations from cache
     this.panels.forEach((_config, id) => {
-      // Construct element ID: navbar stays as-is, everything else gets -panel suffix
-      const elementId = (id === 'navbar') ? 'navbar' : `${id}-panel`;
-
-      const element = document.getElementById(elementId);
-      if (element && !element.classList.contains('hidden')) {
-        const rect = element.getBoundingClientRect();
-
-        // Only update if element is visible and has valid dimensions
-        if (rect.width > 0 && rect.height > 0) {
-          const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
-          this.updatePanel(id, {
-            position: normalizedPos.position,
-            size: normalizedPos.size
-          });
-        }
+      const cacheEntry = this.domCache.getPanel(id);
+      if (cacheEntry && cacheEntry.visible) {
+        this.updatePanel(id, {
+          position: cacheEntry.position,
+          size: cacheEntry.size
+        });
       }
     });
   }
@@ -616,6 +615,9 @@ export class GlassRenderer {
       gl.deleteRenderbuffer(this.depthBuffer);
       this.depthBuffer = null;
     }
+
+    // Clean up DOM cache
+    this.domCache.clear();
 
     // Clean up geometry
     this.bufferManager.dispose();

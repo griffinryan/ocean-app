@@ -6,6 +6,7 @@
 import { ShaderManager, ShaderProgram } from './ShaderManager';
 import { GeometryBuilder, BufferManager, GeometryData } from './Geometry';
 import { Mat4 } from '../utils/math';
+import { DOMCache } from '../utils/DOMCache';
 
 export interface TextElementConfig {
   selector: string;            // CSS selector for the element
@@ -81,6 +82,27 @@ export class TextRenderer {
   private blurRadius: number = 192.0; // pixels
   private blurFalloffPower: number = 1.5; // 1.0 = linear, >1.0 = sharper
 
+  // DOM position cache for performance
+  private domCache: DOMCache;
+
+  // Panel IDs to track
+  private readonly panelIds: string[] = [
+    'landing',
+    'app',
+    'app-bio',
+    'navbar',
+    'portfolio-lakehouse',
+    'portfolio-encryption',
+    'portfolio-dotereditor',
+    'portfolio-dreamrequiem',
+    'portfolio-greenlightgo',
+    'resume-playember',
+    'resume-meta',
+    'resume-outlier',
+    'resume-uwtutor',
+    'resume-uwedu'
+  ];
+
   constructor(gl: WebGL2RenderingContext, _shaderManager: ShaderManager) {
     this.gl = gl;
     this.shaderManager = _shaderManager;
@@ -96,6 +118,9 @@ export class TextRenderer {
     // Set up projection matrix for screen-space rendering
     this.projectionMatrix.identity();
     this.viewMatrix.identity();
+
+    // Initialize DOM cache for performance
+    this.domCache = new DOMCache(gl.canvas as HTMLCanvasElement);
 
     // Initialize text canvas for rasterization
     this.initializeTextCanvas();
@@ -831,58 +856,19 @@ export class TextRenderer {
   }
 
   /**
-   * Get panel information for shader uniforms
-   * Returns positions and sizes for all 15 panels
+   * Get panel information for shader uniforms using DOMCache
+   * Returns positions and sizes for all visible panels (OPTIMIZED - no DOM queries)
    */
   private getPanelInfo(): { positions: Float32Array, sizes: Float32Array, count: number } {
-    const canvas = this.gl.canvas as HTMLCanvasElement;
-    const canvasRect = canvas.getBoundingClientRect();
+    // Update cache (happens only on resize or manual invalidation, not every frame)
+    this.domCache.updatePanels(this.panelIds);
 
-    const panelIds = [
-      'landing-panel',
-      'app-panel',
-      'app-bio-panel',
-      'navbar',
-      // Portfolio panels
-      'portfolio-lakehouse-panel',
-      'portfolio-encryption-panel',
-      'portfolio-dotereditor-panel',
-      'portfolio-dreamrequiem-panel',
-      'portfolio-greenlightgo-panel',
-      // Resume panels
-      'resume-playember-panel',
-      'resume-meta-panel',
-      'resume-outlier-panel',
-      'resume-uwtutor-panel',
-      'resume-uwedu-panel'
-    ];
-    const positions = new Float32Array(32); // 16 panels * 2 components (x,y)
-    const sizes = new Float32Array(32);
-    let validPanelCount = 0;
+    // Get pre-computed panel data from cache
+    const positions = this.domCache.getPanelPositionsArray(16);
+    const sizes = this.domCache.getPanelSizesArray(16);
+    const count = this.domCache.getVisiblePanelCount();
 
-    panelIds.forEach((panelId) => {
-      const element = document.getElementById(panelId);
-      if (element && !element.classList.contains('hidden') && canvasRect.width > 0 && canvasRect.height > 0) {
-        // For panels inside scroll containers, also check if parent container is visible
-        const parent = element.parentElement?.parentElement;
-        const parentHidden = parent?.classList.contains('hidden') ?? false;
-
-        if (!parentHidden) {
-          const rect = element.getBoundingClientRect();
-          if (rect.width > 0 && rect.height > 0) {
-            const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
-
-            positions[validPanelCount * 2] = normalizedPos.position[0];
-            positions[validPanelCount * 2 + 1] = normalizedPos.position[1];
-            sizes[validPanelCount * 2] = normalizedPos.size[0];
-            sizes[validPanelCount * 2 + 1] = normalizedPos.size[1];
-            validPanelCount++;
-          }
-        }
-      }
-    });
-
-    return { positions, sizes, count: validPanelCount };
+    return { positions, sizes, count };
   }
 
   /**
@@ -1102,6 +1088,9 @@ export class TextRenderer {
 
     // If transitioning just ended, force immediate update and trigger intro animation
     if (!transitioning) {
+      // Invalidate DOM cache to force recalculation of panel positions
+      this.domCache.invalidate();
+
       this.needsTextureUpdate = true;
       this.needsBlurMapUpdate = true;
       this.markSceneDirty();
@@ -1514,9 +1503,12 @@ export class TextRenderer {
 
   /**
    * Update text element positions based on HTML element positions
-   * With new coordinate system, positions are calculated on-the-fly during rendering
+   * With DOMCache, positions are calculated on-the-fly and cached
    */
   public updateTextPositions(): void {
+    // Invalidate DOM cache to force recalculation
+    this.domCache.invalidate();
+
     // Mark texture as needing update when positions change
     this.needsTextureUpdate = true;
   }
@@ -1665,6 +1657,9 @@ export class TextRenderer {
       this.resizeObserver.disconnect();
       this.resizeObserver = null;
     }
+
+    // Clean up DOM cache
+    this.domCache.clear();
 
     // Clean up geometry
     this.bufferManager.dispose();

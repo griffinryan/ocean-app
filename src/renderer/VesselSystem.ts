@@ -3,6 +3,7 @@
  */
 
 import { Vec3, createWakeDecayFunction, SplineControlPoint, ShearTransform2D } from '../utils/math';
+import { globalArrayPool } from '../utils/ArrayPool';
 
 export interface Vessel {
   id: string;
@@ -81,6 +82,15 @@ export class VesselSystem {
   private idCounter: number = 0;
   private initialized: boolean = false;
   private wakeDecayFunction: (distance: number, maxDistance: number, weight: number) => number;
+
+  // Reusable arrays for shader data (eliminates per-frame allocations)
+  private cachedPositions: Float32Array | null = null;
+  private cachedVelocities: Float32Array | null = null;
+  private cachedWeights: Float32Array | null = null;
+  private cachedClasses: Float32Array | null = null;
+  private cachedHullLengths: Float32Array | null = null;
+  private cachedStates: Float32Array | null = null;
+  private cachedMaxCount: number = 0;
 
   // Vessel class configurations
   private static readonly VESSEL_CLASS_CONFIGS: Record<VesselClass, VesselClassConfig> = {
@@ -451,7 +461,7 @@ export class VesselSystem {
   }
 
   /**
-   * Get vessel data for shader uniforms (up to maxCount vessels)
+   * Get vessel data for shader uniforms (OPTIMIZED - reuses arrays, no allocations)
    */
   getVesselDataForShader(maxCount: number = 5, currentTime: number = performance.now()): {
     positions: Float32Array;
@@ -462,13 +472,39 @@ export class VesselSystem {
     states: Float32Array;
     count: number;
   } {
+    // Reallocate arrays if maxCount changed
+    if (this.cachedMaxCount !== maxCount || !this.cachedPositions) {
+      // Release old arrays back to pool
+      if (this.cachedPositions) {
+        globalArrayPool.releaseAll([
+          this.cachedPositions,
+          this.cachedVelocities!,
+          this.cachedWeights!,
+          this.cachedClasses!,
+          this.cachedHullLengths!,
+          this.cachedStates!
+        ]);
+      }
+
+      // Acquire new arrays from pool
+      this.cachedPositions = globalArrayPool.acquire(maxCount * 3);
+      this.cachedVelocities = globalArrayPool.acquire(maxCount * 3);
+      this.cachedWeights = globalArrayPool.acquire(maxCount);
+      this.cachedClasses = globalArrayPool.acquire(maxCount);
+      this.cachedHullLengths = globalArrayPool.acquire(maxCount);
+      this.cachedStates = globalArrayPool.acquire(maxCount);
+      this.cachedMaxCount = maxCount;
+    }
+
+    // Reuse cached arrays (zero-allocation)
+    const positions = this.cachedPositions;
+    const velocities = this.cachedVelocities!;
+    const weights = this.cachedWeights!;
+    const classes = this.cachedClasses!;
+    const hullLengths = this.cachedHullLengths!;
+    const states = this.cachedStates!;
+
     const allVessels = Array.from(this.vessels.values()).slice(0, maxCount);
-    const positions = new Float32Array(maxCount * 3);
-    const velocities = new Float32Array(maxCount * 3);
-    const weights = new Float32Array(maxCount);
-    const classes = new Float32Array(maxCount);
-    const hullLengths = new Float32Array(maxCount);
-    const states = new Float32Array(maxCount);
 
     allVessels.forEach((vessel, index) => {
       const i = index * 3;
@@ -521,6 +557,33 @@ export class VesselSystem {
       // Clear all vessels
       this.vessels.clear();
     }
+  }
+
+  /**
+   * Clean up resources
+   */
+  dispose(): void {
+    // Release cached arrays back to pool
+    if (this.cachedPositions) {
+      globalArrayPool.releaseAll([
+        this.cachedPositions,
+        this.cachedVelocities!,
+        this.cachedWeights!,
+        this.cachedClasses!,
+        this.cachedHullLengths!,
+        this.cachedStates!
+      ]);
+
+      this.cachedPositions = null;
+      this.cachedVelocities = null;
+      this.cachedWeights = null;
+      this.cachedClasses = null;
+      this.cachedHullLengths = null;
+      this.cachedStates = null;
+    }
+
+    // Clear vessels
+    this.vessels.clear();
   }
 
   /**

@@ -40,6 +40,23 @@ export class OceanRenderer {
   private lastFpsUpdate: number = 0;
   private fps: number = 0;
 
+  // High-resolution timing for smooth animation regardless of throttling
+  private lastFrameTime: number = 0;
+  private deltaTime: number = 0;
+  private targetFPS: number = 60;
+  private isThrottled: boolean = false;
+
+  // Vessel uniform batching (set once per frame, reused across passes)
+  private vesselDataCache: {
+    positions: Float32Array;
+    velocities: Float32Array;
+    weights: Float32Array;
+    classes: Float32Array;
+    hullLengths: Float32Array;
+    states: Float32Array;
+    count: number;
+  } | null = null;
+
   // Debug mode
   private debugMode: number = 0;
 
@@ -461,8 +478,17 @@ export class OceanRenderer {
       this.uniformCache.lastDebugMode = this.debugMode;
     }
 
-    // Set vessel wake uniforms
-    const vesselData = this.vesselSystem.getVesselDataForShader(5, performance.now());
+    // Set vessel wake uniforms using cached data (OPTIMIZED - batching)
+    // Cache is populated once per frame in render() method
+    const vesselData = this.vesselDataCache || {
+      positions: new Float32Array(0),
+      velocities: new Float32Array(0),
+      weights: new Float32Array(0),
+      classes: new Float32Array(0),
+      hullLengths: new Float32Array(0),
+      states: new Float32Array(0),
+      count: 0
+    };
 
     // Set vessel count only if changed
     if (vesselData.count !== this.uniformCache.lastVesselCount) {
@@ -496,17 +522,35 @@ export class OceanRenderer {
   }
 
   /**
-   * Render one frame
+   * Render one frame with high-resolution timing
    */
   private render(): void {
     if (!this.oceanProgram) return;
 
     const currentTime = performance.now();
-    const elapsedTime = (currentTime - this.startTime) / 1000; // Convert to seconds
-    const deltaTime = 1 / 60; // Approximate 60 FPS for vessel updates
 
-    // Update vessel system
-    this.vesselSystem.update(currentTime, deltaTime);
+    // Calculate actual deltaTime in seconds (high-resolution)
+    if (this.lastFrameTime === 0) {
+      this.lastFrameTime = currentTime;
+    }
+    const frameDelta = currentTime - this.lastFrameTime;
+    this.lastFrameTime = currentTime;
+
+    // Convert to seconds and clamp to prevent spiral of death
+    // Max deltaTime of 100ms (10fps minimum) prevents huge jumps
+    this.deltaTime = Math.min(frameDelta / 1000, 0.1);
+
+    // Detect browser throttling (frame time > 20ms indicates < 50fps)
+    this.isThrottled = frameDelta > 20;
+
+    const elapsedTime = (currentTime - this.startTime) / 1000; // Convert to seconds
+
+    // Update vessel system with real deltaTime for smooth animation
+    this.vesselSystem.update(currentTime, this.deltaTime);
+
+    // Update vessel uniform data cache once per frame (OPTIMIZATION - batching)
+    // This eliminates redundant calls during multi-pass rendering
+    this.vesselDataCache = this.vesselSystem.getVesselDataForShader(5, currentTime);
 
     // Render ocean scene with integrated glass distortion and per-pixel adaptive text
     this.renderOceanScene(elapsedTime);
@@ -535,23 +579,25 @@ export class OceanRenderer {
   }
 
   /**
-   * Start the render loop
+   * Start the render loop with high-resolution timing
    */
   start(): void {
     if (this.isRunning) return;
 
     this.isRunning = true;
-    this.startTime = performance.now();
-    this.lastFpsUpdate = this.startTime;
+    const now = performance.now();
+    this.startTime = now;
+    this.lastFpsUpdate = now;
+    this.lastFrameTime = now;
 
-    const renderLoop = () => {
+    const renderLoop = (timestamp: number) => {
       if (!this.isRunning) return;
 
       this.render();
       this.animationFrameId = requestAnimationFrame(renderLoop);
     };
 
-    renderLoop();
+    this.animationFrameId = requestAnimationFrame(renderLoop);
   }
 
   /**

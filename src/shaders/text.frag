@@ -261,7 +261,7 @@ float getOceanHeightForGlow(vec2 pos, float time) {
 
 // ===== GLOW SYSTEM FUNCTIONS =====
 
-// Calculate distance field from text
+// Calculate distance field from text (OPTIMIZED - reduced from 24 to 8 samples)
 float calculateGlowDistance(vec2 uv, vec2 pixelSize) {
     float minDistance = u_glowRadius;
 
@@ -269,25 +269,21 @@ float calculateGlowDistance(vec2 uv, vec2 pixelSize) {
     const int numSamples = 8;
     const float angleStep = 2.0 * PI / float(numSamples);
 
-    // Multi-radius sampling for smooth falloff
-    const int numRings = 3;
-    float radii[3] = float[3](1.0, 3.0, 5.0);
+    // Single-ring sampling (3x faster than before, similar visual quality)
+    // Use adaptive radius based on glow radius for good coverage
+    float adaptiveRadius = u_glowRadius * 0.5;
+    vec2 radiusOffset = pixelSize * adaptiveRadius;
 
-    for (int ring = 0; ring < numRings; ring++) {
-        float radius = radii[ring];
-        vec2 radiusOffset = pixelSize * radius;
+    for (int i = 0; i < numSamples; i++) {
+        float angle = float(i) * angleStep;
+        vec2 direction = vec2(cos(angle), sin(angle));
+        vec2 sampleUV = uv + direction * radiusOffset;
 
-        for (int i = 0; i < numSamples; i++) {
-            float angle = float(i) * angleStep;
-            vec2 direction = vec2(cos(angle), sin(angle));
-            vec2 sampleUV = uv + direction * radiusOffset;
+        float sampleAlpha = texture(u_textTexture, sampleUV).a;
 
-            float sampleAlpha = texture(u_textTexture, sampleUV).a;
-
-            if (sampleAlpha > 0.01) {
-                float dist = length(direction * radiusOffset * u_resolution.x);
-                minDistance = min(minDistance, dist);
-            }
+        if (sampleAlpha > 0.01) {
+            float dist = length(direction * radiusOffset * u_resolution.x);
+            minDistance = min(minDistance, dist);
         }
     }
 
