@@ -267,7 +267,7 @@ export class OceanRenderer {
   }
 
   /**
-   * Initialize ocean shader program, glass shaders, and text shaders
+   * Initialize ocean shader program, glass shaders, text shaders, and blur map shaders
    */
   async initializeShaders(
     oceanVertexSource: string,
@@ -275,7 +275,9 @@ export class OceanRenderer {
     glassVertexSource?: string,
     glassFragmentSource?: string,
     textVertexSource?: string,
-    textFragmentSource?: string
+    textFragmentSource?: string,
+    blurMapVertexSource?: string,
+    blurMapFragmentSource?: string
   ): Promise<void> {
     // Define uniforms and attributes for ocean shader
     const uniforms = [
@@ -341,6 +343,16 @@ export class OceanRenderer {
         this.textEnabled = false;
       }
     }
+
+    // Initialize blur map shaders if provided
+    if (blurMapVertexSource && blurMapFragmentSource && this.textRenderer) {
+      try {
+        await this.textRenderer.initializeBlurMapShaders(blurMapVertexSource, blurMapFragmentSource);
+        console.log('Blur map shaders initialized successfully!');
+      } catch (error) {
+        console.error('Failed to initialize blur map shaders:', error);
+      }
+    }
   }
 
   /**
@@ -369,7 +381,13 @@ export class OceanRenderer {
           this.glassRenderer!.render();
         });
 
-        // 3. Final render: Ocean + Glass + WebGL Text Overlay with glow
+        // 3. Pass blur map from TextRenderer to GlassRenderer
+        // Note: Blur map is generated in TextRenderer.render() → generateBlurMap()
+        // We get the texture after text rendering updates it
+        const blurMapTexture = this.textRenderer.getBlurMapTexture();
+        this.glassRenderer.setBlurMapTexture(blurMapTexture);
+
+        // 4. Final render: Ocean + Glass (with blur modulation) + WebGL Text Overlay with glow
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
         this.drawOcean(elapsedTime);
         this.glassRenderer.render();
@@ -631,6 +649,22 @@ export class OceanRenderer {
    */
   getTextRenderer(): TextRenderer | null {
     return this.textRenderer;
+  }
+
+  /**
+   * Enable/disable blur map effect
+   */
+  setBlurMapEnabled(enabled: boolean): void {
+    if (this.glassRenderer) {
+      this.glassRenderer.setBlurMapEnabled(enabled);
+    }
+  }
+
+  /**
+   * Get blur map enabled state
+   */
+  getBlurMapEnabled(): boolean {
+    return this.glassRenderer?.getBlurMapEnabled() ?? false;
   }
 
   /**
