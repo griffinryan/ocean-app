@@ -303,8 +303,8 @@ float calculateGlowIntensity(float distance) {
     return coreBoost * u_glowIntensity;
 }
 
-// Calculate glow color with sharp quantized transitions (inverse of text)
-vec3 calculateGlowColor(vec3 backgroundColor, float glowIntensity, float oceanHeight, vec2 fragCoord) {
+// Calculate glow color with smooth gradients (no dithering or quantization)
+vec3 calculateGlowColor(vec3 backgroundColor, float glowIntensity, float oceanHeight) {
     // Define color stops: White → Blue → Ochre-yellow (inverse of text)
     vec3 whiteGlow = vec3(1.0, 1.0, 1.0);        // Low waves (inverse of dark text)
     vec3 blueGlow = vec3(0.2, 0.4, 0.8);         // Mid waves
@@ -314,31 +314,20 @@ vec3 calculateGlowColor(vec3 backgroundColor, float glowIntensity, float oceanHe
     // Wave heights typically range from -1.5 to 1.5
     float normalizedWave = clamp((oceanHeight + 1.5) / 3.0, 0.0, 1.0);
 
-    // Apply Bayer dithering for stylized quantization (matching text aesthetic)
-    float dither = bayerDither4x4(fragCoord);
-    float ditheredWave = normalizedWave + (dither - 0.5) * 0.2;
-
-    // Sharp step transitions at 0.33 and 0.66 thresholds
-    float lowStep = step(0.33, ditheredWave);   // 0 if wave < 0.33, 1 if >= 0.33
-    float highStep = step(0.66, ditheredWave);  // 0 if wave < 0.66, 1 if >= 0.66
-
-    // Select color based on steps (sharp transitions)
+    // SMOOTH gradient transitions (no dithering, no quantization)
     vec3 glowColor;
-    if (highStep > 0.5) {
-        // High waves: ochre-yellow
-        glowColor = ochreGlow;
-    } else if (lowStep > 0.5) {
-        // Mid waves: blue
-        glowColor = blueGlow;
+    if (normalizedWave < 0.3) {
+        // Low waves: white → blue transition
+        glowColor = mix(whiteGlow, blueGlow, normalizedWave / 0.3);
+    } else if (normalizedWave < 0.7) {
+        // Mid waves: blue → ochre transition
+        glowColor = mix(blueGlow, ochreGlow, (normalizedWave - 0.3) / 0.4);
     } else {
-        // Low waves: white
-        glowColor = whiteGlow;
+        // High waves: pure ochre
+        glowColor = ochreGlow;
     }
 
-    // Apply quantization to 8 levels (matching text quantization)
-    glowColor = quantizeColor(glowColor, 8);
-
-    return glowColor;
+    return glowColor; // Clean smooth gradient, no artifacts
 }
 
 // Check if current fragment is within any panel boundary (from GlassRenderer)
@@ -431,11 +420,8 @@ void main() {
         // Calculate adaptive text color based on background
         vec3 adaptiveTextColor = calculateAdaptiveTextColor(backgroundColor, u_adaptiveStrength);
 
-        // Quantize the adaptive color to match ocean's stylized look
-        vec3 quantizedColor = quantizeColor(adaptiveTextColor, 8);
-
-        // Use clean quantized color without dithering
-        finalColor = quantizedColor;
+        // Use smooth adaptive color (no quantization for clean appearance)
+        finalColor = adaptiveTextColor;
 
         // Gentle anti-aliasing for text edges
         finalAlpha = smoothstep(0.1, 0.5, textAlpha);
@@ -458,8 +444,8 @@ void main() {
             float waveBoost = abs(oceanHeight) * 0.15;
             glowIntensity += waveBoost * glowIntensity;
 
-            // Calculate glow color based on wave height with dithered color range
-            vec3 glowColor = calculateGlowColor(backgroundColor, glowIntensity, oceanHeight, gl_FragCoord.xy);
+            // Calculate glow color based on wave height with smooth gradients
+            vec3 glowColor = calculateGlowColor(backgroundColor, glowIntensity, oceanHeight);
 
             // Apply intro animation to glow (slightly offset from text)
             float glowAnimationFactor = 1.0 - cubicEaseOut(max(0.0, u_textIntroProgress - 0.1));

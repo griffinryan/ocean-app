@@ -81,6 +81,7 @@ export class TextRenderer {
   // Blur control properties
   private blurRadius: number = 192.0; // pixels
   private blurFalloffPower: number = 1.5; // 1.0 = linear, >1.0 = sharper
+  private blurMapGenerationEnabled: boolean = true; // Can be disabled for performance
 
   // DOM position cache for performance
   private domCache: DOMCache;
@@ -877,8 +878,8 @@ export class TextRenderer {
   private generateBlurMap(): void {
     const gl = this.gl;
 
-    // Skip if transitioning or no program
-    if (this.isTransitioningFlag || !this.blurMapProgram || !this.blurMapFramebuffer || !this.textTexture) {
+    // Skip if disabled (for performance), transitioning, or no program
+    if (!this.blurMapGenerationEnabled || this.isTransitioningFlag || !this.blurMapProgram || !this.blurMapFramebuffer || !this.textTexture) {
       return;
     }
 
@@ -1567,6 +1568,13 @@ export class TextRenderer {
    */
   public getBlurMapTexture(): WebGLTexture | null {
     return this.blurMapTexture;
+  }
+
+  /**
+   * Enable or disable blur map generation (for performance optimization)
+   */
+  public setBlurMapGenerationEnabled(enabled: boolean): void {
+    this.blurMapGenerationEnabled = enabled;
   }
 
   /**

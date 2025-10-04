@@ -57,6 +57,15 @@ export class OceanRenderer {
     count: number;
   } | null = null;
 
+  // Adaptive quality system for performance
+  private currentQuality: number = 2; // 0=LOW, 1=MEDIUM, 2=HIGH
+  private qualityResolutionScale: number = 1.0;
+  private consecutiveLowFPS: number = 0;
+  private consecutiveHighFPS: number = 0;
+  private readonly FPS_LOW_THRESHOLD = 40;
+  private readonly FPS_HIGH_THRESHOLD = 50;
+  private readonly FPS_CHECK_FRAMES = 10; // Stabilize before changing
+
   // Debug mode
   private debugMode: number = 0;
 
@@ -183,8 +192,10 @@ export class OceanRenderer {
     const displayHeight = this.canvas.clientHeight;
     const devicePixelRatio = window.devicePixelRatio || 1;
 
-    const canvasWidth = Math.round(displayWidth * devicePixelRatio);
-    const canvasHeight = Math.round(displayHeight * devicePixelRatio);
+    // Apply quality-based resolution scaling for adaptive performance
+    const effectivePixelRatio = devicePixelRatio * this.qualityResolutionScale;
+    const canvasWidth = Math.round(displayWidth * effectivePixelRatio);
+    const canvasHeight = Math.round(displayHeight * effectivePixelRatio);
 
     // Update canvas resolution
     if (this.canvas.width !== canvasWidth || this.canvas.height !== canvasHeight) {
@@ -302,6 +313,7 @@ export class OceanRenderer {
       'u_aspectRatio',
       'u_resolution',
       'u_debugMode',
+      'u_qualityLevel',
       'u_vesselCount',
       'u_vesselPositions',
       'u_vesselVelocities',
@@ -478,6 +490,9 @@ export class OceanRenderer {
       this.uniformCache.lastDebugMode = this.debugMode;
     }
 
+    // Set quality level for shader LOD
+    this.shaderManager.setUniform1i(program, 'u_qualityLevel', this.currentQuality);
+
     // Set vessel wake uniforms using cached data (OPTIMIZED - batching)
     // Cache is populated once per frame in render() method
     const vesselData = this.vesselDataCache || {
@@ -557,6 +572,104 @@ export class OceanRenderer {
 
     // Update FPS counter
     this.updateFPS(currentTime);
+
+    // Adaptive quality monitoring and adjustment
+    this.monitorAndAdaptQuality();
+  }
+
+  /**
+   * Monitor FPS and adaptively adjust quality level
+   */
+  private monitorAndAdaptQuality(): void {
+    if (this.fps < this.FPS_LOW_THRESHOLD) {
+      this.consecutiveLowFPS++;
+      this.consecutiveHighFPS = 0;
+
+      // Downgrade quality if consistently low FPS
+      if (this.consecutiveLowFPS >= this.FPS_CHECK_FRAMES) {
+        this.downgradeQuality();
+        this.consecutiveLowFPS = 0;
+      }
+    } else if (this.fps > this.FPS_HIGH_THRESHOLD) {
+      this.consecutiveHighFPS++;
+      this.consecutiveLowFPS = 0;
+
+      // Upgrade quality if consistently high FPS (need more frames for stability)
+      if (this.consecutiveHighFPS >= this.FPS_CHECK_FRAMES * 2) {
+        this.upgradeQuality();
+        this.consecutiveHighFPS = 0;
+      }
+    } else {
+      // FPS in acceptable range, reset counters
+      this.consecutiveLowFPS = 0;
+      this.consecutiveHighFPS = 0;
+    }
+  }
+
+  /**
+   * Downgrade rendering quality to improve performance
+   */
+  private downgradeQuality(): void {
+    if (this.currentQuality === 0) {
+      console.log('OceanRenderer: Already at lowest quality');
+      return;
+    }
+
+    this.currentQuality--;
+
+    // Update resolution scale and settings based on new quality
+    switch (this.currentQuality) {
+      case 1: // MEDIUM
+        this.qualityResolutionScale = 0.75;
+        if (this.textRenderer) {
+          this.textRenderer.setBlurMapGenerationEnabled(false);
+        }
+        console.log('OceanRenderer: Downgraded to MEDIUM quality (75% resolution, 4 waves, no blur)');
+        break;
+      case 0: // LOW
+        this.qualityResolutionScale = 0.5;
+        if (this.textRenderer) {
+          this.textRenderer.setBlurMapGenerationEnabled(false);
+        }
+        console.log('OceanRenderer: Downgraded to LOW quality (50% resolution, 2 waves, no blur)');
+        break;
+    }
+
+    // Trigger resize to apply new resolution
+    this.resize();
+  }
+
+  /**
+   * Upgrade rendering quality when performance allows
+   */
+  private upgradeQuality(): void {
+    if (this.currentQuality === 2) {
+      console.log('OceanRenderer: Already at highest quality');
+      return;
+    }
+
+    this.currentQuality++;
+
+    // Update resolution scale and settings based on new quality
+    switch (this.currentQuality) {
+      case 1: // MEDIUM
+        this.qualityResolutionScale = 0.75;
+        if (this.textRenderer) {
+          this.textRenderer.setBlurMapGenerationEnabled(false);
+        }
+        console.log('OceanRenderer: Upgraded to MEDIUM quality (75% resolution, 4 waves, no blur)');
+        break;
+      case 2: // HIGH
+        this.qualityResolutionScale = 1.0;
+        if (this.textRenderer) {
+          this.textRenderer.setBlurMapGenerationEnabled(true);
+        }
+        console.log('OceanRenderer: Upgraded to HIGH quality (100% resolution, 8 waves, blur)');
+        break;
+    }
+
+    // Trigger resize to apply new resolution
+    this.resize();
   }
 
   /**

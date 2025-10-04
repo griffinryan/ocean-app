@@ -379,10 +379,9 @@ export class PanelManager {
           element.classList.remove('fade-in');
 
           // Add active class for content panels (this triggers transform transition)
+          // Note: element already tracked in activeTransitions from line 372, no need to re-add
           if (state === 'app' || state === 'portfolio' || state === 'resume') {
             element.classList.add('active');
-            // Track the transform transition that follows
-            this.activeTransitions.add(element);
           }
 
           // Remove from pending timeouts

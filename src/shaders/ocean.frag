@@ -9,6 +9,7 @@ in float v_time;
 uniform float u_aspectRatio;
 uniform vec2 u_resolution;
 uniform int u_debugMode;
+uniform int u_qualityLevel; // 0=LOW (2 waves), 1=MEDIUM (4 waves), 2=HIGH (8 waves)
 
 // Vessel wake uniforms
 uniform int u_vesselCount;
@@ -381,29 +382,34 @@ float bayerDither4x4(vec2 position) {
 }
 
 
-// Calculate ocean height with visible waves
+// Calculate ocean height with adaptive LOD based on quality level
 float getOceanHeight(vec2 pos, float time) {
     float height = 0.0;
 
-    // Primary waves - much larger amplitude for visibility
+    // Quality-based wave count: LOW=2, MEDIUM=4, HIGH=8
+    // Primary waves (always rendered for base ocean appearance)
     height += sineWave(pos, vec2(1.0, 0.0), 8.0, 0.4, 1.0, time);
     height += sineWave(pos, vec2(0.7, 0.7), 6.0, 0.3, 1.2, time);
-    height += sineWave(pos, vec2(0.0, 1.0), 10.0, 0.35, 0.8, time);
-    height += sineWave(pos, vec2(-0.6, 0.8), 4.0, 0.2, 1.5, time);
 
-    // Secondary detail waves
-    height += sineWave(pos, vec2(0.9, 0.4), 3.0, 0.15, 2.0, time);
-    height += sineWave(pos, vec2(0.2, -0.9), 2.5, 0.12, 2.2, time);
+    // MEDIUM and HIGH quality: Add secondary waves
+    if (u_qualityLevel >= 1) {
+        height += sineWave(pos, vec2(0.0, 1.0), 10.0, 0.35, 0.8, time);
+        height += sineWave(pos, vec2(-0.6, 0.8), 4.0, 0.2, 1.5, time);
+    }
 
-    // Interference patterns for more complexity
-    height += sineWave(pos, vec2(0.5, -0.5), 5.0, 0.1, 0.9, time);
-    height += sineWave(pos, vec2(-0.8, 0.2), 7.0, 0.08, 1.1, time);
+    // HIGH quality only: Add detail waves
+    if (u_qualityLevel >= 2) {
+        height += sineWave(pos, vec2(0.9, 0.4), 3.0, 0.15, 2.0, time);
+        height += sineWave(pos, vec2(0.2, -0.9), 2.5, 0.12, 2.2, time);
+        height += sineWave(pos, vec2(0.5, -0.5), 5.0, 0.1, 0.9, time);
+        height += sineWave(pos, vec2(-0.8, 0.2), 7.0, 0.08, 1.1, time);
 
-    // Fine noise for texture
-    vec2 noisePos = pos * 3.0 + time * 0.2;
-    height += fbm(noisePos) * 0.08;
+        // Fine noise for texture (HIGH quality only)
+        vec2 noisePos = pos * 3.0 + time * 0.2;
+        height += fbm(noisePos) * 0.08;
+    }
 
-    // Add vessel wake contributions
+    // Add vessel wake contributions (all quality levels)
     float wakeHeight = getAllVesselWakes(pos, time);
     height += wakeHeight;
 
