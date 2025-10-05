@@ -480,6 +480,7 @@ export class OceanRenderer {
     ];
 
     // Create ocean shader program
+    console.log('[DEBUG] OceanRenderer: Creating ocean shader program...');
     this.oceanProgram = this.shaderManager.createProgram(
       'ocean',
       oceanVertexSource,
@@ -487,12 +488,14 @@ export class OceanRenderer {
       uniforms,
       attributes
     );
+    console.log('[DEBUG] OceanRenderer: Ocean shader program created successfully!', !!this.oceanProgram);
 
     // Set up vertex attributes
     const positionLocation = this.oceanProgram.attributeLocations.get('a_position')!;
     const texcoordLocation = this.oceanProgram.attributeLocations.get('a_texcoord')!;
 
     this.bufferManager.setupAttributes(positionLocation, texcoordLocation);
+    console.log('[DEBUG] OceanRenderer: Ocean shader attributes set up successfully');
 
     // Initialize wake shaders if provided
     if (wakeVertexSource && wakeFragmentSource && this.wakeRenderer) {
@@ -776,7 +779,11 @@ export class OceanRenderer {
    * Render one frame
    */
   private render(): void {
-    if (!this.oceanProgram) return;
+    // DEBUG: Check if oceanProgram is initialized
+    if (!this.oceanProgram) {
+      console.error('[DEBUG] OceanRenderer.render(): oceanProgram is NULL! Render loop exiting early.');
+      return;
+    }
 
     // Begin performance monitoring
     this.performanceMonitor.beginFrame();
@@ -829,6 +836,8 @@ export class OceanRenderer {
   start(): void {
     if (this.isRunning) return;
 
+    console.log('[DEBUG] OceanRenderer.start(): Starting render loop, oceanProgram exists:', !!this.oceanProgram);
+
     this.isRunning = true;
     this.startTime = performance.now();
     this.lastFpsUpdate = this.startTime;
@@ -841,6 +850,7 @@ export class OceanRenderer {
     };
 
     renderLoop();
+    console.log('[DEBUG] OceanRenderer.start(): Render loop started successfully');
   }
 
   /**

@@ -98,6 +98,13 @@ export class WakeRenderer {
   private initializeFramebuffer(): void {
     const gl = this.gl;
 
+    // Check WebGL extension support for diagnostics
+    const extColorBufferFloat = gl.getExtension('EXT_color_buffer_float');
+    const extFloatBlend = gl.getExtension('EXT_float_blend');
+    console.log('WakeRenderer: WebGL Extensions:');
+    console.log('  - EXT_color_buffer_float:', !!extColorBufferFloat, '(not required for R16F)');
+    console.log('  - EXT_float_blend:', !!extFloatBlend, '(not required for R16F)');
+
     // Create framebuffer
     this.wakeFramebuffer = gl.createFramebuffer();
     if (!this.wakeFramebuffer) {
@@ -116,7 +123,7 @@ export class WakeRenderer {
       throw new Error('WakeRenderer: Failed to create depth buffer');
     }
 
-    console.log('WakeRenderer: Framebuffer initialized');
+    console.log('WakeRenderer: Framebuffer initialized (using R16F format)');
   }
 
   /**
@@ -139,8 +146,10 @@ export class WakeRenderer {
     // Setup wake texture
     gl.bindTexture(gl.TEXTURE_2D, this.wakeTexture);
 
-    // Use R32F format for single-channel float data (wake height)
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, this.wakeWidth, this.wakeHeight, 0, gl.RED, gl.FLOAT, null);
+    // Use R16F format for single-channel half-float data (wake height)
+    // R16F is part of WebGL2 core spec and doesn't require extensions
+    // Provides sufficient precision for wake heights while maintaining compatibility
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, this.wakeWidth, this.wakeHeight, 0, gl.RED, gl.HALF_FLOAT, null);
 
     // Use linear filtering for smooth upscaling
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
@@ -159,7 +168,18 @@ export class WakeRenderer {
     // Check framebuffer completeness
     const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
     if (status !== gl.FRAMEBUFFER_COMPLETE) {
-      console.error('WakeRenderer: Framebuffer incomplete:', status);
+      const statusNames: Record<number, string> = {
+        36054: 'FRAMEBUFFER_INCOMPLETE_ATTACHMENT',
+        36055: 'FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT',
+        36057: 'FRAMEBUFFER_INCOMPLETE_DIMENSIONS',
+        36061: 'FRAMEBUFFER_UNSUPPORTED',
+        36182: 'FRAMEBUFFER_INCOMPLETE_MULTISAMPLE'
+      };
+      const statusName = statusNames[status] || 'UNKNOWN';
+      console.error(`WakeRenderer: Framebuffer incomplete: ${status} (${statusName})`);
+      console.error('  This may indicate unsupported texture format or missing extensions');
+    } else {
+      console.log('WakeRenderer: ✓ Framebuffer is complete and ready');
     }
 
     // Unbind
