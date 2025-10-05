@@ -8,6 +8,7 @@ import { Mat4 } from '../utils/math';
 import { VesselSystem, VesselConfig } from './VesselSystem';
 import { GlassRenderer } from './GlassRenderer';
 import { TextRenderer } from './TextRenderer';
+import { WakeRenderer } from './WakeRenderer';
 import { QualityManager, QualitySettings } from '../config/QualityPresets';
 import { PerformanceMonitor } from '../utils/PerformanceMonitor';
 
@@ -49,6 +50,9 @@ export class OceanRenderer {
   private vesselSystem!: VesselSystem;
   private wakesEnabled: boolean = true;
 
+  // Wake renderer for dedicated wake texture generation
+  private wakeRenderer: WakeRenderer | null = null;
+
   // Glass panel renderer
   private glassRenderer: GlassRenderer | null = null;
   private glassEnabled: boolean = false;
@@ -87,8 +91,7 @@ export class OceanRenderer {
     lastAspectRatio: -1,
     lastResolution: new Float32Array(2),
     lastDebugMode: -1,
-    lastWakesEnabled: false,
-    lastVesselCount: -1
+    lastWakesEnabled: false
   };
 
   constructor(config: RenderConfig) {
@@ -138,20 +141,23 @@ export class OceanRenderer {
     // Initialize upscaling framebuffer
     this.initializeUpscaleFramebuffer();
 
-    // Set up responsive resizing
-    this.setupResizing();
-
     // Set up camera for top-down view
     this.setupCamera();
 
     // Initialize vessel system
     this.initializeVesselSystem();
 
-    // Initialize glass renderer
+    // Initialize wake renderer BEFORE setupResizing() so framebuffer gets sized correctly
+    this.initializeWakeRenderer();
+
+    // Initialize glass renderer BEFORE setupResizing() so framebuffer gets sized correctly
     this.initializeGlassRenderer();
 
-    // Initialize text renderer
+    // Initialize text renderer BEFORE setupResizing() so framebuffer gets sized correctly
     this.initializeTextRenderer();
+
+    // Set up responsive resizing (MUST be called after initializing renderers)
+    this.setupResizing();
 
     // Initialize GPU timing for performance monitoring
     this.performanceMonitor.initializeGPUTiming(gl);
@@ -280,6 +286,10 @@ export class OceanRenderer {
     this.resize();
 
     // Update sub-renderers
+    if (this.wakeRenderer) {
+      this.wakeRenderer.updateQualitySettings(settings);
+    }
+
     if (this.glassRenderer) {
       this.glassRenderer.updateQualitySettings(settings);
     }
@@ -322,6 +332,11 @@ export class OceanRenderer {
 
     // Resize upscale framebuffer to render resolution
     this.resizeUpscaleFramebuffer(this.renderWidth, this.renderHeight);
+
+    // Resize wake renderer framebuffer
+    if (this.wakeRenderer) {
+      this.wakeRenderer.resizeFramebuffer(this.renderWidth, this.renderHeight);
+    }
 
     // Resize glass renderer framebuffer with scaled resolution
     if (this.glassRenderer) {
@@ -387,6 +402,19 @@ export class OceanRenderer {
   }
 
   /**
+   * Initialize wake renderer system
+   */
+  private initializeWakeRenderer(): void {
+    try {
+      this.wakeRenderer = new WakeRenderer(this.gl, this.shaderManager);
+      console.log('Wake renderer initialized successfully!');
+    } catch (error) {
+      console.error('Failed to initialize wake renderer:', error);
+      this.wakeRenderer = null;
+    }
+  }
+
+  /**
    * Initialize glass renderer system
    */
   private initializeGlassRenderer(): void {
@@ -415,11 +443,13 @@ export class OceanRenderer {
   }
 
   /**
-   * Initialize ocean shader program, glass shaders, text shaders, blur map shaders, and upscaling shaders
+   * Initialize ocean shader program, wake shaders, glass shaders, text shaders, blur map shaders, and upscaling shaders
    */
   async initializeShaders(
     oceanVertexSource: string,
     oceanFragmentSource: string,
+    wakeVertexSource?: string,
+    wakeFragmentSource?: string,
     glassVertexSource?: string,
     glassFragmentSource?: string,
     textVertexSource?: string,
@@ -435,13 +465,7 @@ export class OceanRenderer {
       'u_aspectRatio',
       'u_resolution',
       'u_debugMode',
-      'u_vesselCount',
-      'u_vesselPositions',
-      'u_vesselVelocities',
-      'u_vesselWeights',
-      'u_vesselClasses',
-      'u_vesselHullLengths',
-      'u_vesselStates',
+      'u_wakeTexture',
       'u_wakesEnabled',
       'u_glassEnabled',
       'u_glassPanelCount',
@@ -456,6 +480,7 @@ export class OceanRenderer {
     ];
 
     // Create ocean shader program
+    console.log('[DEBUG] OceanRenderer: Creating ocean shader program...');
     this.oceanProgram = this.shaderManager.createProgram(
       'ocean',
       oceanVertexSource,
@@ -463,12 +488,24 @@ export class OceanRenderer {
       uniforms,
       attributes
     );
+    console.log('[DEBUG] OceanRenderer: Ocean shader program created successfully!', !!this.oceanProgram);
 
     // Set up vertex attributes
     const positionLocation = this.oceanProgram.attributeLocations.get('a_position')!;
     const texcoordLocation = this.oceanProgram.attributeLocations.get('a_texcoord')!;
 
     this.bufferManager.setupAttributes(positionLocation, texcoordLocation);
+    console.log('[DEBUG] OceanRenderer: Ocean shader attributes set up successfully');
+
+    // Initialize wake shaders if provided
+    if (wakeVertexSource && wakeFragmentSource && this.wakeRenderer) {
+      try {
+        await this.wakeRenderer.initializeShaders(wakeVertexSource, wakeFragmentSource);
+        console.log('Wake shaders initialized successfully!');
+      } catch (error) {
+        console.error('Failed to initialize wake shaders:', error);
+      }
+    }
 
     // Initialize glass shaders if provided
     if (glassVertexSource && glassFragmentSource && this.glassRenderer) {
@@ -546,8 +583,8 @@ export class OceanRenderer {
   private renderOceanScene(elapsedTime: number): void {
     const gl = this.gl;
 
-    // Get vessel data for text renderer glow distortion
-    const vesselData = this.vesselSystem.getVesselDataForShader(5, performance.now());
+    // Get wake texture for text renderer glow distortion
+    const wakeTexture = this.wakeRenderer?.getWakeTexture() || null;
 
     // Determine if we need upscaling
     const needsUpscale = this.currentQuality.finalPassResolution < 1.0 && this.upscaleProgram;
@@ -556,6 +593,9 @@ export class OceanRenderer {
     if (needsUpscale) {
       gl.bindFramebuffer(gl.FRAMEBUFFER, this.upscaleFramebuffer);
       gl.viewport(0, 0, this.renderWidth, this.renderHeight);
+    } else {
+      // Ensure viewport is restored to full display size (critical after wake rendering)
+      gl.viewport(0, 0, this.displayWidth, this.displayHeight);
     }
 
     if (this.textEnabled && this.textRenderer) {
@@ -585,7 +625,7 @@ export class OceanRenderer {
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
         this.drawOcean(elapsedTime);
         this.glassRenderer.render();
-        this.textRenderer.render(vesselData, this.wakesEnabled);
+        this.textRenderer.render(wakeTexture, this.wakesEnabled);
       } else {
         // Ocean + Text pipeline (no glass)
 
@@ -598,7 +638,7 @@ export class OceanRenderer {
         // 2. Final render: Ocean + WebGL Text Overlay with glow
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
         this.drawOcean(elapsedTime);
-        this.textRenderer.render(vesselData, this.wakesEnabled);
+        this.textRenderer.render(wakeTexture, this.wakesEnabled);
       }
     } else if (this.glassEnabled && this.glassRenderer) {
       // Glass pipeline only (no text)
@@ -710,29 +750,20 @@ export class OceanRenderer {
       this.uniformCache.lastDebugMode = this.debugMode;
     }
 
-    // Set vessel wake uniforms
-    const vesselData = this.vesselSystem.getVesselDataForShader(5, performance.now());
-
-    // Set vessel count only if changed
-    if (vesselData.count !== this.uniformCache.lastVesselCount) {
-      this.shaderManager.setUniform1i(program, 'u_vesselCount', vesselData.count);
-      this.uniformCache.lastVesselCount = vesselData.count;
+    // Bind wake texture
+    if (this.wakeRenderer) {
+      const wakeTexture = this.wakeRenderer.getWakeTexture();
+      if (wakeTexture) {
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, wakeTexture);
+        this.shaderManager.setUniform1i(program, 'u_wakeTexture', 1);
+      }
     }
 
     // Set wakes enabled only if changed
     if (this.wakesEnabled !== this.uniformCache.lastWakesEnabled) {
       this.shaderManager.setUniform1i(program, 'u_wakesEnabled', this.wakesEnabled ? 1 : 0);
       this.uniformCache.lastWakesEnabled = this.wakesEnabled;
-    }
-
-    // Vessel data arrays need to be updated every frame when vessels are active
-    if (vesselData.count > 0) {
-      this.shaderManager.setUniform3fv(program, 'u_vesselPositions', vesselData.positions);
-      this.shaderManager.setUniform3fv(program, 'u_vesselVelocities', vesselData.velocities);
-      this.shaderManager.setUniform1fv(program, 'u_vesselWeights', vesselData.weights);
-      this.shaderManager.setUniform1fv(program, 'u_vesselClasses', vesselData.classes);
-      this.shaderManager.setUniform1fv(program, 'u_vesselHullLengths', vesselData.hullLengths);
-      this.shaderManager.setUniform1fv(program, 'u_vesselStates', vesselData.states);
     }
 
     // Disable integrated glass effects since we're using overlay approach
@@ -748,7 +779,11 @@ export class OceanRenderer {
    * Render one frame
    */
   private render(): void {
-    if (!this.oceanProgram) return;
+    // DEBUG: Check if oceanProgram is initialized
+    if (!this.oceanProgram) {
+      console.error('[DEBUG] OceanRenderer.render(): oceanProgram is NULL! Render loop exiting early.');
+      return;
+    }
 
     // Begin performance monitoring
     this.performanceMonitor.beginFrame();
@@ -759,6 +794,12 @@ export class OceanRenderer {
 
     // Update vessel system
     this.vesselSystem.update(currentTime, deltaTime);
+
+    // Render wake texture FIRST (if wakes are enabled)
+    if (this.wakesEnabled && this.wakeRenderer) {
+      const vesselData = this.vesselSystem.getVesselDataForShader(5, currentTime);
+      this.wakeRenderer.render(vesselData, elapsedTime);
+    }
 
     // Render ocean scene with integrated glass distortion and per-pixel adaptive text
     this.renderOceanScene(elapsedTime);
@@ -795,6 +836,8 @@ export class OceanRenderer {
   start(): void {
     if (this.isRunning) return;
 
+    console.log('[DEBUG] OceanRenderer.start(): Starting render loop, oceanProgram exists:', !!this.oceanProgram);
+
     this.isRunning = true;
     this.startTime = performance.now();
     this.lastFpsUpdate = this.startTime;
@@ -807,6 +850,7 @@ export class OceanRenderer {
     };
 
     renderLoop();
+    console.log('[DEBUG] OceanRenderer.start(): Render loop started successfully');
   }
 
   /**
@@ -847,6 +891,9 @@ export class OceanRenderer {
   toggleWakes(): void {
     this.wakesEnabled = !this.wakesEnabled;
     this.vesselSystem.setEnabled(this.wakesEnabled);
+    if (this.wakeRenderer) {
+      this.wakeRenderer.setEnabled(this.wakesEnabled);
+    }
   }
 
   /**
@@ -1001,6 +1048,12 @@ export class OceanRenderer {
     if (this.upscaleDepthBuffer) {
       gl.deleteRenderbuffer(this.upscaleDepthBuffer);
       this.upscaleDepthBuffer = null;
+    }
+
+    // Clean up wake renderer
+    if (this.wakeRenderer) {
+      this.wakeRenderer.dispose();
+      this.wakeRenderer = null;
     }
 
     // Clean up glass renderer

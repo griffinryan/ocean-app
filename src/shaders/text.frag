@@ -20,13 +20,8 @@ uniform vec2 u_panelPositions[5];  // Panel center positions in screen space [-1
 uniform vec2 u_panelSizes[5];      // Panel sizes in screen space
 uniform int u_panelCount;
 
-// Vessel wake uniforms (from ocean system for glow distortion)
-uniform int u_vesselCount;
-uniform vec3 u_vesselPositions[5];
-uniform vec3 u_vesselVelocities[5];
-uniform float u_vesselWeights[5];
-uniform float u_vesselHullLengths[5];
-uniform float u_vesselStates[5];
+// Wake texture uniform (rendered by WakeRenderer)
+uniform sampler2D u_wakeTexture;
 uniform bool u_wakesEnabled;
 
 // Glow control uniforms
@@ -109,28 +104,9 @@ float noise(vec2 p) {
     return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
 }
 
-// ===== WAVE PHYSICS FUNCTIONS (from ocean.frag) =====
+// ===== WAVE PHYSICS FUNCTIONS =====
 
 const float PI = 3.14159265359;
-const float KELVIN_ANGLE = 0.34; // ~19.47 degrees in radians
-const float GRAVITY = 9.81;
-
-// Rotate 2D vector by angle (in radians)
-vec2 rotate2D(vec2 v, float angle) {
-    float c = cos(angle);
-    float s = sin(angle);
-    return vec2(v.x * c - v.y * s, v.x * s + v.y * c);
-}
-
-// Calculate wave number from wavelength
-float waveNumber(float wavelength) {
-    return 2.0 * PI / wavelength;
-}
-
-// Deep water dispersion relation: omega = sqrt(g * k)
-float waveFrequency(float k) {
-    return sqrt(GRAVITY * k);
-}
 
 // Simple sine wave for procedural ocean
 float sineWave(vec2 pos, vec2 direction, float wavelength, float amplitude, float speed, float time) {
@@ -139,108 +115,19 @@ float sineWave(vec2 pos, vec2 direction, float wavelength, float amplitude, floa
     return amplitude * sin(phase);
 }
 
-// Simplified trail decay function
-float getSimplifiedTrailDecay(float normalizedDistance, float weight) {
-    float decay = exp(-normalizedDistance * 2.5);
-    float modulation = 1.0 - normalizedDistance * 0.3;
-    float weightFactor = 1.0 + weight * 0.2;
-    return max(0.0, decay * modulation * weightFactor);
-}
+// Sample wake texture (rendered by WakeRenderer at lower resolution)
+float sampleWakeTexture(vec2 oceanPos) {
+    if (!u_wakesEnabled) return 0.0;
 
-// Calculate vessel wake contribution (simplified for glow distortion)
-float calculateVesselWakeForGlow(vec2 pos, vec3 vesselPos, vec3 vesselVel, float weight, float hullLength, float vesselState, float time) {
-    vec2 delta = pos - vesselPos.xz;
-    float distance = length(delta);
+    // Convert ocean coordinates to UV space [0,1]
+    // Ocean space is [-15*aspectRatio, 15*aspectRatio] x [-15, 15]
+    vec2 wakeUV = vec2(
+        (oceanPos.x / (15.0 * u_aspectRatio)) * 0.5 + 0.5,
+        (oceanPos.y / 15.0) * 0.5 + 0.5
+    );
 
-    vec2 vesselDir = normalize(vesselVel.xz);
-    float vesselSpeed = length(vesselVel.xz);
-
-    if (vesselSpeed < 0.1) return 0.0;
-
-    float maxTrailDistance = 80.0 + weight * 25.0;
-    float wakeRange = 25.0 + weight * 15.0 + vesselSpeed * 4.0;
-
-    if (distance > 120.0) return 0.0;
-
-    float dotProduct = dot(delta, vesselDir);
-    if (dotProduct > 0.0) return 0.0;
-
-    float pathDistance = abs(dotProduct);
-    if (pathDistance > maxTrailDistance) return 0.0;
-
-    float froudeNumber = vesselSpeed / sqrt(GRAVITY * hullLength);
-    float baseAngle = KELVIN_ANGLE * (1.0 + weight * 0.8);
-    float froudeModifier = 1.0 + froudeNumber * 0.2;
-    float shearRate = 0.15;
-    float progressiveShear = 1.0 + shearRate * log(1.0 + pathDistance * 0.1);
-    float dynamicAngle = baseAngle * froudeModifier * progressiveShear;
-
-    vec2 leftArm = rotate2D(vesselDir, dynamicAngle);
-    vec2 rightArm = rotate2D(vesselDir, -dynamicAngle);
-
-    float leftDist = abs(dot(delta, vec2(-leftArm.y, leftArm.x)));
-    float rightDist = abs(dot(delta, vec2(-rightArm.y, rightArm.x)));
-
-    float stateIntensity = 1.0;
-    if (vesselState > 0.5 && vesselState < 1.5) {
-        stateIntensity = 0.7;
-    } else if (vesselState > 1.5) {
-        float fadeFactor = (vesselState - 2.0);
-        stateIntensity = 0.7 * (1.0 - fadeFactor);
-    }
-
-    float baseAmplitude = vesselSpeed * (0.15 + weight * 0.25) * stateIntensity;
-    float normalizedPathDistance = min(pathDistance / maxTrailDistance, 1.0);
-    float simplifiedDecay = getSimplifiedTrailDecay(normalizedPathDistance, weight);
-
-    float edgeFade = 1.0;
-    if (distance > wakeRange * 0.6) {
-        float t = (distance - wakeRange * 0.6) / (wakeRange * 0.4);
-        edgeFade = 1.0 - smoothstep(0.0, 1.0, t);
-    }
-
-    float ageFactor = simplifiedDecay;
-    float baseWakeWidth = 2.0 + weight * 3.0;
-    float spreadFactor = 1.0 + log(pathDistance + 1.0) * 0.3;
-    float curlSpread = 1.0 + progressiveShear * 0.2;
-    float effectiveWidth = baseWakeWidth * spreadFactor * curlSpread;
-
-    float wakeHeight = 0.0;
-    float phi = 1.618;
-
-    // Simplified to single wave component for performance
-    if (leftDist < effectiveWidth) {
-        float armIntensity = smoothstep(effectiveWidth, effectiveWidth * 0.3, leftDist);
-        float wavelength = 2.5 + vesselSpeed * 0.5;
-        float k = waveNumber(wavelength);
-        float omega = waveFrequency(k);
-        float phase = k * pathDistance - omega * time;
-        wakeHeight += baseAmplitude * armIntensity * ageFactor * edgeFade * sin(phase);
-    }
-
-    if (rightDist < effectiveWidth) {
-        float armIntensity = smoothstep(effectiveWidth, effectiveWidth * 0.3, rightDist);
-        float wavelength = 2.5 + vesselSpeed * 0.5;
-        float k = waveNumber(wavelength);
-        float omega = waveFrequency(k);
-        float phase = k * pathDistance - omega * time;
-        wakeHeight += baseAmplitude * armIntensity * ageFactor * edgeFade * sin(phase);
-    }
-
-    return wakeHeight * 1.5;
-}
-
-// Calculate all vessel wake contributions for glow
-float getAllVesselWakesForGlow(vec2 pos, float time) {
-    if (!u_wakesEnabled || u_vesselCount == 0) return 0.0;
-
-    float totalWake = 0.0;
-    for (int i = 0; i < u_vesselCount && i < 5; i++) {
-        totalWake += calculateVesselWakeForGlow(pos, u_vesselPositions[i], u_vesselVelocities[i],
-                                                u_vesselWeights[i], u_vesselHullLengths[i], u_vesselStates[i], time);
-    }
-
-    return totalWake;
+    // Sample wake texture (R channel contains wake height)
+    return texture(u_wakeTexture, wakeUV).r;
 }
 
 // Calculate ocean height at position (simplified procedural waves for glow distortion)
@@ -252,8 +139,8 @@ float getOceanHeightForGlow(vec2 pos, float time) {
     height += sineWave(pos, vec2(0.7, 0.7), 6.0, 0.3, 1.2, time);
     height += sineWave(pos, vec2(0.0, 1.0), 10.0, 0.35, 0.8, time);
 
-    // Add vessel wakes
-    float wakeHeight = getAllVesselWakesForGlow(pos, time);
+    // Add vessel wakes from pre-rendered texture
+    float wakeHeight = sampleWakeTexture(pos);
     height += wakeHeight;
 
     return height;

@@ -81,6 +81,7 @@ export class VesselSystem {
   private idCounter: number = 0;
   private initialized: boolean = false;
   private wakeDecayFunction: (distance: number, maxDistance: number, weight: number) => number;
+  private updateCallCount: number = 0; // DEBUG: Track update calls
 
   // Vessel class configurations
   private static readonly VESSEL_CLASS_CONFIGS: Record<VesselClass, VesselClassConfig> = {
@@ -119,21 +120,35 @@ export class VesselSystem {
       config.splineControlPoints,
       config.waveletSigma
     );
+
+    console.log('[DEBUG] VesselSystem constructor called - system initialized');
   }
 
   /**
    * Update vessel system
    */
   update(currentTime: number, deltaTime: number): void {
+    // DEBUG: Log only first 3 update calls to avoid spam
+    if (this.updateCallCount < 3) {
+      console.log('[DEBUG] VesselSystem.update() called, initialized:', this.initialized, 'vessels.size:', this.vessels.size);
+      this.updateCallCount++;
+    }
+
     // Initialize system on first update with correct timing
     if (!this.initialized) {
+      console.log('[DEBUG] VesselSystem: First update, spawning initial vessel...');
       this.initialized = true;
       this.lastSpawnTime = currentTime;
 
       // Spawn initial vessel immediately with correct timing
-      const initialVessel = this.createRandomVessel(currentTime);
-      this.vessels.set(initialVessel.id, initialVessel);
-      console.log(`[VesselSystem] Initial vessel spawned: ${initialVessel.id} at position (${initialVessel.position.x}, ${initialVessel.position.z}) with speed ${initialVessel.speed}`);
+      try {
+        const initialVessel = this.createRandomVessel(currentTime);
+        this.vessels.set(initialVessel.id, initialVessel);
+        console.log(`[VesselSystem] ✓ Initial vessel spawned: ${initialVessel.id} at position (${initialVessel.position.x.toFixed(1)}, ${initialVessel.position.z.toFixed(1)}) with speed ${initialVessel.speed.toFixed(2)}`);
+        console.log('[DEBUG] VesselSystem: After spawning, vessels.size:', this.vessels.size);
+      } catch (error) {
+        console.error('[DEBUG] VesselSystem: ✗ ERROR spawning initial vessel:', error);
+      }
     }
 
     // Spawn new vessels if needed

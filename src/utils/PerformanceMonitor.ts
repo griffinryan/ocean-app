@@ -3,7 +3,7 @@
  * Tracks FPS and automatically adjusts quality settings to maintain target framerate
  */
 
-import { QualityManager, QualityPreset, QUALITY_PRESETS } from '../config/QualityPresets';
+import { QualityManager, QualityPreset } from '../config/QualityPresets';
 
 export interface PerformanceMetrics {
   fps: number;
