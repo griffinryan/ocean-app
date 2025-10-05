@@ -7,6 +7,7 @@ export interface QualitySettings {
   // Resolution scale factors (0.0 - 1.0)
   oceanBaseResolution: number;      // Base ocean render resolution
   oceanCaptureResolution: number;   // Ocean captures for glass/text
+  wakeResolution: number;           // Wake texture resolution (independent scaling)
   glassResolution: number;          // Glass distortion resolution
   textCanvasResolution: number;     // Canvas2D text resolution (fixed pixels)
   blurMapResolution: number;        // Blur map distance field resolution
@@ -37,6 +38,7 @@ export const QUALITY_PRESETS: Record<QualityPreset, QualitySettings> = {
   ultra: {
     oceanBaseResolution: 1.0,
     oceanCaptureResolution: 1.0,
+    wakeResolution: 0.75, // High quality wakes with slight performance optimization
     glassResolution: 1.0,
     textCanvasResolution: 2160, // 4K text
     blurMapResolution: 0.5,
@@ -61,6 +63,7 @@ export const QUALITY_PRESETS: Record<QualityPreset, QualitySettings> = {
   high: {
     oceanBaseResolution: 0.75,
     oceanCaptureResolution: 0.5,
+    wakeResolution: 0.5, // 50% wake resolution, upscaled with FSR
     glassResolution: 0.75,
     textCanvasResolution: 1920, // Fixed 1080p text
     blurMapResolution: 0.33,
@@ -85,6 +88,7 @@ export const QUALITY_PRESETS: Record<QualityPreset, QualitySettings> = {
   medium: {
     oceanBaseResolution: 0.5,
     oceanCaptureResolution: 0.33,
+    wakeResolution: 0.4, // 40% wake resolution for performance
     glassResolution: 0.5,
     textCanvasResolution: 1920,
     blurMapResolution: 0.25,
@@ -109,6 +113,7 @@ export const QUALITY_PRESETS: Record<QualityPreset, QualitySettings> = {
   low: {
     oceanBaseResolution: 0.33,
     oceanCaptureResolution: 0.25,
+    wakeResolution: 0.33, // 33% wake resolution
     glassResolution: 0.33,
     textCanvasResolution: 1280,
     blurMapResolution: 0.25,
@@ -133,6 +138,7 @@ export const QUALITY_PRESETS: Record<QualityPreset, QualitySettings> = {
   potato: {
     oceanBaseResolution: 0.25,
     oceanCaptureResolution: 0.25,
+    wakeResolution: 0.25, // Minimum wake resolution (huge performance gain)
     glassResolution: 0.25,
     textCanvasResolution: 1280,
     blurMapResolution: 0.25,
@@ -157,6 +163,7 @@ export const QUALITY_PRESETS: Record<QualityPreset, QualitySettings> = {
   custom: {
     oceanBaseResolution: 0.66,
     oceanCaptureResolution: 0.5,
+    wakeResolution: 0.5, // Balanced wake resolution
     glassResolution: 0.66,
     textCanvasResolution: 1920,
     blurMapResolution: 0.33,

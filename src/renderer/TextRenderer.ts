@@ -282,13 +282,8 @@ export class TextRenderer {
         'u_panelSizes',
         'u_panelCount',
         'u_textIntroProgress',
-        // Vessel wake uniforms
-        'u_vesselCount',
-        'u_vesselPositions',
-        'u_vesselVelocities',
-        'u_vesselWeights',
-        'u_vesselHullLengths',
-        'u_vesselStates',
+        // Wake texture uniform (rendered by WakeRenderer)
+        'u_wakeTexture',
         'u_wakesEnabled',
         // Glow control uniforms
         'u_glowRadius',
@@ -952,14 +947,7 @@ export class TextRenderer {
   /**
    * Render all text elements with per-pixel adaptive coloring and glow
    */
-  public render(vesselData?: {
-    positions: Float32Array;
-    velocities: Float32Array;
-    weights: Float32Array;
-    hullLengths: Float32Array;
-    states: Float32Array;
-    count: number;
-  }, wakesEnabled: boolean = true): void {
+  public render(wakeTexture: WebGLTexture | null = null, wakesEnabled: boolean = true): void {
     const gl = this.gl;
 
     // CRITICAL: Skip rendering entirely during CSS transitions
@@ -1026,16 +1014,11 @@ export class TextRenderer {
     this.shaderManager.setUniform2fv(program, 'u_panelSizes', panelInfo.sizes);
     this.shaderManager.setUniform1i(program, 'u_panelCount', panelInfo.count);
 
-    // Set vessel wake uniforms for glow distortion
-    if (vesselData && vesselData.count > 0) {
-      this.shaderManager.setUniform1i(program, 'u_vesselCount', vesselData.count);
-      this.shaderManager.setUniform3fv(program, 'u_vesselPositions', vesselData.positions);
-      this.shaderManager.setUniform3fv(program, 'u_vesselVelocities', vesselData.velocities);
-      this.shaderManager.setUniform1fv(program, 'u_vesselWeights', vesselData.weights);
-      this.shaderManager.setUniform1fv(program, 'u_vesselHullLengths', vesselData.hullLengths);
-      this.shaderManager.setUniform1fv(program, 'u_vesselStates', vesselData.states);
-    } else {
-      this.shaderManager.setUniform1i(program, 'u_vesselCount', 0);
+    // Bind wake texture for glow distortion (rendered by WakeRenderer)
+    if (wakeTexture) {
+      gl.activeTexture(gl.TEXTURE2);
+      gl.bindTexture(gl.TEXTURE_2D, wakeTexture);
+      this.shaderManager.setUniform1i(program, 'u_wakeTexture', 2);
     }
     this.shaderManager.setUniform1i(program, 'u_wakesEnabled', wakesEnabled ? 1 : 0);
 

@@ -10,6 +10,8 @@ import { NavigationManager } from './components/Navigation';
 // Import shaders as strings
 import oceanVertexShader from './shaders/ocean.vert';
 import oceanFragmentShader from './shaders/ocean.frag';
+import wakeVertexShader from './shaders/wake.vert';
+import wakeFragmentShader from './shaders/wake.frag';
 import glassVertexShader from './shaders/glass.vert';
 import glassFragmentShader from './shaders/glass.frag';
 import textVertexShader from './shaders/text.vert';
@@ -45,10 +47,12 @@ class OceanApp {
         alpha: false
       });
 
-      // Initialize shaders (ocean, glass, text, blur map, and upscaling)
+      // Initialize shaders (ocean, wake, glass, text, blur map, and upscaling)
       await this.renderer.initializeShaders(
         oceanVertexShader,
         oceanFragmentShader,
+        wakeVertexShader,
+        wakeFragmentShader,
         glassVertexShader,
         glassFragmentShader,
         textVertexShader,
