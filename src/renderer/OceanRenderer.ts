@@ -141,23 +141,23 @@ export class OceanRenderer {
     // Initialize upscaling framebuffer
     this.initializeUpscaleFramebuffer();
 
-    // Set up responsive resizing
-    this.setupResizing();
-
     // Set up camera for top-down view
     this.setupCamera();
 
     // Initialize vessel system
     this.initializeVesselSystem();
 
-    // Initialize wake renderer
+    // Initialize wake renderer BEFORE setupResizing() so framebuffer gets sized correctly
     this.initializeWakeRenderer();
 
-    // Initialize glass renderer
+    // Initialize glass renderer BEFORE setupResizing() so framebuffer gets sized correctly
     this.initializeGlassRenderer();
 
-    // Initialize text renderer
+    // Initialize text renderer BEFORE setupResizing() so framebuffer gets sized correctly
     this.initializeTextRenderer();
+
+    // Set up responsive resizing (MUST be called after initializing renderers)
+    this.setupResizing();
 
     // Initialize GPU timing for performance monitoring
     this.performanceMonitor.initializeGPUTiming(gl);

@@ -201,6 +201,9 @@ export class WakeRenderer {
 
     const gl = this.gl;
 
+    // Save current viewport to restore after rendering
+    const prevViewport = gl.getParameter(gl.VIEWPORT);
+
     // Bind wake framebuffer
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.wakeFramebuffer);
     gl.viewport(0, 0, this.wakeWidth, this.wakeHeight);
@@ -241,8 +244,9 @@ export class WakeRenderer {
     this.bufferManager.bind();
     gl.drawElements(gl.TRIANGLES, this.geometry.indexCount, gl.UNSIGNED_SHORT, 0);
 
-    // Restore screen framebuffer
+    // Restore screen framebuffer and viewport
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(prevViewport[0], prevViewport[1], prevViewport[2], prevViewport[3]);
   }
 
   /**
