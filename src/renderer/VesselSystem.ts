@@ -502,7 +502,15 @@ export class VesselSystem {
       // Encode vessel state as float for shader
       let stateValue = 0.0; // ACTIVE
       if (vessel.state === VesselState.GHOST) {
-        stateValue = 1.0;
+        // Encode ghost progress: 1.0 = start, 2.0 = end (after 10s)
+        // This allows shader to smoothly transition intensity over first 0.5s
+        const ghostDuration = 10000; // 10 seconds
+        if (vessel.ghostStartTime) {
+          const ghostProgress = Math.min(1.0, (currentTime - vessel.ghostStartTime) / ghostDuration);
+          stateValue = 1.0 + ghostProgress; // Range: 1.0 → 2.0
+        } else {
+          stateValue = 1.0;
+        }
       } else if (vessel.state === VesselState.FADING) {
         // Encode fade progress: 2.0 = start, 3.0 = complete
         const fadeDuration = 5000;

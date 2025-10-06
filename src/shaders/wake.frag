@@ -114,13 +114,21 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float weight
     float leftDist = abs(dot(delta, vec2(-leftArm.y, leftArm.x)));
     float rightDist = abs(dot(delta, vec2(-rightArm.y, rightArm.x)));
 
-    // Vessel state-based intensity modulation
+    // Vessel state-based intensity modulation with smooth transitions
     float stateIntensity = 1.0;
-    if (vesselState > 0.5 && vesselState < 1.5) { // Ghost
-        stateIntensity = 0.7;
-    } else if (vesselState > 1.5) { // Fading
-        float fadeFactor = (vesselState - 2.0); // Extract fade progress
-        stateIntensity = 0.7 * (1.0 - fadeFactor);
+    if (vesselState > 0.5 && vesselState < 2.0) { // Ghost (1.0-2.0)
+        // Extract ghost progress: 1.0 = just started, 2.0 = 10s elapsed
+        float ghostProgress = (vesselState - 1.0); // Range: 0.0 → 1.0 over 10s
+
+        // Smooth transition over first 0.5 seconds (5% of ghost duration)
+        float transitionDuration = 0.05; // 5% of ghost time = 0.5s
+        float transitionTime = min(ghostProgress / transitionDuration, 1.0);
+
+        // Smoothstep for natural easing: 1.0 → 0.7 over 0.5s
+        stateIntensity = mix(1.0, 0.7, smoothstep(0.0, 1.0, transitionTime));
+    } else if (vesselState >= 2.0) { // Fading (2.0-3.0)
+        float fadeFactor = (vesselState - 2.0); // Extract fade progress (0.0-1.0)
+        stateIntensity = 0.7 * (1.0 - fadeFactor); // Smooth fade 0.7 → 0.0
     }
 
     // Enhanced dynamic wake amplitude with increased intensity

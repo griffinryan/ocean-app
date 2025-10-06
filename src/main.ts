@@ -63,11 +63,13 @@ class OceanApp {
         upscaleFragmentShader
       );
 
-      // Start rendering
-      this.renderer.start();
-
-      // Connect UI to glass renderer
+      // Connect UI to glass renderer BEFORE starting render loop
+      // This ensures consistent multi-pass pipeline from frame 0
+      // Prevents visual "jump" when switching from simple→complex pipeline
       this.connectUIToRenderer();
+
+      // Start rendering LAST - ensures single consistent pipeline
+      this.renderer.start();
 
       // CRITICAL: Wait for landing panel animation before enabling text rendering
       // Landing panel has `animation: fadeInUp 1.2s` that moves elements
