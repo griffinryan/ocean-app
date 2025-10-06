@@ -16,28 +16,38 @@ const float PI = 3.14159265359;
 
 /**
  * Calculate distance to nearest text using multi-ring distance field sampling
- * Reuses the same approach as glow calculation in text.frag for consistency
+ * IMPROVED: Higher quality sampling for smoother blur gradients
+ * - 5 rings (was 3) for better distance accuracy
+ * - 12 samples per ring (was 8) for smoother circular coverage
+ * - Adaptive density: denser near edges, sparser far away
  */
 float calculateTextDistance(vec2 uv, vec2 pixelSize) {
     float minDistance = u_blurRadius;
 
-    // Multi-ring sampling for smooth distance field
-    // 3 rings at different radii for accurate distance estimation
-    const int numSamples = 8;
+    // Enhanced multi-ring sampling for ultra-smooth distance field
+    // 5 rings × 12 samples = 60 total samples (was 24)
+    const int numSamples = 12;
     const float angleStep = 2.0 * PI / float(numSamples);
-    const int numRings = 3;
-    float radii[3] = float[3](1.0, 3.0, 5.0);
+    const int numRings = 5;
+
+    // Adaptive ring spacing: denser near text edges (1, 2, 4, 7, 11)
+    // Creates smooth gradients where they matter most
+    float radii[5] = float[5](1.0, 2.0, 4.0, 7.0, 11.0);
 
     for (int ring = 0; ring < numRings; ring++) {
         float radius = radii[ring];
         vec2 radiusOffset = pixelSize * radius;
 
+        // Jittered sampling for super-sampling anti-aliasing
+        // Different rings use different angle offsets to avoid aliasing patterns
+        float angleJitter = float(ring) * 0.13; // Prime-based jitter
+
         for (int i = 0; i < numSamples; i++) {
-            float angle = float(i) * angleStep;
+            float angle = float(i) * angleStep + angleJitter;
             vec2 direction = vec2(cos(angle), sin(angle));
             vec2 sampleUV = uv + direction * radiusOffset;
 
-            // Sample text alpha
+            // Sample text alpha with bilinear filtering
             float sampleAlpha = texture(u_textTexture, sampleUV).a;
 
             if (sampleAlpha > 0.01) {
@@ -68,8 +78,8 @@ void main() {
         vec2 pixelSize = 1.0 / u_resolution;
         float distance = calculateTextDistance(screenUV, pixelSize);
 
-        // Extend sampling radius slightly for smooth outer edge transition
-        if (distance < u_blurRadius * 1.15) {
+        // Extended sampling radius for ultra-smooth outer edge (1.2× instead of 1.15×)
+        if (distance < u_blurRadius * 1.2) {
             // Convert distance to blur intensity [0,1]
             // Close to text = high blur, far from text = no blur
             float normalizedDist = distance / u_blurRadius;
@@ -80,13 +90,22 @@ void main() {
             // power > 1.0: sharper falloff, tighter around text
             blurIntensity = 1.0 - pow(normalizedDist, u_blurFalloffPower);
 
-            // Smooth the inner gradient transition
+            // IMPROVED: Double smoothstep for extra-smooth gradients
+            // First smoothstep: shape the overall curve
             blurIntensity = smoothstep(0.0, 1.0, blurIntensity);
 
-            // CRITICAL FIX: Add smooth fade at outer edge to eliminate harsh cutoff
-            // Creates smooth transition zone from 0.9× to 1.15× radius
-            float outerEdgeFade = 1.0 - smoothstep(u_blurRadius * 0.9, u_blurRadius * 1.15, distance);
+            // Second smoothstep: smooth out any remaining steps
+            blurIntensity = smoothstep(0.0, 1.0, blurIntensity);
+
+            // IMPROVED: Gentler outer edge fade with wider transition zone
+            // Creates smooth transition zone from 0.85× to 1.2× radius
+            // Wider range = softer fade, no visible cutoff
+            float outerEdgeFade = 1.0 - smoothstep(u_blurRadius * 0.85, u_blurRadius * 1.2, distance);
             blurIntensity *= outerEdgeFade;
+
+            // Final polish: apply cubic ease-out to the entire intensity
+            // Makes the fade-out even more natural
+            blurIntensity = blurIntensity * blurIntensity * (3.0 - 2.0 * blurIntensity);
         }
     }
 

@@ -159,6 +159,15 @@ void main() {
     // Sample the background scene (ocean + glass combined)
     vec3 backgroundColor = texture(u_sceneTexture, screenUV).rgb;
 
+    // ===== SAMPLE WAKE TEXTURE FOR CONTINUOUS MOTION =====
+    // Convert screen position to ocean coordinates
+    vec2 oceanPos = v_screenPos * 15.0;
+    oceanPos.x *= u_aspectRatio;
+
+    // Sample wake texture (rendered by WakeRenderer)
+    // Returns height values from vessel wakes + ocean waves
+    float wakeHeight = sampleWakeTexture(oceanPos);
+
     // ===== TEXT INTRO ANIMATION =====
     // Calculate distortion amount based on intro progress
     float eased = cubicEaseOut(u_textIntroProgress);
@@ -176,13 +185,27 @@ void main() {
     float noiseValue = noise(screenUV * 12.0 + v_time * 1.5) * 0.04;
 
     // Combine all distortions for intro animation
-    vec2 distortion = vec2(
+    vec2 introDistortion = vec2(
         wave1 + wave3 + deepWave + noiseValue,
         wave2 + wave3 + noiseValue
     );
 
-    // Apply distortion scaled by animation progress
-    vec2 totalDistortion = distortion * distortionAmount;
+    // ===== CONTINUOUS WAVE-BASED DISTORTION (ALWAYS ACTIVE) =====
+    // Create flowing distortion based on wake height and ocean position
+    // This provides continuous floating motion even after intro completes
+    vec2 waveDistortionVec = vec2(
+        sin(oceanPos.y * 0.5 + v_time * 1.2) * wakeHeight,
+        cos(oceanPos.x * 0.5 + v_time * 1.0) * wakeHeight
+    ) * 0.015; // Gentle continuous motion (1.5% of screen)
+
+    // Add gentle ambient motion even when no wakes present
+    vec2 ambientMotion = vec2(
+        sin(oceanPos.y * 0.3 + v_time * 0.8) * 0.003,
+        cos(oceanPos.x * 0.3 + v_time * 0.6) * 0.003
+    );
+
+    // Apply combined distortion: intro animation (fades out) + continuous wave motion (always on)
+    vec2 totalDistortion = introDistortion * distortionAmount + waveDistortionVec + ambientMotion;
     vec2 distortedUV = screenUV + totalDistortion;
 
     // Sample the text texture with distorted UV coordinates
@@ -201,8 +224,38 @@ void main() {
         // Quantize the adaptive color to match ocean's stylized look
         vec3 quantizedColor = quantizeColor(adaptiveTextColor, 8);
 
-        // Use clean quantized color without dithering
+        // Use clean quantized color as base
         finalColor = quantizedColor;
+
+        // ===== WAKE-REACTIVE EFFECTS =====
+        // Add subtle brightness boost and shimmer when vessels pass
+        if (u_wakesEnabled) {
+            // Wake intensity (0.0 = no wake, positive = wake present)
+            float wakeIntensity = abs(wakeHeight) * 2.0; // Amplify for visibility
+            wakeIntensity = clamp(wakeIntensity, 0.0, 1.0);
+
+            // Pulsing shimmer based on wake intensity
+            float shimmerPhase = v_time * 4.0 + oceanPos.x * 0.5 + oceanPos.y * 0.3;
+            float shimmer = sin(shimmerPhase) * 0.5 + 0.5; // [0, 1]
+            float wakeShimmer = wakeIntensity * shimmer * 0.12; // Gentle 12% max boost
+
+            // Brightness boost in wake regions
+            float wakeBrightness = wakeIntensity * 0.08; // 8% brightness boost
+
+            // Apply wake effects to text color
+            finalColor += vec3(wakeBrightness + wakeShimmer);
+
+            // Add subtle blue-white tint in high-intensity wake regions
+            // Mimics light refracting through disturbed water
+            if (wakeIntensity > 0.3) {
+                vec3 wakeTint = vec3(0.85, 0.92, 1.0); // Cool blue-white
+                float tintStrength = (wakeIntensity - 0.3) * 0.15; // Fade in above threshold
+                finalColor = mix(finalColor, wakeTint, tintStrength);
+            }
+
+            // Ensure color stays in valid range
+            finalColor = clamp(finalColor, vec3(0.0), vec3(1.0));
+        }
 
         // Gentle anti-aliasing for text edges
         finalAlpha = smoothstep(0.1, 0.5, textAlpha);
