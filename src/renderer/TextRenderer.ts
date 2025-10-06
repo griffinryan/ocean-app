@@ -102,7 +102,7 @@ export class TextRenderer {
 
   // Blur control properties
   private blurRadius: number = 240.0; // pixels (increased for more prominent frosted effect)
-  private blurFalloffPower: number = 1.5; // 1.0 = linear, >1.0 = sharper
+  private blurFalloffPower: number = 1.0; // 1.0 = linear falloff for smooth gradients
 
   constructor(gl: WebGL2RenderingContext, _shaderManager: ShaderManager) {
     this.gl = gl;
@@ -280,9 +280,9 @@ export class TextRenderer {
     // Bind framebuffer
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.blurMapFramebuffer);
 
-    // Setup color texture (R8 format for single channel) with capped resolution
+    // Setup color texture (R16F format for high-precision blur gradients) with capped resolution
     gl.bindTexture(gl.TEXTURE_2D, this.blurMapTexture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, blurWidth, blurHeight, 0, gl.RED, gl.UNSIGNED_BYTE, null);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, blurWidth, blurHeight, 0, gl.RED, gl.HALF_FLOAT, null);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);

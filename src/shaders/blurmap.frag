@@ -68,7 +68,8 @@ void main() {
         vec2 pixelSize = 1.0 / u_resolution;
         float distance = calculateTextDistance(screenUV, pixelSize);
 
-        if (distance < u_blurRadius) {
+        // Extend sampling radius slightly for smooth outer edge transition
+        if (distance < u_blurRadius * 1.15) {
             // Convert distance to blur intensity [0,1]
             // Close to text = high blur, far from text = no blur
             float normalizedDist = distance / u_blurRadius;
@@ -79,8 +80,13 @@ void main() {
             // power > 1.0: sharper falloff, tighter around text
             blurIntensity = 1.0 - pow(normalizedDist, u_blurFalloffPower);
 
-            // Smooth the transition for clean gradient
+            // Smooth the inner gradient transition
             blurIntensity = smoothstep(0.0, 1.0, blurIntensity);
+
+            // CRITICAL FIX: Add smooth fade at outer edge to eliminate harsh cutoff
+            // Creates smooth transition zone from 0.9× to 1.15× radius
+            float outerEdgeFade = 1.0 - smoothstep(u_blurRadius * 0.9, u_blurRadius * 1.15, distance);
+            blurIntensity *= outerEdgeFade;
         }
     }
 
