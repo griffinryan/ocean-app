@@ -46,10 +46,37 @@ export class GlassRenderer {
   private blurOpacityBoost: number = 0.45; // How much to increase opacity in text regions (0.0-0.5)
   private blurDistortionBoost: number = 0.85; // How much to reduce distortion in text regions (0.0-1.0)
 
+  // PERFORMANCE: Position caching to avoid redundant getBoundingClientRect calls
+  private positionsDirty: boolean = true;
+  private resizeObserver: ResizeObserver | null = null;
+
+  // PERFORMANCE: Smart capture caching - only recapture when ocean changes
+  private oceanCaptureDirty: boolean = true;
+  private lastOceanCaptureTime: number = 0;
+  private oceanCaptureThrottleMs: number = 32; // Max 30fps ocean captures (30Hz = 33ms, using 32ms)
+
+  // CRITICAL FIX: Continuous position updates during CSS transitions
+  // ResizeObserver doesn't fire on transform changes, so we use RAF loop
+  private activeTransitions: boolean = false;
+  private rafUpdateId: number | null = null;
+
+  // PERFORMANCE: Uniform caching to avoid redundant WebGL calls
+  private uniformCache = {
+    time: -1,
+    resolution: new Float32Array([0, 0]),
+    aspectRatio: -1,
+    blurMapEnabled: -1,
+    blurOpacityBoost: -1,
+    blurDistortionBoost: -1
+  };
+
   constructor(gl: WebGL2RenderingContext, shaderManager: ShaderManager) {
     this.gl = gl;
     this.shaderManager = shaderManager;
     this.startTime = performance.now();
+
+    // Setup resize observer to mark positions dirty only when needed
+    this.setupResizeObserver();
 
     // Initialize matrices
     this.projectionMatrix = new Mat4();
@@ -189,13 +216,28 @@ export class GlassRenderer {
   }
 
   /**
+   * Mark ocean capture as dirty (forces recapture on next render)
+   */
+  public markOceanDirty(): void {
+    this.oceanCaptureDirty = true;
+  }
+
+  /**
    * Capture ocean scene to texture for glass distortion
+   * PERFORMANCE: Uses dirty flag + throttling to skip redundant captures
    */
   public captureOceanScene(renderOceanCallback: () => void): void {
     const gl = this.gl;
 
     if (!this.oceanFramebuffer || !this.oceanTexture) {
       return;
+    }
+
+    // PERFORMANCE: Skip capture if not dirty and within throttle window
+    const currentTime = performance.now();
+    if (!this.oceanCaptureDirty &&
+        (currentTime - this.lastOceanCaptureTime) < this.oceanCaptureThrottleMs) {
+      return; // Use cached ocean texture
     }
 
     // Store current viewport
@@ -218,6 +260,10 @@ export class GlassRenderer {
 
     // Restore viewport
     gl.viewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+
+    // Mark as clean and update timestamp
+    this.oceanCaptureDirty = false;
+    this.lastOceanCaptureTime = currentTime;
   }
 
   /**
@@ -274,8 +320,12 @@ export class GlassRenderer {
       return;
     }
 
-    // Update panel positions before rendering
-    this.updatePanelPositions();
+    // PERFORMANCE: Only update panel positions when marked dirty (resize, panel changes)
+    // This avoids expensive getBoundingClientRect calls every frame
+    if (this.positionsDirty) {
+      this.updatePanelPositions();
+      this.positionsDirty = false;
+    }
 
     // Use glass shader program
     const program = this.shaderManager.useProgram('glass');
@@ -284,29 +334,53 @@ export class GlassRenderer {
     this.shaderManager.setUniformMatrix4fv(program, 'u_projectionMatrix', this.projectionMatrix.data);
     this.shaderManager.setUniformMatrix4fv(program, 'u_viewMatrix', this.viewMatrix.data);
 
-    // Set time uniform for animation
+    // PERFORMANCE: Cache uniform updates - only set when values change
     const currentTime = (performance.now() - this.startTime) / 1000.0;
-    this.shaderManager.setUniform1f(program, 'u_time', currentTime);
+    if (currentTime !== this.uniformCache.time) {
+      this.shaderManager.setUniform1f(program, 'u_time', currentTime);
+      this.uniformCache.time = currentTime;
+    }
 
-    // Set resolution
-    this.shaderManager.setUniform2f(program, 'u_resolution', gl.canvas.width, gl.canvas.height);
-    this.shaderManager.setUniform1f(program, 'u_aspectRatio', gl.canvas.width / gl.canvas.height);
+    // Set resolution (only if changed)
+    const width = gl.canvas.width;
+    const height = gl.canvas.height;
+    if (width !== this.uniformCache.resolution[0] || height !== this.uniformCache.resolution[1]) {
+      this.shaderManager.setUniform2f(program, 'u_resolution', width, height);
+      this.uniformCache.resolution[0] = width;
+      this.uniformCache.resolution[1] = height;
+
+      const aspectRatio = width / height;
+      this.shaderManager.setUniform1f(program, 'u_aspectRatio', aspectRatio);
+      this.uniformCache.aspectRatio = aspectRatio;
+    }
 
     // Bind ocean texture
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.oceanTexture);
     this.shaderManager.setUniform1i(program, 'u_oceanTexture', 0);
 
-    // Bind blur map texture if enabled
-    if (this.blurMapEnabled && this.blurMapTexture) {
+    // Bind blur map texture if enabled (cache blur state changes)
+    const blurEnabled = this.blurMapEnabled && this.blurMapTexture ? 1 : 0;
+    if (blurEnabled !== this.uniformCache.blurMapEnabled) {
+      this.shaderManager.setUniform1i(program, 'u_blurMapEnabled', blurEnabled);
+      this.uniformCache.blurMapEnabled = blurEnabled;
+    }
+
+    if (blurEnabled) {
       gl.activeTexture(gl.TEXTURE1);
       gl.bindTexture(gl.TEXTURE_2D, this.blurMapTexture);
       this.shaderManager.setUniform1i(program, 'u_blurMapTexture', 1);
-      this.shaderManager.setUniform1i(program, 'u_blurMapEnabled', 1);
-      this.shaderManager.setUniform1f(program, 'u_blurOpacityBoost', this.blurOpacityBoost);
-      this.shaderManager.setUniform1f(program, 'u_blurDistortionBoost', this.blurDistortionBoost);
-    } else {
-      this.shaderManager.setUniform1i(program, 'u_blurMapEnabled', 0);
+
+      // Only update blur params if changed
+      if (this.blurOpacityBoost !== this.uniformCache.blurOpacityBoost) {
+        this.shaderManager.setUniform1f(program, 'u_blurOpacityBoost', this.blurOpacityBoost);
+        this.uniformCache.blurOpacityBoost = this.blurOpacityBoost;
+      }
+
+      if (this.blurDistortionBoost !== this.uniformCache.blurDistortionBoost) {
+        this.shaderManager.setUniform1f(program, 'u_blurDistortionBoost', this.blurDistortionBoost);
+        this.uniformCache.blurDistortionBoost = this.blurDistortionBoost;
+      }
     }
 
     // Enable blending for transparency
@@ -454,13 +528,135 @@ export class GlassRenderer {
       refractionIndex: 1.45
     });
 
-    // Update positions immediately
-    this.updatePanelPositions();
+    // Update positions immediately and mark dirty for first render
+    this.positionsDirty = true;
+
+    // CRITICAL FIX: Observe all panel elements for position/size changes
+    // This ensures glass panels stay aligned during CSS transitions and layout changes
+    this.observePanelElements();
+  }
+
+  /**
+   * Setup resize observer to mark positions dirty when layout changes
+   */
+  private setupResizeObserver(): void {
+    this.resizeObserver = new ResizeObserver(() => {
+      this.positionsDirty = true;
+    });
+
+    // Observe canvas for size changes
+    // Cast to Element since canvas is HTMLCanvasElement (which extends Element)
+    this.resizeObserver.observe(this.gl.canvas as unknown as Element);
+  }
+
+  /**
+   * Observe all panel elements for position/size changes
+   * CRITICAL: Call this after setupDefaultPanels() to ensure glass aligns during transitions
+   */
+  private observePanelElements(): void {
+    if (!this.resizeObserver) {
+      console.warn('GlassRenderer: ResizeObserver not initialized, cannot observe panels');
+      return;
+    }
+
+    // All panel IDs that glass should track
+    const panelIds = [
+      'landing',
+      'app-bio',
+      'navbar',
+      'portfolio-lakehouse',
+      'portfolio-encryption',
+      'portfolio-dotereditor',
+      'portfolio-dreamrequiem',
+      'portfolio-greenlightgo',
+      'resume-playember',
+      'resume-meta',
+      'resume-outlier',
+      'resume-uwtutor',
+      'resume-uwedu'
+    ];
+
+    panelIds.forEach(id => {
+      // Construct element ID (navbar stays as-is, others get -panel suffix)
+      const elementId = (id === 'navbar') ? 'navbar' : `${id}-panel`;
+      const element = document.getElementById(elementId);
+
+      if (element) {
+        this.resizeObserver!.observe(element);
+        console.debug(`GlassRenderer: Observing panel ${elementId} for position changes`);
+      } else {
+        console.warn(`GlassRenderer: Panel element ${elementId} not found, cannot observe`);
+      }
+    });
+
+    console.log(`GlassRenderer: Observing ${panelIds.length} panel elements for position/size changes`);
+  }
+
+  /**
+   * Mark panel positions as dirty (forces position recalculation on next render)
+   * Call this when panels are added/removed or layout might have changed
+   */
+  public markPositionsDirty(): void {
+    this.positionsDirty = true;
+  }
+
+  /**
+   * Start transition mode - continuous position updates via RAF
+   * CRITICAL: Called when CSS transitions start (transform animations)
+   */
+  public startTransitionMode(): void {
+    if (this.activeTransitions) return; // Already active
+
+    this.activeTransitions = true;
+    this.startRAFUpdates();
+
+    console.debug('GlassRenderer: Transition mode started - continuous position updates enabled');
+  }
+
+  /**
+   * End transition mode - stop continuous updates
+   * CRITICAL: Called when all CSS transitions complete
+   */
+  public endTransitionMode(): void {
+    this.activeTransitions = false;
+    this.stopRAFUpdates();
+
+    // Do one final update to ensure positions are accurate
+    this.positionsDirty = true;
+
+    console.debug('GlassRenderer: Transition mode ended - position updates on-demand');
+  }
+
+  /**
+   * Start RAF loop for continuous position updates during transitions
+   * Updates positions every frame to track CSS transform animations
+   */
+  private startRAFUpdates(): void {
+    const update = () => {
+      if (this.activeTransitions) {
+        // Force position update every frame during active transitions
+        this.positionsDirty = true;
+        this.rafUpdateId = requestAnimationFrame(update);
+      }
+    };
+
+    update(); // Start the loop
+  }
+
+  /**
+   * Stop RAF loop for position updates
+   */
+  private stopRAFUpdates(): void {
+    if (this.rafUpdateId !== null) {
+      cancelAnimationFrame(this.rafUpdateId);
+      this.rafUpdateId = null;
+    }
   }
 
   /**
    * Update panel positions based on HTML element positions
    * Dynamically updates all registered panels
+   * PERFORMANCE: Only called when positionsDirty flag is set
    */
   public updatePanelPositions(): void {
     const canvas = this.gl.canvas as HTMLCanvasElement;
@@ -552,6 +748,16 @@ export class GlassRenderer {
   }
 
   /**
+   * Set ocean texture from shared buffer
+   * PERFORMANCE: Allows glass to use pre-rendered ocean instead of capturing
+   */
+  public setOceanTexture(texture: WebGLTexture | null): void {
+    if (texture) {
+      this.oceanTexture = texture;
+    }
+  }
+
+  /**
    * Set blur map texture from TextRenderer
    */
   public setBlurMapTexture(texture: WebGLTexture | null): void {
@@ -624,6 +830,15 @@ export class GlassRenderer {
       gl.deleteRenderbuffer(this.depthBuffer);
       this.depthBuffer = null;
     }
+
+    // Clean up resize observer
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+      this.resizeObserver = null;
+    }
+
+    // Clean up RAF updates
+    this.stopRAFUpdates();
 
     // Clean up geometry
     this.bufferManager.dispose();

@@ -149,16 +149,18 @@ float getOceanHeightForGlow(vec2 pos, float time) {
 // ===== GLOW SYSTEM FUNCTIONS =====
 
 // Calculate distance field from text
+// PERFORMANCE OPTIMIZED: Reduced from 3 rings × 8 samples (24) to 2 rings × 6 samples (12)
+// This provides ~2× speedup while maintaining glow quality
 float calculateGlowDistance(vec2 uv, vec2 pixelSize) {
     float minDistance = u_glowRadius;
 
-    // 8-direction sampling pattern for distance field
-    const int numSamples = 8;
+    // OPTIMIZED: 6-direction sampling (60° intervals) - sufficient for circular glow
+    const int numSamples = 6;
     const float angleStep = 2.0 * PI / float(numSamples);
 
-    // Multi-radius sampling for smooth falloff
-    const int numRings = 3;
-    float radii[3] = float[3](1.0, 3.0, 5.0);
+    // OPTIMIZED: 2 rings instead of 3 - reduces samples from 24 to 12
+    const int numRings = 2;
+    float radii[2] = float[2](1.5, 4.0); // Adjusted radii for better coverage
 
     for (int ring = 0; ring < numRings; ring++) {
         float radius = radii[ring];

@@ -144,6 +144,9 @@ class OceanApp {
       // Enable WebGL enhancement on panels
       this.panelManager.enableWebGLDistortion();
 
+      // Connect GlassRenderer to PanelManager for position updates during transitions
+      this.panelManager.setGlassRenderer(glassRenderer);
+
       console.log('UI connected to glass renderer successfully!');
     } else {
       console.warn('Glass renderer not available, falling back to CSS-only effects');

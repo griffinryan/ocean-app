@@ -53,10 +53,22 @@ export class TextRenderer {
   // Scene texture caching for performance
   private sceneTextureDirty: boolean = true;
   private lastCaptureTime: number = 0;
-  private captureThrottleMs: number = 16; // Max 60fps captures
+  private captureThrottleMs: number = 33; // PERFORMANCE: 30fps captures (sufficient for text background)
 
   // Text texture update flag
   private needsTextureUpdate: boolean = false;
+
+  // PERFORMANCE: Uniform caching to avoid redundant WebGL calls
+  private uniformCache = {
+    time: -1,
+    resolution: new Float32Array([0, 0]),
+    aspectRatio: -1,
+    textIntroProgress: -1,
+    glowRadius: -1,
+    glowIntensity: -1,
+    glowWaveReactivity: -1,
+    wakesEnabled: -1
+  };
 
   // Resize observer for responsive text positioning
   private resizeObserver: ResizeObserver | null = null;
@@ -66,6 +78,13 @@ export class TextRenderer {
 
   // Transition state tracking - block updates during CSS transitions
   private isTransitioningFlag: boolean = false;
+
+  // PERFORMANCE: Amortized text updates to spread Canvas2D work across frames
+  private textUpdateBatches: string[][] = []; // Batches of text element IDs
+  private currentBatchIndex: number = 0;
+  private isProcessingBatches: boolean = false;
+  private readonly BATCH_SIZE = 15; // Elements per frame
+  private batchRenderCallback: (() => void) | null = null;
 
   // Text intro animation state
   private textIntroStartTime: number = 0;
@@ -724,37 +743,83 @@ export class TextRenderer {
   }
 
   /**
-   * Generate text texture from all current text elements
-   * Only renders text from visible panels to prevent cross-panel bleeding
+   * PERFORMANCE: Start amortized text update (spreads work across frames)
+   * Called when transitioning ends to avoid frame spike
    */
-  private updateTextTexture(): void {
-    // CRITICAL: Block updates during CSS transitions to prevent capturing mid-animation positions
-    if (this.isTransitioningFlag) {
-      console.debug('TextRenderer: Skipping update during CSS transition');
-      return;
+  private startAmortizedTextUpdate(callback?: () => void): void {
+    // Store callback to execute after all batches complete
+    this.batchRenderCallback = callback || null;
+
+    // Get visible text elements and split into batches
+    const visibleElements = this.getVisibleTextElementIds();
+
+    // Split into batches
+    this.textUpdateBatches = [];
+    for (let i = 0; i < visibleElements.length; i += this.BATCH_SIZE) {
+      this.textUpdateBatches.push(visibleElements.slice(i, i + this.BATCH_SIZE));
     }
 
-    if (!this.needsTextureUpdate || this.textElements.size === 0 || !this.fontsLoaded) {
-      return;
+    // Start processing batches
+    this.currentBatchIndex = 0;
+    this.isProcessingBatches = true;
+
+    // Clear canvas immediately
+    this.textContext.clearRect(0, 0, this.textCanvas.width, this.textCanvas.height);
+
+    console.debug(`TextRenderer: Starting amortized update, ${this.textUpdateBatches.length} batches, ${visibleElements.length} elements`);
+  }
+
+  /**
+   * PERFORMANCE: Process next batch of text elements
+   * Returns true if more batches remain
+   */
+  private processNextBatch(): boolean {
+    if (!this.isProcessingBatches || this.currentBatchIndex >= this.textUpdateBatches.length) {
+      return false;
     }
 
-    const gl = this.gl;
-    const ctx = this.textContext;
+    const batch = this.textUpdateBatches[this.currentBatchIndex];
 
-    // CRITICAL: Aggressively clear canvas and reset ALL context state
-    // This prevents ghosting and state accumulation across frames
-    ctx.clearRect(0, 0, this.textCanvas.width, this.textCanvas.height);
+    // Render this batch of text elements
+    batch.forEach(id => {
+      const config = this.textElements.get(id);
+      if (config) {
+        const element = document.querySelector(config.selector) as HTMLElement;
+        if (element) {
+          this.renderTextToCanvas(element, config);
+        }
+      }
+    });
 
-    // Reset global Canvas2D state to defaults before rendering any text
-    ctx.save(); // Save clean state
-    ctx.globalAlpha = 1.0;
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.imageSmoothingEnabled = false;
-    ctx.textBaseline = 'top';
-    ctx.fillStyle = 'white';
-    ctx.restore(); // Apply clean state
+    this.currentBatchIndex++;
 
-    // Get list of visible panels (all 16: 3 main + 5 portfolio + 5 resume + navbar + app + app-bio)
+    // Check if this was the last batch
+    if (this.currentBatchIndex >= this.textUpdateBatches.length) {
+      // All batches complete - upload texture
+      this.uploadTextTexture();
+      this.isProcessingBatches = false;
+      this.textUpdateBatches = [];
+      this.needsTextureUpdate = false;
+
+      console.debug('TextRenderer: Amortized update complete');
+
+      // Execute callback if provided
+      if (this.batchRenderCallback) {
+        this.batchRenderCallback();
+        this.batchRenderCallback = null;
+      }
+
+      return false;
+    }
+
+    return true; // More batches remain
+  }
+
+  /**
+   * Get IDs of visible text elements
+   */
+  private getVisibleTextElementIds(): string[] {
+    // Get list of visible panels
     const visiblePanels = new Set<string>();
     const panelIds = [
       'landing-panel',
@@ -778,50 +843,106 @@ export class TextRenderer {
     panelIds.forEach(panelId => {
       const panelElement = document.getElementById(panelId);
       if (panelElement && !panelElement.classList.contains('hidden')) {
-        // For panels inside scroll containers, also check if parent container is visible
         const parent = panelElement.parentElement?.parentElement;
         const parentHidden = parent?.classList.contains('hidden') ?? false;
 
         if (!parentHidden) {
-          // Add both full panel ID and short name for matching
           visiblePanels.add(panelId);
-          visiblePanels.add(panelId.replace('-panel', '')); // e.g., 'landing-panel' → 'landing'
+          visiblePanels.add(panelId.replace('-panel', ''));
         }
       }
     });
 
-    // Debug: Log visible panels when updating texture
-    console.debug('TextRenderer: Updating text texture for visible panels:', Array.from(visiblePanels));
-
-    // Render ONLY text elements from visible panels
-    this.textElements.forEach((config) => {
-      // Check if this text element's panel is visible
-      if (!visiblePanels.has(config.panelId)) {
-        return; // Skip text from hidden panels
-      }
-
-      const element = document.querySelector(config.selector) as HTMLElement;
-      if (element) {
-        this.renderTextToCanvas(element, config);
+    // Filter text elements to only visible ones
+    const visibleIds: string[] = [];
+    this.textElements.forEach((config, id) => {
+      if (visiblePanels.has(config.panelId)) {
+        visibleIds.push(id);
       }
     });
 
-    // Update WebGL texture
-    if (this.textTexture) {
-      gl.bindTexture(gl.TEXTURE_2D, this.textTexture);
+    return visibleIds;
+  }
 
-      // CRITICAL: Flip Y-axis when uploading Canvas2D to WebGL texture
-      // Canvas2D has top-left origin (Y down), WebGL has bottom-left origin (Y up)
-      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+  /**
+   * Upload text canvas to WebGL texture
+   */
+  private uploadTextTexture(): void {
+    const gl = this.gl;
 
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.textCanvas);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      gl.bindTexture(gl.TEXTURE_2D, null);
+    if (!this.textTexture) {
+      return;
     }
 
+    gl.bindTexture(gl.TEXTURE_2D, this.textTexture);
+
+    // CRITICAL: Flip Y-axis when uploading Canvas2D to WebGL texture
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.textCanvas);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+
+    console.debug('TextRenderer: Text texture uploaded');
+  }
+
+  /**
+   * Generate text texture from all current text elements
+   * Only renders text from visible panels to prevent cross-panel bleeding
+   * PERFORMANCE: Can use amortized updates or immediate updates
+   */
+  private updateTextTexture(): void {
+    // CRITICAL: Block updates during CSS transitions to prevent capturing mid-animation positions
+    if (this.isTransitioningFlag) {
+      console.debug('TextRenderer: Skipping update during CSS transition');
+      return;
+    }
+
+    // If currently processing batches, continue batch processing
+    if (this.isProcessingBatches) {
+      this.processNextBatch();
+      return;
+    }
+
+    if (!this.needsTextureUpdate || this.textElements.size === 0 || !this.fontsLoaded) {
+      return;
+    }
+
+    const ctx = this.textContext;
+
+    // CRITICAL: Aggressively clear canvas and reset ALL context state
+    ctx.clearRect(0, 0, this.textCanvas.width, this.textCanvas.height);
+
+    // Reset global Canvas2D state to defaults before rendering any text
+    ctx.save();
+    ctx.globalAlpha = 1.0;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.imageSmoothingEnabled = false;
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = 'white';
+    ctx.restore();
+
+    // Get visible text element IDs
+    const visibleIds = this.getVisibleTextElementIds();
+
+    console.debug('TextRenderer: Updating text texture, visible elements:', visibleIds.length);
+
+    // Render all visible text elements immediately
+    visibleIds.forEach(id => {
+      const config = this.textElements.get(id);
+      if (config) {
+        const element = document.querySelector(config.selector) as HTMLElement;
+        if (element) {
+          this.renderTextToCanvas(element, config);
+        }
+      }
+    });
+
+    // Upload texture
+    this.uploadTextTexture();
     this.needsTextureUpdate = false;
   }
 
@@ -973,9 +1094,12 @@ export class TextRenderer {
     this.shaderManager.setUniformMatrix4fv(program, 'u_projectionMatrix', this.projectionMatrix.data);
     this.shaderManager.setUniformMatrix4fv(program, 'u_viewMatrix', this.viewMatrix.data);
 
-    // Set time uniform for animation
+    // PERFORMANCE: Cache uniform updates - only set when values change
     const currentTime = performance.now() / 1000.0;
-    this.shaderManager.setUniform1f(program, 'u_time', currentTime);
+    if (currentTime !== this.uniformCache.time) {
+      this.shaderManager.setUniform1f(program, 'u_time', currentTime);
+      this.uniformCache.time = currentTime;
+    }
 
     // Calculate and pass text intro progress
     let introProgress = 1.0; // Default: animation complete (no distortion)
@@ -989,11 +1113,24 @@ export class TextRenderer {
         console.log('TextRenderer: Text intro animation complete');
       }
     }
-    this.shaderManager.setUniform1f(program, 'u_textIntroProgress', introProgress);
 
-    // Set resolution
-    this.shaderManager.setUniform2f(program, 'u_resolution', gl.canvas.width, gl.canvas.height);
-    this.shaderManager.setUniform1f(program, 'u_aspectRatio', gl.canvas.width / gl.canvas.height);
+    if (introProgress !== this.uniformCache.textIntroProgress) {
+      this.shaderManager.setUniform1f(program, 'u_textIntroProgress', introProgress);
+      this.uniformCache.textIntroProgress = introProgress;
+    }
+
+    // Set resolution (only if changed)
+    const width = gl.canvas.width;
+    const height = gl.canvas.height;
+    if (width !== this.uniformCache.resolution[0] || height !== this.uniformCache.resolution[1]) {
+      this.shaderManager.setUniform2f(program, 'u_resolution', width, height);
+      this.uniformCache.resolution[0] = width;
+      this.uniformCache.resolution[1] = height;
+
+      const aspectRatio = width / height;
+      this.shaderManager.setUniform1f(program, 'u_aspectRatio', aspectRatio);
+      this.uniformCache.aspectRatio = aspectRatio;
+    }
 
     // Bind scene texture (combined ocean + glass)
     gl.activeTexture(gl.TEXTURE0);
@@ -1020,12 +1157,28 @@ export class TextRenderer {
       gl.bindTexture(gl.TEXTURE_2D, wakeTexture);
       this.shaderManager.setUniform1i(program, 'u_wakeTexture', 2);
     }
-    this.shaderManager.setUniform1i(program, 'u_wakesEnabled', wakesEnabled ? 1 : 0);
 
-    // Set glow control uniforms
-    this.shaderManager.setUniform1f(program, 'u_glowRadius', this.glowRadius);
-    this.shaderManager.setUniform1f(program, 'u_glowIntensity', this.glowIntensity);
-    this.shaderManager.setUniform1f(program, 'u_glowWaveReactivity', this.glowWaveReactivity);
+    const wakesEnabledInt = wakesEnabled ? 1 : 0;
+    if (wakesEnabledInt !== this.uniformCache.wakesEnabled) {
+      this.shaderManager.setUniform1i(program, 'u_wakesEnabled', wakesEnabledInt);
+      this.uniformCache.wakesEnabled = wakesEnabledInt;
+    }
+
+    // Set glow control uniforms (only if changed)
+    if (this.glowRadius !== this.uniformCache.glowRadius) {
+      this.shaderManager.setUniform1f(program, 'u_glowRadius', this.glowRadius);
+      this.uniformCache.glowRadius = this.glowRadius;
+    }
+
+    if (this.glowIntensity !== this.uniformCache.glowIntensity) {
+      this.shaderManager.setUniform1f(program, 'u_glowIntensity', this.glowIntensity);
+      this.uniformCache.glowIntensity = this.glowIntensity;
+    }
+
+    if (this.glowWaveReactivity !== this.uniformCache.glowWaveReactivity) {
+      this.shaderManager.setUniform1f(program, 'u_glowWaveReactivity', this.glowWaveReactivity);
+      this.uniformCache.glowWaveReactivity = this.glowWaveReactivity;
+    }
 
     // Enable blending for text overlay
     gl.enable(gl.BLEND);
@@ -1083,16 +1236,20 @@ export class TextRenderer {
   public setTransitioning(transitioning: boolean): void {
     this.isTransitioningFlag = transitioning;
 
-    // If transitioning just ended, force immediate update and trigger intro animation
+    // If transitioning just ended, use amortized update to avoid frame spike
     if (!transitioning) {
-      this.needsTextureUpdate = true;
       this.needsBlurMapUpdate = true;
       this.markSceneDirty();
 
-      // Trigger text intro animation
-      this.textIntroStartTime = performance.now();
-      this.isIntroActive = true;
-      console.log('TextRenderer: Text intro animation started');
+      // PERFORMANCE: Start amortized text update instead of immediate update
+      // This spreads Canvas2D work across multiple frames (4-5 frames)
+      this.startAmortizedTextUpdate(() => {
+        // Callback: executed after all batches complete
+        // Trigger text intro animation AFTER text is rendered
+        this.textIntroStartTime = performance.now();
+        this.isIntroActive = true;
+        console.log('TextRenderer: Text intro animation started');
+      });
     }
   }
 

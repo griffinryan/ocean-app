@@ -4,6 +4,7 @@
  */
 
 import type { TextRenderer } from '../renderer/TextRenderer';
+import type { GlassRenderer } from '../renderer/GlassRenderer';
 
 export type PanelState = 'landing' | 'app' | 'portfolio' | 'resume' | 'paper' | 'not-found';
 
@@ -27,6 +28,9 @@ export class PanelManager {
 
   // Optional TextRenderer reference for triggering updates
   private textRenderer: TextRenderer | null = null;
+
+  // Optional GlassRenderer reference for updating glass panel positions
+  private glassRenderer: GlassRenderer | null = null;
 
   // Default transition settings
   private defaultTransition: PanelTransition = {
@@ -239,6 +243,12 @@ export class PanelManager {
     // Frame 3: We can safely capture positions
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
+        // CRITICAL FIX: Stop continuous glass position updates
+        if (this.glassRenderer) {
+          this.glassRenderer.endTransitionMode();
+          console.debug('PanelManager: Ended glass transition mode');
+        }
+
         if (this.textRenderer) {
           console.debug('PanelManager: Render settled, enabling text');
           this.textRenderer.setTransitioning(false);
@@ -313,6 +323,13 @@ export class PanelManager {
 
     const oldState = this.currentState;
     this.currentState = newState;
+
+    // CRITICAL FIX: Start continuous glass position updates during CSS transitions
+    // ResizeObserver doesn't fire on transform changes, so we use RAF loop
+    if (this.glassRenderer) {
+      this.glassRenderer.startTransitionMode();
+      console.debug('PanelManager: Started glass transition mode');
+    }
 
     // Handle special cases
     if (newState === 'paper') {
@@ -551,6 +568,13 @@ export class PanelManager {
    */
   public setTextRenderer(textRenderer: TextRenderer | null): void {
     this.textRenderer = textRenderer;
+  }
+
+  /**
+   * Set GlassRenderer reference for updating glass panel positions during transitions
+   */
+  public setGlassRenderer(glassRenderer: GlassRenderer | null): void {
+    this.glassRenderer = glassRenderer;
   }
 
   public dispose(): void {
