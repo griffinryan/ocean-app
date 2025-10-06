@@ -249,12 +249,32 @@ export class TextRenderer {
       return;
     }
 
+    // PERFORMANCE: Cap blur map resolution at 960×540
+    // Blur maps are low-frequency (frosted glass effect) and don't need high resolution
+    // This provides significant performance gains at 4K+ resolutions
+    const MAX_BLUR_WIDTH = 960;
+    const MAX_BLUR_HEIGHT = 540;
+
+    const aspectRatio = width / height;
+    let blurWidth = width;
+    let blurHeight = height;
+
+    if (blurWidth > MAX_BLUR_WIDTH) {
+      blurWidth = MAX_BLUR_WIDTH;
+      blurHeight = Math.round(blurWidth / aspectRatio);
+    }
+
+    if (blurHeight > MAX_BLUR_HEIGHT) {
+      blurHeight = MAX_BLUR_HEIGHT;
+      blurWidth = Math.round(blurHeight * aspectRatio);
+    }
+
     // Bind framebuffer
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.blurMapFramebuffer);
 
-    // Setup color texture (R8 format for single channel)
+    // Setup color texture (R8 format for single channel) with capped resolution
     gl.bindTexture(gl.TEXTURE_2D, this.blurMapTexture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, width, height, 0, gl.RED, gl.UNSIGNED_BYTE, null);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, blurWidth, blurHeight, 0, gl.RED, gl.UNSIGNED_BYTE, null);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -263,9 +283,9 @@ export class TextRenderer {
     // Attach color texture
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.blurMapTexture, 0);
 
-    // Setup depth buffer
+    // Setup depth buffer with capped resolution
     gl.bindRenderbuffer(gl.RENDERBUFFER, this.blurMapDepthBuffer);
-    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, width, height);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, blurWidth, blurHeight);
     gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, this.blurMapDepthBuffer);
 
     // Check framebuffer completeness
@@ -393,9 +413,30 @@ export class TextRenderer {
       return;
     }
 
-    // Resize text canvas to match WebGL canvas
-    this.textCanvas.width = width;
-    this.textCanvas.height = height;
+    // PERFORMANCE: Cap text canvas resolution at 1920×1080
+    // Text quality above 1080p is imperceptible on high-DPI screens
+    // This provides massive Canvas2D performance gains at 4K+ resolutions
+    const MAX_TEXT_WIDTH = 1920;
+    const MAX_TEXT_HEIGHT = 1080;
+
+    // Maintain aspect ratio while capping resolution
+    const aspectRatio = width / height;
+    let textWidth = width;
+    let textHeight = height;
+
+    if (textWidth > MAX_TEXT_WIDTH) {
+      textWidth = MAX_TEXT_WIDTH;
+      textHeight = Math.round(textWidth / aspectRatio);
+    }
+
+    if (textHeight > MAX_TEXT_HEIGHT) {
+      textHeight = MAX_TEXT_HEIGHT;
+      textWidth = Math.round(textHeight * aspectRatio);
+    }
+
+    // Resize text canvas with capped resolution
+    this.textCanvas.width = textWidth;
+    this.textCanvas.height = textHeight;
 
     // Re-apply text rendering settings after resize
     this.textContext.textBaseline = 'top';
