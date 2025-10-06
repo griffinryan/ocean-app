@@ -825,9 +825,9 @@ export class OceanRenderer {
       // 2. Glass uses shared ocean texture (no capture needed)
       this.glassRenderer.setOceanTexture(this.sharedOceanTexture);
 
-      // 3. Final render: Ocean (from shared buffer) + Glass
+      // 3. Final render: Ocean (composited from shared buffer, CONSISTENT!) + Glass
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-      this.drawOcean(elapsedTime);
+      this.compositeTexture(this.sharedOceanTexture); // Use shared buffer (not drawOcean)
       this.glassRenderer.render();
     } else {
       // Basic ocean rendering only
@@ -1201,6 +1201,38 @@ export class OceanRenderer {
    */
   getBlurMapEnabled(): boolean {
     return this.glassRenderer?.getBlurMapEnabled() ?? false;
+  }
+
+  /**
+   * Set blur radius (controls frost spread distance)
+   */
+  setBlurRadius(radius: number): void {
+    if (this.textRenderer) {
+      this.textRenderer.setBlurRadius(radius);
+    }
+  }
+
+  /**
+   * Get current blur radius
+   */
+  getBlurRadius(): number {
+    return this.textRenderer?.getBlurRadius() ?? 60.0;
+  }
+
+  /**
+   * Set blur falloff power (controls frost fade sharpness)
+   */
+  setBlurFalloffPower(power: number): void {
+    if (this.textRenderer) {
+      this.textRenderer.setBlurFalloffPower(power);
+    }
+  }
+
+  /**
+   * Get current blur falloff power
+   */
+  getBlurFalloffPower(): number {
+    return this.textRenderer?.getBlurFalloffPower() ?? 2.5;
   }
 
   /**

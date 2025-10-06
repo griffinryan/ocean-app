@@ -232,7 +232,7 @@ void main() {
     // In text regions: reduce distortion for cleaner frosted effect
     float effectiveDistortion = u_distortionStrength;
     if (u_blurMapEnabled && blurIntensity > 0.01) {
-        // Reduce distortion in text regions
+        // Simple distortion reduction in blur regions
         effectiveDistortion *= (1.0 - blurIntensity * u_blurDistortionBoost);
     }
 
@@ -366,8 +366,9 @@ void main() {
         // Boost opacity in text regions for stronger frosted effect
         alpha += blurIntensity * u_blurOpacityBoost;
 
-        // Add blue-white frost tint in high-blur regions (increased for more prominence)
-        float frostTint = blurIntensity * 0.12;
+        // Add subtle blue-white frost tint (KEEP SUBTLE at 0.10 for text coloring preservation)
+        // Reduced from original 0.12 to minimize background luminance impact
+        float frostTint = blurIntensity * 0.10;
         vec3 frostColor = vec3(0.92, 0.96, 1.0);
         finalColor = mix(finalColor, frostColor, frostTint);
     }

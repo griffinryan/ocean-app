@@ -40,6 +40,10 @@ export class TextRenderer {
   // Blur map shader program
   private blurMapProgram: ShaderProgram | null = null;
 
+  // Blur map dimensions (actual resolution after capping)
+  private blurMapWidth: number = 0;
+  private blurMapHeight: number = 0;
+
   // Blur map update flag
   private needsBlurMapUpdate: boolean = false;
 
@@ -64,9 +68,6 @@ export class TextRenderer {
     resolution: new Float32Array([0, 0]),
     aspectRatio: -1,
     textIntroProgress: -1,
-    glowRadius: -1,
-    glowIntensity: -1,
-    glowWaveReactivity: -1,
     wakesEnabled: -1
   };
 
@@ -91,14 +92,9 @@ export class TextRenderer {
   private isIntroActive: boolean = false;
   private readonly TEXT_INTRO_DURATION = 1000; // milliseconds
 
-  // Glow control properties
-  private glowRadius: number = 64.0;
-  private glowIntensity: number = 0.8;
-  private glowWaveReactivity: number = 0.4;
-
   // Blur control properties
-  private blurRadius: number = 240.0; // pixels (increased for more prominent frosted effect)
-  private blurFalloffPower: number = 1.5; // 1.0 = linear, >1.0 = sharper
+  private blurRadius: number = 60.0; // pixels (tight wrap around text for frosted glass effect)
+  private blurFalloffPower: number = 2.5; // >1.0 = exponential falloff for dramatic, sharp fade
 
   constructor(gl: WebGL2RenderingContext, _shaderManager: ShaderManager) {
     this.gl = gl;
@@ -154,10 +150,9 @@ export class TextRenderer {
     this.textContext.textBaseline = 'top';
     this.textContext.fillStyle = 'white';
 
-    // IMPORTANT: Disable image smoothing for crisp text
-    // imageSmoothingEnabled is for IMAGE scaling, not text rendering
-    // Text should be rendered at native resolution without interpolation
-    this.textContext.imageSmoothingEnabled = false;
+    // IMPORTANT: Enable image smoothing for anti-aliased text edges
+    // This creates smooth alpha gradients that eliminate jagged blur map edges
+    this.textContext.imageSmoothingEnabled = true;
 
     console.log(`TextRenderer: Canvas initialized at ${this.textCanvas.width}x${this.textCanvas.height}`);
   }
@@ -249,11 +244,12 @@ export class TextRenderer {
       return;
     }
 
-    // PERFORMANCE: Cap blur map resolution at 960×540
-    // Blur maps are low-frequency (frosted glass effect) and don't need high resolution
-    // This provides significant performance gains at 4K+ resolutions
-    const MAX_BLUR_WIDTH = 960;
-    const MAX_BLUR_HEIGHT = 540;
+    // Cap blur map resolution at 1920×1080 (Full HD)
+    // Higher cap eliminates jagged edges from distance field upscaling
+    // Blur maps are single-channel R16F (~4MB at 1080p, negligible memory cost)
+    // Still provides 2× performance gain at 4K by capping at 1080p
+    const MAX_BLUR_WIDTH = 1920;
+    const MAX_BLUR_HEIGHT = 1080;
 
     const aspectRatio = width / height;
     let blurWidth = width;
@@ -269,12 +265,16 @@ export class TextRenderer {
       blurWidth = Math.round(blurHeight * aspectRatio);
     }
 
+    // Store blur map dimensions for use in generateBlurMap
+    this.blurMapWidth = blurWidth;
+    this.blurMapHeight = blurHeight;
+
     // Bind framebuffer
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.blurMapFramebuffer);
 
-    // Setup color texture (R8 format for single channel) with capped resolution
+    // Setup color texture (R16F format for high-precision blur gradients) with capped resolution
     gl.bindTexture(gl.TEXTURE_2D, this.blurMapTexture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, blurWidth, blurHeight, 0, gl.RED, gl.UNSIGNED_BYTE, null);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, blurWidth, blurHeight, 0, gl.RED, gl.HALF_FLOAT, null);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -323,11 +323,7 @@ export class TextRenderer {
         'u_textIntroProgress',
         // Wake texture uniform (rendered by WakeRenderer)
         'u_wakeTexture',
-        'u_wakesEnabled',
-        // Glow control uniforms
-        'u_glowRadius',
-        'u_glowIntensity',
-        'u_glowWaveReactivity'
+        'u_wakesEnabled'
       ];
 
       const attributes = [
@@ -441,7 +437,7 @@ export class TextRenderer {
     // Re-apply text rendering settings after resize
     this.textContext.textBaseline = 'top';
     this.textContext.fillStyle = 'white';
-    this.textContext.imageSmoothingEnabled = false; // Crisp text, no interpolation
+    this.textContext.imageSmoothingEnabled = true; // Anti-aliased text for smooth blur edges
 
     // Bind framebuffer
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFramebuffer);
@@ -961,7 +957,7 @@ export class TextRenderer {
     ctx.save();
     ctx.globalAlpha = 1.0;
     ctx.globalCompositeOperation = 'source-over';
-    ctx.imageSmoothingEnabled = false;
+    ctx.imageSmoothingEnabled = true;
     ctx.textBaseline = 'top';
     ctx.fillStyle = 'white';
     ctx.restore();
@@ -1062,7 +1058,7 @@ export class TextRenderer {
 
     // Bind blur map framebuffer
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.blurMapFramebuffer);
-    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+    gl.viewport(0, 0, this.blurMapWidth, this.blurMapHeight);
 
     // Clear framebuffer (black = no blur)
     gl.clearColor(0.0, 0.0, 0.0, 1.0);
@@ -1075,11 +1071,18 @@ export class TextRenderer {
     this.shaderManager.setUniformMatrix4fv(program, 'u_projectionMatrix', this.projectionMatrix.data);
     this.shaderManager.setUniformMatrix4fv(program, 'u_viewMatrix', this.viewMatrix.data);
 
-    // Set resolution
-    this.shaderManager.setUniform2f(program, 'u_resolution', gl.canvas.width, gl.canvas.height);
+    // Set resolution (use blur map dimensions, not canvas dimensions)
+    this.shaderManager.setUniform2f(program, 'u_resolution', this.blurMapWidth, this.blurMapHeight);
 
-    // Set blur parameters
-    this.shaderManager.setUniform1f(program, 'u_blurRadius', this.blurRadius);
+    // CRITICAL: Scale blur radius for resolution mismatch
+    // Blur radius is specified in screen pixels, but blur map may be lower resolution
+    // Example: 60px on 1920px screen = 30px on 960px blur map texture
+    const screenWidth = gl.canvas.width;
+    const resolutionScale = this.blurMapWidth / screenWidth;
+    const scaledBlurRadius = this.blurRadius * resolutionScale;
+
+    // Set blur parameters with scaled radius
+    this.shaderManager.setUniform1f(program, 'u_blurRadius', scaledBlurRadius);
     this.shaderManager.setUniform1f(program, 'u_blurFalloffPower', this.blurFalloffPower);
 
     // Bind text texture
@@ -1203,22 +1206,6 @@ export class TextRenderer {
     if (wakesEnabledInt !== this.uniformCache.wakesEnabled) {
       this.shaderManager.setUniform1i(program, 'u_wakesEnabled', wakesEnabledInt);
       this.uniformCache.wakesEnabled = wakesEnabledInt;
-    }
-
-    // Set glow control uniforms (only if changed)
-    if (this.glowRadius !== this.uniformCache.glowRadius) {
-      this.shaderManager.setUniform1f(program, 'u_glowRadius', this.glowRadius);
-      this.uniformCache.glowRadius = this.glowRadius;
-    }
-
-    if (this.glowIntensity !== this.uniformCache.glowIntensity) {
-      this.shaderManager.setUniform1f(program, 'u_glowIntensity', this.glowIntensity);
-      this.uniformCache.glowIntensity = this.glowIntensity;
-    }
-
-    if (this.glowWaveReactivity !== this.uniformCache.glowWaveReactivity) {
-      this.shaderManager.setUniform1f(program, 'u_glowWaveReactivity', this.glowWaveReactivity);
-      this.uniformCache.glowWaveReactivity = this.glowWaveReactivity;
     }
 
     // Enable blending for text overlay
@@ -1725,7 +1712,7 @@ export class TextRenderer {
         // Re-apply text rendering settings after resize
         this.textContext.textBaseline = 'top';
         this.textContext.fillStyle = 'white';
-        this.textContext.imageSmoothingEnabled = false;
+        this.textContext.imageSmoothingEnabled = true;
 
         this.needsTextureUpdate = true;
         this.needsBlurMapUpdate = true;
@@ -1733,48 +1720,6 @@ export class TextRenderer {
         console.log(`TextRenderer: Canvas resolution updated to ${newWidth}×${newHeight}`);
       }
     }
-  }
-
-  /**
-   * Set glow radius in pixels
-   */
-  public setGlowRadius(radius: number): void {
-    this.glowRadius = Math.max(0, radius);
-  }
-
-  /**
-   * Get current glow radius
-   */
-  public getGlowRadius(): number {
-    return this.glowRadius;
-  }
-
-  /**
-   * Set glow intensity (0-1 range recommended)
-   */
-  public setGlowIntensity(intensity: number): void {
-    this.glowIntensity = Math.max(0, Math.min(1.5, intensity));
-  }
-
-  /**
-   * Get current glow intensity
-   */
-  public getGlowIntensity(): number {
-    return this.glowIntensity;
-  }
-
-  /**
-   * Set glow wave reactivity (how much waves affect glow)
-   */
-  public setGlowWaveReactivity(reactivity: number): void {
-    this.glowWaveReactivity = Math.max(0, Math.min(1, reactivity));
-  }
-
-  /**
-   * Get current glow wave reactivity
-   */
-  public getGlowWaveReactivity(): number {
-    return this.glowWaveReactivity;
   }
 
   /**
@@ -1804,9 +1749,11 @@ export class TextRenderer {
    * - power < 1.0: softer falloff, more spread
    * - power = 1.0: linear falloff
    * - power > 1.0: sharper falloff, tighter around text
+   * - power 2.0-3.0: dramatic, sharp fade (recommended)
+   * - power 3.0-5.0: extreme tightness (experimental)
    */
   public setBlurFalloffPower(power: number): void {
-    this.blurFalloffPower = Math.max(0.5, Math.min(3.0, power));
+    this.blurFalloffPower = Math.max(0.5, Math.min(5.0, power));
     this.needsBlurMapUpdate = true;
   }
 
