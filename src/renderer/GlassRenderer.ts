@@ -55,10 +55,10 @@ export class GlassRenderer {
   private lastOceanCaptureTime: number = 0;
   private oceanCaptureThrottleMs: number = 32; // Max 30fps ocean captures (30Hz = 33ms, using 32ms)
 
-  // CRITICAL FIX: Continuous position updates during CSS transitions
-  // ResizeObserver doesn't fire on transform changes, so we use RAF loop
+  // CRITICAL FIX: Freeze position updates during CSS transitions
+  // getBoundingClientRect() returns final position during transforms, not mid-animation position
+  // So we freeze positions at transition start and only update when transition completes
   private activeTransitions: boolean = false;
-  private rafUpdateId: number | null = null;
 
   // PERFORMANCE: Uniform caching to avoid redundant WebGL calls
   private uniformCache = {
@@ -322,7 +322,9 @@ export class GlassRenderer {
 
     // PERFORMANCE: Only update panel positions when marked dirty (resize, panel changes)
     // This avoids expensive getBoundingClientRect calls every frame
-    if (this.positionsDirty) {
+    // CRITICAL: Do NOT update positions during CSS transitions (activeTransitions = true)
+    // because getBoundingClientRect() returns final position, not mid-animation position
+    if (this.positionsDirty && !this.activeTransitions) {
       this.updatePanelPositions();
       this.positionsDirty = false;
     }
@@ -601,57 +603,34 @@ export class GlassRenderer {
   }
 
   /**
-   * Start transition mode - continuous position updates via RAF
+   * Start transition mode - FREEZE position updates during CSS transforms
    * CRITICAL: Called when CSS transitions start (transform animations)
+   * We freeze positions because getBoundingClientRect() returns final position during transforms,
+   * not the mid-animation position, which would cause glass to jump ahead of HTML panels
    */
   public startTransitionMode(): void {
     if (this.activeTransitions) return; // Already active
 
     this.activeTransitions = true;
-    this.startRAFUpdates();
+    // Do NOT update positions during transition - keep last known positions frozen
+    // Position updates will resume when endTransitionMode() is called
 
-    console.debug('GlassRenderer: Transition mode started - continuous position updates enabled');
+    console.debug('GlassRenderer: Transition mode started - position updates FROZEN');
   }
 
   /**
-   * End transition mode - stop continuous updates
+   * End transition mode - UNFREEZE and update positions once
    * CRITICAL: Called when all CSS transitions complete
    */
   public endTransitionMode(): void {
     this.activeTransitions = false;
-    this.stopRAFUpdates();
 
-    // Do one final update to ensure positions are accurate
+    // Unfreeze positions and trigger ONE final update to capture final panel positions
     this.positionsDirty = true;
 
-    console.debug('GlassRenderer: Transition mode ended - position updates on-demand');
+    console.debug('GlassRenderer: Transition mode ended - position updates UNFROZEN');
   }
 
-  /**
-   * Start RAF loop for continuous position updates during transitions
-   * Updates positions every frame to track CSS transform animations
-   */
-  private startRAFUpdates(): void {
-    const update = () => {
-      if (this.activeTransitions) {
-        // Force position update every frame during active transitions
-        this.positionsDirty = true;
-        this.rafUpdateId = requestAnimationFrame(update);
-      }
-    };
-
-    update(); // Start the loop
-  }
-
-  /**
-   * Stop RAF loop for position updates
-   */
-  private stopRAFUpdates(): void {
-    if (this.rafUpdateId !== null) {
-      cancelAnimationFrame(this.rafUpdateId);
-      this.rafUpdateId = null;
-    }
-  }
 
   /**
    * Update panel positions based on HTML element positions
@@ -836,9 +815,6 @@ export class GlassRenderer {
       this.resizeObserver.disconnect();
       this.resizeObserver = null;
     }
-
-    // Clean up RAF updates
-    this.stopRAFUpdates();
 
     // Clean up geometry
     this.bufferManager.dispose();

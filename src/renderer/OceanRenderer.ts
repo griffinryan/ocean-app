@@ -738,13 +738,14 @@ export class OceanRenderer {
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
       this.drawOcean(elapsedTime);
 
-      // Optionally render glass with stale ocean texture (no capture)
-      if (this.glassEnabled && this.glassRenderer) {
-        this.glassRenderer.render();
-      }
+      // CRITICAL FIX: Skip glass rendering entirely during CSS transitions
+      // During CSS transform animations (e.g., bio panel slide), getBoundingClientRect()
+      // returns the FINAL position, not the mid-animation position. This causes glass
+      // to render ahead of the HTML panel, creating a visual gap (black artifact).
+      // Glass will resume rendering when transition completes with correct positions.
 
       // Skip text rendering entirely (already blocked by TextRenderer)
-      // No scene captures, no blur map, no adaptive text
+      // No scene captures, no blur map, no adaptive text, no glass
 
       // Apply upscaling if needed
       if (needsUpscale) {
