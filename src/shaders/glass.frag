@@ -52,6 +52,27 @@ float noise(vec2 p) {
     return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
 }
 
+// PERFORMANCE: Calculate pixel-density LOD for adaptive detail
+// Similar to ocean shader, uses screen-space derivatives
+float calculateGlassLOD(vec2 panelUV) {
+    vec2 dx = dFdx(panelUV);
+    vec2 dy = dFdy(panelUV);
+
+    // Derivative represents UV units per pixel
+    float maxDerivative = max(length(dx), length(dy));
+
+    // CRITICAL FIX: Invert derivative to get pixels per UV unit
+    // Small derivative (high pixel density) → high LOD (less detail)
+    // Large derivative (low pixel density) → low LOD (more detail)
+    float pixelsPerUVUnit = 1.0 / max(0.001, maxDerivative);
+
+    // Map to LOD range [0, 2.5]
+    // Glass panels are smaller than ocean, so use different tuning
+    float lod = log2(pixelsPerUVUnit) - 8.0;
+
+    return clamp(lod, 0.0, 2.5);
+}
+
 // Advanced liquid glass surface calculation with flow
 vec3 calculateLiquidGlassNormal(vec2 uv, float time) {
     // Multi-scale liquid distortion
@@ -80,6 +101,53 @@ vec3 calculateLiquidGlassNormal(vec2 uv, float time) {
 
     // Calculate enhanced gradient for stronger normal perturbation
     float epsilon = 0.002;
+    float hx = noise((uv + vec2(epsilon, 0.0)) * DISTORTION_SCALE + flowDir1 * 2.0) * 0.08;
+    float hy = noise((uv + vec2(0.0, epsilon)) * DISTORTION_SCALE + flowDir1 * 2.0) * 0.08;
+
+    vec3 normal = normalize(vec3(
+        (h - hx) / epsilon * 2.0,
+        (h - hy) / epsilon * 2.0,
+        1.0
+    ));
+
+    return normal;
+}
+
+// PERFORMANCE: Adaptive liquid glass normal with LOD-based noise reduction
+vec3 calculateLiquidGlassNormalAdaptive(vec2 uv, float time, float lod) {
+    float flow1 = time * LIQUID_FLOW_SPEED;
+    float flow2 = time * LIQUID_FLOW_SPEED * 1.7;
+
+    vec2 flowDir1 = vec2(cos(flow1 * 0.8), sin(flow1 * 1.2));
+    vec2 flowDir2 = vec2(cos(flow2 * 1.3), sin(flow2 * 0.9));
+
+    // Adaptive noise octaves based on LOD
+    // LOD 0-1: 3 noise layers (full detail)
+    // LOD 1-2: 2 noise layers
+    // LOD 2+: 1 noise layer (minimal)
+    float h = noise(uv * DISTORTION_SCALE + flowDir1 * 2.0) * 0.08;
+
+    if (lod < 2.0) {
+        h += noise(uv * DISTORTION_SCALE * 1.5 + flowDir2 * 1.5) * 0.05;
+    }
+
+    if (lod < 1.0) {
+        h += noise(uv * DISTORTION_SCALE * 2.5 + time * 0.6) * 0.03;
+    }
+
+    // Ripple and cell patterns only at high detail
+    if (lod < 1.5) {
+        float ripple = sin(length(uv - 0.5) * 20.0 - time * 4.0) * 0.02;
+        h += ripple * exp(-length(uv - 0.5) * 3.0);
+
+        vec2 cellUv = uv * 8.0 + time * 0.2;
+        vec2 cellPos = fract(cellUv);
+        float cellDist = length(cellPos - 0.5);
+        h += (0.5 - cellDist) * 0.01;
+    }
+
+    // Simplified gradient calculation at higher LOD
+    float epsilon = 0.002 * (1.0 + lod * 0.3);
     float hx = noise((uv + vec2(epsilon, 0.0)) * DISTORTION_SCALE + flowDir1 * 2.0) * 0.08;
     float hy = noise((uv + vec2(0.0, epsilon)) * DISTORTION_SCALE + flowDir1 * 2.0) * 0.08;
 
@@ -142,8 +210,11 @@ void main() {
     edgeFade *= smoothstep(0.0, fadeWidth, 1.0 - panelUV.x);
     edgeFade *= smoothstep(0.0, fadeWidth, 1.0 - panelUV.y);
 
-    // Calculate liquid glass surface normal with flowing animation
-    vec3 glassNormal = calculateLiquidGlassNormal(panelUV, v_time);
+    // PERFORMANCE: Calculate pixel-density LOD for adaptive detail
+    float lod = calculateGlassLOD(panelUV);
+
+    // Calculate liquid glass surface normal with adaptive detail
+    vec3 glassNormal = calculateLiquidGlassNormalAdaptive(panelUV, v_time, lod);
 
     // View direction (looking into the screen)
     vec3 viewDir = vec3(0.0, 0.0, -1.0);
@@ -241,14 +312,17 @@ void main() {
     // Stronger edge illumination with blue tint
     vec3 edgeLight = vec3(0.8, 0.9, 1.0) * edgeGlow * 0.12;
 
-    // Add caustic light patterns for underwater glass effect
-    vec2 causticUV = panelUV * 3.0 + v_time * 0.1;
-    float caustic1 = sin(causticUV.x * 12.0) * sin(causticUV.y * 8.0);
-    float caustic2 = cos(causticUV.x * 8.0 + v_time * 2.0) * cos(causticUV.y * 10.0 + v_time * 1.5);
-    float causticPattern = (caustic1 + caustic2) * 0.5;
-    causticPattern = max(0.0, causticPattern) * 0.08;
-
-    vec3 causticLight = vec3(0.7, 0.9, 1.0) * causticPattern * fresnelReflection;
+    // PERFORMANCE: Caustic light patterns only at high detail (LOD < 1.5)
+    // These sin/cos patterns are expensive and barely visible at low pixel density
+    vec3 causticLight = vec3(0.0);
+    if (lod < 1.5) {
+        vec2 causticUV = panelUV * 3.0 + v_time * 0.1;
+        float caustic1 = sin(causticUV.x * 12.0) * sin(causticUV.y * 8.0);
+        float caustic2 = cos(causticUV.x * 8.0 + v_time * 2.0) * cos(causticUV.y * 10.0 + v_time * 1.5);
+        float causticPattern = (caustic1 + caustic2) * 0.5;
+        causticPattern = max(0.0, causticPattern) * 0.08;
+        causticLight = vec3(0.7, 0.9, 1.0) * causticPattern * fresnelReflection;
+    }
 
     // Add surface imperfections and micro-scratches
     float scratchPattern = noise(panelUV * 50.0 + v_time * 0.05);
