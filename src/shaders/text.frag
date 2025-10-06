@@ -24,11 +24,6 @@ uniform int u_panelCount;
 uniform sampler2D u_wakeTexture;
 uniform bool u_wakesEnabled;
 
-// Glow control uniforms
-uniform float u_glowRadius;          // Glow radius in pixels (default: 8.0)
-uniform float u_glowIntensity;       // Glow intensity multiplier (default: 0.8)
-uniform float u_glowWaveReactivity;  // How much waves affect glow (default: 0.4)
-
 // Adaptive coloring constants
 const float LUMINANCE_THRESHOLD = 0.5;
 const vec3 DARK_TEXT_COLOR = vec3(0.0, 0.0, 0.0);   // Black for light backgrounds
@@ -130,74 +125,6 @@ float sampleWakeTexture(vec2 oceanPos) {
     return texture(u_wakeTexture, wakeUV).r;
 }
 
-// Calculate ocean height at position (simplified procedural waves for glow distortion)
-float getOceanHeightForGlow(vec2 pos, float time) {
-    float height = 0.0;
-
-    // Simplified wave set for performance
-    height += sineWave(pos, vec2(1.0, 0.0), 8.0, 0.4, 1.0, time);
-    height += sineWave(pos, vec2(0.7, 0.7), 6.0, 0.3, 1.2, time);
-    height += sineWave(pos, vec2(0.0, 1.0), 10.0, 0.35, 0.8, time);
-
-    // Add vessel wakes from pre-rendered texture
-    float wakeHeight = sampleWakeTexture(pos);
-    height += wakeHeight;
-
-    return height;
-}
-
-// ===== GLOW SYSTEM FUNCTIONS =====
-
-// Calculate distance field from text
-// PERFORMANCE OPTIMIZED: Reduced from 3 rings × 8 samples (24) to 2 rings × 6 samples (12)
-// This provides ~2× speedup while maintaining glow quality
-float calculateGlowDistance(vec2 uv, vec2 pixelSize) {
-    float minDistance = u_glowRadius;
-
-    // OPTIMIZED: 6-direction sampling (60° intervals) - sufficient for circular glow
-    const int numSamples = 6;
-    const float angleStep = 2.0 * PI / float(numSamples);
-
-    // OPTIMIZED: 2 rings instead of 3 - reduces samples from 24 to 12
-    const int numRings = 2;
-    float radii[2] = float[2](1.5, 4.0); // Adjusted radii for better coverage
-
-    for (int ring = 0; ring < numRings; ring++) {
-        float radius = radii[ring];
-        vec2 radiusOffset = pixelSize * radius;
-
-        for (int i = 0; i < numSamples; i++) {
-            float angle = float(i) * angleStep;
-            vec2 direction = vec2(cos(angle), sin(angle));
-            vec2 sampleUV = uv + direction * radiusOffset;
-
-            float sampleAlpha = texture(u_textTexture, sampleUV).a;
-
-            if (sampleAlpha > 0.01) {
-                float dist = length(direction * radiusOffset * u_resolution.x);
-                minDistance = min(minDistance, dist);
-            }
-        }
-    }
-
-    return minDistance;
-}
-
-// Calculate glow intensity from distance with neon-like falloff
-float calculateGlowIntensity(float distance) {
-    // Tighter sigma for brighter core (neon effect)
-    float sigma = u_glowRadius * 0.3;
-    float normalizedDist = distance / sigma;
-
-    // Gaussian falloff with power boost for bright core
-    float gaussian = exp(-0.5 * normalizedDist * normalizedDist);
-    float coreBoost = pow(gaussian, 0.7); // Power < 1 boosts core brightness
-
-    return coreBoost * u_glowIntensity;
-}
-
-// calculateGlowColor() function removed - no longer rendering colored glow around text
-
 // Check if current fragment is within any panel boundary (from GlassRenderer)
 bool isWithinPanel(vec2 screenPos, out vec2 panelUV) {
     for (int i = 0; i < u_panelCount && i < 5; i++) {
@@ -232,17 +159,6 @@ void main() {
     // Sample the background scene (ocean + glass combined)
     vec3 backgroundColor = texture(u_sceneTexture, screenUV).rgb;
 
-    // ===== CALCULATE OCEAN WAVE DISTORTION FOR GLOW =====
-    // Convert screen position to ocean coordinates
-    vec2 oceanPos = v_screenPos * 15.0;
-    oceanPos.x *= u_aspectRatio;
-
-    // Get ocean height at current position
-    float oceanHeight = getOceanHeightForGlow(oceanPos, v_time);
-
-    // Calculate wave-based distortion offset
-    float waveDistortion = oceanHeight * u_glowWaveReactivity;
-
     // ===== TEXT INTRO ANIMATION =====
     // Calculate distortion amount based on intro progress
     float eased = cubicEaseOut(u_textIntroProgress);
@@ -259,20 +175,14 @@ void main() {
     // Organic noise variation
     float noiseValue = noise(screenUV * 12.0 + v_time * 1.5) * 0.04;
 
-    // Combine all distortions (intro animation + wave distortion)
+    // Combine all distortions for intro animation
     vec2 distortion = vec2(
         wave1 + wave3 + deepWave + noiseValue,
         wave2 + wave3 + noiseValue
     );
 
-    // Add wave-based distortion for glow reactivity
-    vec2 waveDistortionVec = vec2(
-        sin(oceanPos.y * 0.5 + v_time) * waveDistortion,
-        cos(oceanPos.x * 0.5 + v_time) * waveDistortion
-    ) * 0.01;
-
-    // Apply combined distortion scaled by animation progress
-    vec2 totalDistortion = distortion * distortionAmount + waveDistortionVec;
+    // Apply distortion scaled by animation progress
+    vec2 totalDistortion = distortion * distortionAmount;
     vec2 distortedUV = screenUV + totalDistortion;
 
     // Sample the text texture with distorted UV coordinates

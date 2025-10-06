@@ -68,9 +68,6 @@ export class TextRenderer {
     resolution: new Float32Array([0, 0]),
     aspectRatio: -1,
     textIntroProgress: -1,
-    glowRadius: -1,
-    glowIntensity: -1,
-    glowWaveReactivity: -1,
     wakesEnabled: -1
   };
 
@@ -94,11 +91,6 @@ export class TextRenderer {
   private textIntroStartTime: number = 0;
   private isIntroActive: boolean = false;
   private readonly TEXT_INTRO_DURATION = 1000; // milliseconds
-
-  // Glow control properties
-  private glowRadius: number = 64.0;
-  private glowIntensity: number = 0.8;
-  private glowWaveReactivity: number = 0.4;
 
   // Blur control properties
   private blurRadius: number = 240.0; // pixels (increased for more prominent frosted effect)
@@ -158,10 +150,9 @@ export class TextRenderer {
     this.textContext.textBaseline = 'top';
     this.textContext.fillStyle = 'white';
 
-    // IMPORTANT: Disable image smoothing for crisp text
-    // imageSmoothingEnabled is for IMAGE scaling, not text rendering
-    // Text should be rendered at native resolution without interpolation
-    this.textContext.imageSmoothingEnabled = false;
+    // IMPORTANT: Enable image smoothing for anti-aliased text edges
+    // This creates smooth alpha gradients that eliminate jagged blur map edges
+    this.textContext.imageSmoothingEnabled = true;
 
     console.log(`TextRenderer: Canvas initialized at ${this.textCanvas.width}x${this.textCanvas.height}`);
   }
@@ -331,11 +322,7 @@ export class TextRenderer {
         'u_textIntroProgress',
         // Wake texture uniform (rendered by WakeRenderer)
         'u_wakeTexture',
-        'u_wakesEnabled',
-        // Glow control uniforms
-        'u_glowRadius',
-        'u_glowIntensity',
-        'u_glowWaveReactivity'
+        'u_wakesEnabled'
       ];
 
       const attributes = [
@@ -449,7 +436,7 @@ export class TextRenderer {
     // Re-apply text rendering settings after resize
     this.textContext.textBaseline = 'top';
     this.textContext.fillStyle = 'white';
-    this.textContext.imageSmoothingEnabled = false; // Crisp text, no interpolation
+    this.textContext.imageSmoothingEnabled = true; // Anti-aliased text for smooth blur edges
 
     // Bind framebuffer
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFramebuffer);
@@ -969,7 +956,7 @@ export class TextRenderer {
     ctx.save();
     ctx.globalAlpha = 1.0;
     ctx.globalCompositeOperation = 'source-over';
-    ctx.imageSmoothingEnabled = false;
+    ctx.imageSmoothingEnabled = true;
     ctx.textBaseline = 'top';
     ctx.fillStyle = 'white';
     ctx.restore();
@@ -1211,22 +1198,6 @@ export class TextRenderer {
     if (wakesEnabledInt !== this.uniformCache.wakesEnabled) {
       this.shaderManager.setUniform1i(program, 'u_wakesEnabled', wakesEnabledInt);
       this.uniformCache.wakesEnabled = wakesEnabledInt;
-    }
-
-    // Set glow control uniforms (only if changed)
-    if (this.glowRadius !== this.uniformCache.glowRadius) {
-      this.shaderManager.setUniform1f(program, 'u_glowRadius', this.glowRadius);
-      this.uniformCache.glowRadius = this.glowRadius;
-    }
-
-    if (this.glowIntensity !== this.uniformCache.glowIntensity) {
-      this.shaderManager.setUniform1f(program, 'u_glowIntensity', this.glowIntensity);
-      this.uniformCache.glowIntensity = this.glowIntensity;
-    }
-
-    if (this.glowWaveReactivity !== this.uniformCache.glowWaveReactivity) {
-      this.shaderManager.setUniform1f(program, 'u_glowWaveReactivity', this.glowWaveReactivity);
-      this.uniformCache.glowWaveReactivity = this.glowWaveReactivity;
     }
 
     // Enable blending for text overlay
@@ -1733,7 +1704,7 @@ export class TextRenderer {
         // Re-apply text rendering settings after resize
         this.textContext.textBaseline = 'top';
         this.textContext.fillStyle = 'white';
-        this.textContext.imageSmoothingEnabled = false;
+        this.textContext.imageSmoothingEnabled = true;
 
         this.needsTextureUpdate = true;
         this.needsBlurMapUpdate = true;
@@ -1741,48 +1712,6 @@ export class TextRenderer {
         console.log(`TextRenderer: Canvas resolution updated to ${newWidth}×${newHeight}`);
       }
     }
-  }
-
-  /**
-   * Set glow radius in pixels
-   */
-  public setGlowRadius(radius: number): void {
-    this.glowRadius = Math.max(0, radius);
-  }
-
-  /**
-   * Get current glow radius
-   */
-  public getGlowRadius(): number {
-    return this.glowRadius;
-  }
-
-  /**
-   * Set glow intensity (0-1 range recommended)
-   */
-  public setGlowIntensity(intensity: number): void {
-    this.glowIntensity = Math.max(0, Math.min(1.5, intensity));
-  }
-
-  /**
-   * Get current glow intensity
-   */
-  public getGlowIntensity(): number {
-    return this.glowIntensity;
-  }
-
-  /**
-   * Set glow wave reactivity (how much waves affect glow)
-   */
-  public setGlowWaveReactivity(reactivity: number): void {
-    this.glowWaveReactivity = Math.max(0, Math.min(1, reactivity));
-  }
-
-  /**
-   * Get current glow wave reactivity
-   */
-  public getGlowWaveReactivity(): number {
-    return this.glowWaveReactivity;
   }
 
   /**
