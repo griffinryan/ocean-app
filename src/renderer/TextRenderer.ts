@@ -244,11 +244,12 @@ export class TextRenderer {
       return;
     }
 
-    // PERFORMANCE: Cap blur map resolution at 960×540
-    // Blur maps are low-frequency (frosted glass effect) and don't need high resolution
-    // This provides significant performance gains at 4K+ resolutions
-    const MAX_BLUR_WIDTH = 960;
-    const MAX_BLUR_HEIGHT = 540;
+    // Cap blur map resolution at 1920×1080 (Full HD)
+    // Higher cap eliminates jagged edges from distance field upscaling
+    // Blur maps are single-channel R16F (~4MB at 1080p, negligible memory cost)
+    // Still provides 2× performance gain at 4K by capping at 1080p
+    const MAX_BLUR_WIDTH = 1920;
+    const MAX_BLUR_HEIGHT = 1080;
 
     const aspectRatio = width / height;
     let blurWidth = width;
@@ -1073,8 +1074,15 @@ export class TextRenderer {
     // Set resolution (use blur map dimensions, not canvas dimensions)
     this.shaderManager.setUniform2f(program, 'u_resolution', this.blurMapWidth, this.blurMapHeight);
 
-    // Set blur parameters
-    this.shaderManager.setUniform1f(program, 'u_blurRadius', this.blurRadius);
+    // CRITICAL: Scale blur radius for resolution mismatch
+    // Blur radius is specified in screen pixels, but blur map may be lower resolution
+    // Example: 60px on 1920px screen = 30px on 960px blur map texture
+    const screenWidth = gl.canvas.width;
+    const resolutionScale = this.blurMapWidth / screenWidth;
+    const scaledBlurRadius = this.blurRadius * resolutionScale;
+
+    // Set blur parameters with scaled radius
+    this.shaderManager.setUniform1f(program, 'u_blurRadius', scaledBlurRadius);
     this.shaderManager.setUniform1f(program, 'u_blurFalloffPower', this.blurFalloffPower);
 
     // Bind text texture

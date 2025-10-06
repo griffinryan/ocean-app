@@ -232,11 +232,8 @@ void main() {
     // In text regions: reduce distortion for cleaner frosted effect
     float effectiveDistortion = u_distortionStrength;
     if (u_blurMapEnabled && blurIntensity > 0.01) {
-        // Multi-zone aware distortion reduction
-        // Inner zones (high blur): dramatic distortion reduction for clarity
-        // Outer zones (low blur): subtle reduction for smooth transition
-        float distortionReduction = u_blurDistortionBoost * (0.5 + 0.5 * blurIntensity);
-        effectiveDistortion *= (1.0 - blurIntensity * distortionReduction);
+        // Simple distortion reduction in blur regions
+        effectiveDistortion *= (1.0 - blurIntensity * u_blurDistortionBoost);
     }
 
     // Calculate uniform distorted UV coordinates with consistent liquid warping
@@ -364,33 +361,16 @@ void main() {
     float crystalPattern = sin(panelUV.x * 30.0) * sin(panelUV.y * 30.0) * 0.1;
     finalColor += vec3(crystalPattern * 0.15);
 
-    // MODULATE OPACITY and add FROST TINT based on blur intensity (ENHANCED)
+    // MODULATE OPACITY and add FROST TINT based on blur intensity
     if (u_blurMapEnabled && blurIntensity > 0.01) {
-        // Multi-zone aware opacity boost
-        // Inner zones: maximum opacity for solid frost
-        // Outer zones: gradual opacity increase for smooth blend
-        float opacityBoost = blurIntensity * u_blurOpacityBoost * (1.0 + blurIntensity * 0.3);
-        alpha += opacityBoost;
+        // Boost opacity in text regions for stronger frosted effect
+        alpha += blurIntensity * u_blurOpacityBoost;
 
-        // Enhanced frost tint with multi-zone modulation
-        // Inner zones (blurIntensity near 1.0): strong frost tint
-        // Outer zones (blurIntensity near 0.0): subtle tint
-        float baseFrostTint = blurIntensity * 0.18; // Increased from 0.12 for more prominence
-        float zonalBoost = pow(blurIntensity, 0.7); // Favor inner zones
-        float frostTint = baseFrostTint * (0.8 + 0.2 * zonalBoost);
-
-        // Dual-tone frost: blue-white in inner zones, pure white in outer zones
-        vec3 innerFrostColor = vec3(0.90, 0.94, 1.0);  // Slightly more blue
-        vec3 outerFrostColor = vec3(0.96, 0.98, 1.0);  // Nearly white
-        vec3 frostColor = mix(outerFrostColor, innerFrostColor, blurIntensity);
-
+        // Add subtle blue-white frost tint (KEEP SUBTLE at 0.10 for text coloring preservation)
+        // Reduced from original 0.12 to minimize background luminance impact
+        float frostTint = blurIntensity * 0.10;
+        vec3 frostColor = vec3(0.92, 0.96, 1.0);
         finalColor = mix(finalColor, frostColor, frostTint);
-
-        // Add subtle frost glow at text boundaries (inner zones only)
-        if (blurIntensity > 0.8) {
-            float edgeGlow = (blurIntensity - 0.8) * 5.0; // 0.0-1.0 range
-            finalColor += vec3(0.95, 0.97, 1.0) * edgeGlow * 0.08;
-        }
     }
 
     // Apply edge fade to final alpha for smooth boundaries

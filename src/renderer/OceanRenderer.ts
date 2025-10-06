@@ -825,9 +825,9 @@ export class OceanRenderer {
       // 2. Glass uses shared ocean texture (no capture needed)
       this.glassRenderer.setOceanTexture(this.sharedOceanTexture);
 
-      // 3. Final render: Ocean (from shared buffer) + Glass
+      // 3. Final render: Ocean (composited from shared buffer, CONSISTENT!) + Glass
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-      this.drawOcean(elapsedTime);
+      this.compositeTexture(this.sharedOceanTexture); // Use shared buffer (not drawOcean)
       this.glassRenderer.render();
     } else {
       // Basic ocean rendering only
