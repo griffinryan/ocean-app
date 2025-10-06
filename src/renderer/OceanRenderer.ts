@@ -783,10 +783,10 @@ export class OceanRenderer {
         // 2. Glass uses shared ocean texture (no capture needed)
         this.glassRenderer.setOceanTexture(this.sharedOceanTexture);
 
-        // 3. Text captures glass overlay (ocean already in shared buffer)
+        // 3. Text captures glass overlay (ocean from shared buffer, NO re-render!)
         this.textRenderer.captureScene(() => {
           gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-          this.drawOcean(elapsedTime);
+          this.compositeTexture(this.sharedOceanTexture); // Composite instead of re-render
           this.glassRenderer!.render();
         });
 
@@ -794,9 +794,9 @@ export class OceanRenderer {
         const blurMapTexture = this.textRenderer.getBlurMapTexture();
         this.glassRenderer.setBlurMapTexture(blurMapTexture);
 
-        // 5. Final render: Ocean (from shared buffer) + Glass + Text
+        // 5. Final render: Ocean (composited from shared buffer, NO re-render!) + Glass + Text
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-        this.drawOcean(elapsedTime);
+        this.compositeTexture(this.sharedOceanTexture); // Composite instead of re-render
         this.glassRenderer.render();
         this.textRenderer.render(wakeTexture, this.wakesEnabled);
       } else {
@@ -805,15 +805,15 @@ export class OceanRenderer {
         // 1. Render ocean ONCE to shared buffer
         this.captureOceanToSharedBuffer(elapsedTime);
 
-        // 2. Text captures ocean from shared buffer
+        // 2. Text captures ocean from shared buffer (NO re-render!)
         this.textRenderer.captureScene(() => {
           gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-          this.drawOcean(elapsedTime);
+          this.compositeTexture(this.sharedOceanTexture); // Composite instead of re-render
         });
 
-        // 3. Final render: Ocean (from shared buffer) + Text
+        // 3. Final render: Ocean (composited from shared buffer, NO re-render!) + Text
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-        this.drawOcean(elapsedTime);
+        this.compositeTexture(this.sharedOceanTexture); // Composite instead of re-render
         this.textRenderer.render(wakeTexture, this.wakesEnabled);
       }
     } else if (this.glassEnabled && this.glassRenderer) {
@@ -902,6 +902,48 @@ export class OceanRenderer {
     gl.disable(gl.DEPTH_TEST);
 
     // Render full-screen quad with upscaling
+    this.upscaleBufferManager.bind();
+    gl.drawElements(gl.TRIANGLES, this.upscaleGeometry.indexCount, gl.UNSIGNED_SHORT, 0);
+
+    // Re-enable depth test
+    gl.enable(gl.DEPTH_TEST);
+  }
+
+  /**
+   * Composite a texture to the current framebuffer
+   * PERFORMANCE: Reuses upscale shader for simple 1:1 texture blitting
+   * This eliminates redundant ocean renders by compositing from shared buffer
+   */
+  private compositeTexture(texture: WebGLTexture | null): void {
+    if (!texture || !this.upscaleProgram) {
+      return;
+    }
+
+    const gl = this.gl;
+
+    // Use upscale shader in bilinear mode (fastest, 1:1 composite)
+    const program = this.shaderManager.useProgram('upscale');
+
+    // Get current viewport dimensions
+    const viewport = gl.getParameter(gl.VIEWPORT);
+    const width = viewport[2];
+    const height = viewport[3];
+
+    // Bind source texture
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    this.shaderManager.setUniform1i(program, 'u_sourceTexture', 0);
+
+    // Set 1:1 resolution (no actual scaling, just composite)
+    this.shaderManager.setUniform2f(program, 'u_sourceResolution', width, height);
+    this.shaderManager.setUniform2f(program, 'u_targetResolution', width, height);
+    this.shaderManager.setUniform1f(program, 'u_sharpness', 0.0);
+    this.shaderManager.setUniform1i(program, 'u_upscaleMethod', 0); // bilinear (fastest)
+
+    // Disable depth test for compositing
+    gl.disable(gl.DEPTH_TEST);
+
+    // Render full-screen quad
     this.upscaleBufferManager.bind();
     gl.drawElements(gl.TRIANGLES, this.upscaleGeometry.indexCount, gl.UNSIGNED_SHORT, 0);
 

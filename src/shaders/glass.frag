@@ -57,8 +57,20 @@ float noise(vec2 p) {
 float calculateGlassLOD(vec2 panelUV) {
     vec2 dx = dFdx(panelUV);
     vec2 dy = dFdy(panelUV);
+
+    // Derivative represents UV units per pixel
     float maxDerivative = max(length(dx), length(dy));
-    return clamp(log2(max(1.0, maxDerivative * 10.0)), 0.0, 2.5);
+
+    // CRITICAL FIX: Invert derivative to get pixels per UV unit
+    // Small derivative (high pixel density) → high LOD (less detail)
+    // Large derivative (low pixel density) → low LOD (more detail)
+    float pixelsPerUVUnit = 1.0 / max(0.001, maxDerivative);
+
+    // Map to LOD range [0, 2.5]
+    // Glass panels are smaller than ocean, so use different tuning
+    float lod = log2(pixelsPerUVUnit) - 8.0;
+
+    return clamp(lod, 0.0, 2.5);
 }
 
 // Advanced liquid glass surface calculation with flow

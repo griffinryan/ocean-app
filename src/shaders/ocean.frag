@@ -65,21 +65,29 @@ float noise(vec2 p) {
 
 // PERFORMANCE: Calculate pixel-density LOD using screen-space derivatives
 // Returns LOD level where:
-// - LOD 0 = highest detail (1 ocean unit per pixel)
-// - LOD 1 = 2 ocean units per pixel
-// - LOD 2 = 4 ocean units per pixel
-// - LOD 3+ = 8+ ocean units per pixel (lowest detail)
+// - LOD 0 = highest detail (many pixels per ocean unit, close-up or low-res)
+// - LOD 1 = medium detail (moderate pixel density)
+// - LOD 2 = low detail (few pixels per ocean unit, zoomed out or high-res)
+// - LOD 3+ = minimal detail (very high pixel density, 4K fullscreen)
 float calculatePixelDensityLOD(vec2 oceanPos) {
     // Measure how fast ocean coordinates change per screen pixel
     vec2 dx = dFdx(oceanPos);
     vec2 dy = dFdy(oceanPos);
 
-    // Maximum rate of change determines required detail level
+    // Derivative represents ocean units per pixel
+    // Small derivative = many pixels per ocean unit = high pixel density
     float maxDerivative = max(length(dx), length(dy));
 
-    // LOD increases logarithmically with derivative
-    // Clamp to reasonable range [0, 3.5]
-    return clamp(log2(max(1.0, maxDerivative)), 0.0, 3.5);
+    // CRITICAL FIX: Invert derivative to get pixels per ocean unit
+    // Small derivative (high pixel density, 4K) → high LOD (less detail)
+    // Large derivative (low pixel density, zoomed in) → low LOD (more detail)
+    float pixelsPerOceanUnit = 1.0 / max(0.001, maxDerivative);
+
+    // Map to LOD range [0, 3.5]
+    // Tuned so: 64 pixels/unit → LOD 0, 128 → LOD 0.5, 256 → LOD 1.5, 512 → LOD 2.5
+    float lod = log2(pixelsPerOceanUnit) - 6.5;
+
+    return clamp(lod, 0.0, 3.5);
 }
 
 // Optimized FBM with fewer octaves
