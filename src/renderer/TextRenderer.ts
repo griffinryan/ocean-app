@@ -40,6 +40,10 @@ export class TextRenderer {
   // Blur map shader program
   private blurMapProgram: ShaderProgram | null = null;
 
+  // Blur map dimensions (actual resolution after capping)
+  private blurMapWidth: number = 0;
+  private blurMapHeight: number = 0;
+
   // Blur map update flag
   private needsBlurMapUpdate: boolean = false;
 
@@ -268,6 +272,10 @@ export class TextRenderer {
       blurHeight = MAX_BLUR_HEIGHT;
       blurWidth = Math.round(blurHeight * aspectRatio);
     }
+
+    // Store blur map dimensions for use in generateBlurMap
+    this.blurMapWidth = blurWidth;
+    this.blurMapHeight = blurHeight;
 
     // Bind framebuffer
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.blurMapFramebuffer);
@@ -1062,7 +1070,7 @@ export class TextRenderer {
 
     // Bind blur map framebuffer
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.blurMapFramebuffer);
-    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+    gl.viewport(0, 0, this.blurMapWidth, this.blurMapHeight);
 
     // Clear framebuffer (black = no blur)
     gl.clearColor(0.0, 0.0, 0.0, 1.0);
@@ -1075,8 +1083,8 @@ export class TextRenderer {
     this.shaderManager.setUniformMatrix4fv(program, 'u_projectionMatrix', this.projectionMatrix.data);
     this.shaderManager.setUniformMatrix4fv(program, 'u_viewMatrix', this.viewMatrix.data);
 
-    // Set resolution
-    this.shaderManager.setUniform2f(program, 'u_resolution', gl.canvas.width, gl.canvas.height);
+    // Set resolution (use blur map dimensions, not canvas dimensions)
+    this.shaderManager.setUniform2f(program, 'u_resolution', this.blurMapWidth, this.blurMapHeight);
 
     // Set blur parameters
     this.shaderManager.setUniform1f(program, 'u_blurRadius', this.blurRadius);
