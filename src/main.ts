@@ -290,6 +290,52 @@ class OceanApp {
             this.updateBlurMapInfo(!isEnabled);
           }
           break;
+        case 'n':
+        case 'N':
+          // Decrease blur radius (tighter frost)
+          event.preventDefault();
+          event.stopPropagation();
+          if (this.renderer) {
+            const currentRadius = this.renderer.getBlurRadius();
+            const newRadius = Math.max(20, currentRadius - 10);
+            this.renderer.setBlurRadius(newRadius);
+            console.log(`Blur radius: ${newRadius}px`);
+          }
+          break;
+        case 'm':
+        case 'M':
+          // Increase blur radius (wider frost)
+          event.preventDefault();
+          event.stopPropagation();
+          if (this.renderer) {
+            const currentRadius = this.renderer.getBlurRadius();
+            const newRadius = Math.min(256, currentRadius + 10);
+            this.renderer.setBlurRadius(newRadius);
+            console.log(`Blur radius: ${newRadius}px`);
+          }
+          break;
+        case ',':
+          // Decrease falloff power (softer fade)
+          event.preventDefault();
+          event.stopPropagation();
+          if (this.renderer) {
+            const currentPower = this.renderer.getBlurFalloffPower();
+            const newPower = Math.max(0.5, currentPower - 0.25);
+            this.renderer.setBlurFalloffPower(newPower);
+            console.log(`Blur falloff power: ${newPower.toFixed(2)}`);
+          }
+          break;
+        case '.':
+          // Increase falloff power (sharper fade)
+          event.preventDefault();
+          event.stopPropagation();
+          if (this.renderer) {
+            const currentPower = this.renderer.getBlurFalloffPower();
+            const newPower = Math.min(5.0, currentPower + 0.25);
+            this.renderer.setBlurFalloffPower(newPower);
+            console.log(`Blur falloff power: ${newPower.toFixed(2)}`);
+          }
+          break;
         case '1':
         case '2':
         case '3':
@@ -386,6 +432,12 @@ class OceanApp {
     console.log('  G - Toggle glass panel rendering');
     console.log('  T - Toggle text rendering');
     console.log('  B - Toggle blur map (frosted glass)');
+    console.log('');
+    console.log('Blur Tuning:');
+    console.log('  N - Decrease blur radius (tighter)');
+    console.log('  M - Increase blur radius (wider)');
+    console.log('  , - Decrease falloff power (softer)');
+    console.log('  . - Increase falloff power (sharper)');
     console.log('');
     console.log('Quality:');
     console.log('  Q - Ultra quality');

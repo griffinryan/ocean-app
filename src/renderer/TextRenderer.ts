@@ -93,8 +93,8 @@ export class TextRenderer {
   private readonly TEXT_INTRO_DURATION = 1000; // milliseconds
 
   // Blur control properties
-  private blurRadius: number = 240.0; // pixels (increased for more prominent frosted effect)
-  private blurFalloffPower: number = 1.0; // 1.0 = linear falloff for smooth gradients
+  private blurRadius: number = 60.0; // pixels (tight wrap around text for frosted glass effect)
+  private blurFalloffPower: number = 2.5; // >1.0 = exponential falloff for dramatic, sharp fade
 
   constructor(gl: WebGL2RenderingContext, _shaderManager: ShaderManager) {
     this.gl = gl;
@@ -1741,9 +1741,11 @@ export class TextRenderer {
    * - power < 1.0: softer falloff, more spread
    * - power = 1.0: linear falloff
    * - power > 1.0: sharper falloff, tighter around text
+   * - power 2.0-3.0: dramatic, sharp fade (recommended)
+   * - power 3.0-5.0: extreme tightness (experimental)
    */
   public setBlurFalloffPower(power: number): void {
-    this.blurFalloffPower = Math.max(0.5, Math.min(3.0, power));
+    this.blurFalloffPower = Math.max(0.5, Math.min(5.0, power));
     this.needsBlurMapUpdate = true;
   }
 

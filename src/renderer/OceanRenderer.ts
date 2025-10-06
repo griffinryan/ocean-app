@@ -1204,6 +1204,38 @@ export class OceanRenderer {
   }
 
   /**
+   * Set blur radius (controls frost spread distance)
+   */
+  setBlurRadius(radius: number): void {
+    if (this.textRenderer) {
+      this.textRenderer.setBlurRadius(radius);
+    }
+  }
+
+  /**
+   * Get current blur radius
+   */
+  getBlurRadius(): number {
+    return this.textRenderer?.getBlurRadius() ?? 60.0;
+  }
+
+  /**
+   * Set blur falloff power (controls frost fade sharpness)
+   */
+  setBlurFalloffPower(power: number): void {
+    if (this.textRenderer) {
+      this.textRenderer.setBlurFalloffPower(power);
+    }
+  }
+
+  /**
+   * Get current blur falloff power
+   */
+  getBlurFalloffPower(): number {
+    return this.textRenderer?.getBlurFalloffPower() ?? 2.5;
+  }
+
+  /**
    * Get quality manager instance
    */
   getQualityManager(): QualityManager {
