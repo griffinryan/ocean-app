@@ -56,10 +56,8 @@ export class GlassRenderer {
   private lastOceanCaptureTime: number = 0;
   private oceanCaptureThrottleMs: number = 32; // Max 30fps ocean captures (30Hz = 33ms, using 32ms)
 
-  // CRITICAL FIX: Freeze position updates during CSS transitions
-  // getBoundingClientRect() returns final position during transforms, not mid-animation position
-  // So we freeze positions at transition start and only update when transition completes
-  private activeTransitions: boolean = false;
+  // Transition tracking keeps panel UVs in sync with CSS transforms during orchestrated slides
+  private transitionTracking: boolean = false;
 
   // Scroll tracking mode - continuous updates during scroll
   private isScrolling: boolean = false;
@@ -325,15 +323,11 @@ export class GlassRenderer {
     }
 
     // PERFORMANCE: Only update panel positions when marked dirty (resize, panel changes)
-    // This avoids expensive getBoundingClientRect calls every frame
-    // CRITICAL: Do NOT update positions during CSS transitions (activeTransitions = true)
-    // because getBoundingClientRect() returns final position, not mid-animation position
-    // SCROLL MODE: Always update positions during scroll for smooth tracking
-    if ((this.positionsDirty || this.isScrolling) && !this.activeTransitions) {
+    // Enables continuous tracking during scroll and orchestrated transitions
+    const shouldUpdatePositions = this.positionsDirty || this.isScrolling || this.transitionTracking;
+    if (shouldUpdatePositions) {
       this.updatePanelPositions();
-      if (!this.isScrolling) {
-        this.positionsDirty = false; // Keep dirty during scroll for continuous updates
-      }
+      this.positionsDirty = false;
     }
 
     // Use glass shader program
@@ -610,32 +604,29 @@ export class GlassRenderer {
   }
 
   /**
-   * Start transition mode - FREEZE position updates during CSS transforms
+   * Start transition mode - keep UVs in sync with CSS transforms during panel slides
    * CRITICAL: Called when CSS transitions start (transform animations)
-   * We freeze positions because getBoundingClientRect() returns final position during transforms,
-   * not the mid-animation position, which would cause glass to jump ahead of HTML panels
    */
   public startTransitionMode(): void {
-    if (this.activeTransitions) return; // Already active
+    if (this.transitionTracking) return; // Already tracking
 
-    this.activeTransitions = true;
-    // Do NOT update positions during transition - keep last known positions frozen
-    // Position updates will resume when endTransitionMode() is called
+    this.transitionTracking = true;
+    this.positionsDirty = true;
 
-    console.debug('GlassRenderer: Transition mode started - position updates FROZEN');
+    console.debug('GlassRenderer: Transition mode started - continuous position updates enabled');
   }
 
   /**
-   * End transition mode - UNFREEZE and update positions once
+   * End transition mode - return to on-demand updates after transitions settle
    * CRITICAL: Called when all CSS transitions complete
    */
   public endTransitionMode(): void {
-    this.activeTransitions = false;
+    if (!this.transitionTracking) return;
 
-    // Unfreeze positions and trigger ONE final update to capture final panel positions
+    this.transitionTracking = false;
     this.positionsDirty = true;
 
-    console.debug('GlassRenderer: Transition mode ended - position updates UNFROZEN');
+    console.debug('GlassRenderer: Transition mode ended - returning to on-demand updates');
   }
 
   /**

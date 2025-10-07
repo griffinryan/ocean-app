@@ -763,20 +763,22 @@ export class OceanRenderer {
     // PERFORMANCE OPTIMIZATION: Lightweight rendering during text transitions
     // Reduces 3 ocean draws to 1, skips glass/text captures
     if (isTransitioning) {
-      // Simple single-pass rendering during transition
-      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-      this.drawOcean(elapsedTime);
+      // During CSS transitions we still want glass distortion active for visual continuity,
+      // but we keep text disabled until positions settle.
+      if (this.glassEnabled && this.glassRenderer) {
+        // Render ocean once to shared buffer and composite with glass
+        this.captureOceanToSharedBuffer(elapsedTime);
+        this.glassRenderer.setOceanTexture(this.sharedOceanTexture);
 
-      // CRITICAL FIX: Skip glass rendering entirely during CSS transitions
-      // During CSS transform animations (e.g., bio panel slide), getBoundingClientRect()
-      // returns the FINAL position, not the mid-animation position. This causes glass
-      // to render ahead of the HTML panel, creating a visual gap (black artifact).
-      // Glass will resume rendering when transition completes with correct positions.
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        this.compositeTexture(this.sharedOceanTexture);
+        this.glassRenderer.render();
+      } else {
+        // Fall back to simple ocean render (no glass configured)
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        this.drawOcean(elapsedTime);
+      }
 
-      // Skip text rendering entirely (already blocked by TextRenderer)
-      // No scene captures, no blur map, no adaptive text, no glass
-
-      // Apply upscaling if needed
       if (needsUpscale) {
         this.applyUpscaling();
       }

@@ -1337,6 +1337,15 @@ export class TextRenderer {
    * Set transitioning state - blocks text updates during CSS transitions
    */
   public setTransitioning(transitioning: boolean): void {
+    // Avoid redundant state flips that would retrigger intro animation
+    if (this.isTransitioningFlag === transitioning) {
+      if (transitioning) {
+        // Still cancel any in-flight batching if a new transition restarts mid-process
+        this.cancelAmortizedUpdate();
+      }
+      return;
+    }
+
     this.isTransitioningFlag = transitioning;
 
     // SAFETY: When transition starts, cancel any ongoing batching

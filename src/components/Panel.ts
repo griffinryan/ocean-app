@@ -47,6 +47,7 @@ export class PanelManager {
   private activeAnimations: Set<HTMLElement> = new Set();
   private pendingTimeouts: Set<number> = new Set();
   private transitionTimeout: number | null = null;
+  private transitionActive: boolean = false;
 
   // Event handler references for proper cleanup
   private paperBtnClickHandler: ((e: Event) => void) | null = null;
@@ -161,6 +162,8 @@ export class PanelManager {
   private setupAnimationListeners(): void {
     const panels = [
       this.landingPanel,
+      this.appBioPanel,
+      this.appProfilePicture,
       this.portfolioContainer,
       this.resumeContainer,
       this.navbar
@@ -244,6 +247,11 @@ export class PanelManager {
    * Called when all CSS transitions are complete
    */
   private onAllTransitionsComplete(): void {
+    if (!this.transitionActive) {
+      return;
+    }
+    this.transitionActive = false;
+
     console.debug('PanelManager: All transitions complete, waiting for render settle...');
 
     // Clear any pending timeout
@@ -260,6 +268,7 @@ export class PanelManager {
       requestAnimationFrame(() => {
         // CRITICAL: Stop continuous glass position updates
         if (this.glassRenderer) {
+          this.glassRenderer.endTransitionMode();
           this.glassRenderer.endScrollMode(); // End scroll mode used for slide tracking
           console.debug('PanelManager: Ended glass scroll mode for slide transition');
         }
@@ -341,12 +350,15 @@ export class PanelManager {
 
     const oldState = this.currentState;
     this.currentState = newState;
+    this.transitionActive = true;
 
     // CRITICAL: Enable continuous glass tracking during slide transitions
     // For slide transitions, we want continuous position updates (like scroll mode)
     // NOT freeze mode, because we need glass to follow the sliding panels
     if (this.glassRenderer) {
+      this.glassRenderer.startTransitionMode();
       this.glassRenderer.startScrollMode(); // Use scroll mode for continuous tracking
+      this.glassRenderer.markPositionsDirty();
       console.debug('PanelManager: Started glass scroll mode for slide transition');
     }
 
@@ -354,12 +366,13 @@ export class PanelManager {
     this.scrollTracker.notifyTransitionStart();
 
     // Handle special cases
-    if (newState === 'paper') {
-      this.showNotFoundMessage();
-      return;
-    }
-
-    if (newState === 'not-found') {
+    if (newState === 'paper' || newState === 'not-found') {
+      if (this.glassRenderer) {
+        this.glassRenderer.endTransitionMode();
+        this.glassRenderer.endScrollMode();
+      }
+      this.scrollTracker.notifyTransitionEnd();
+      this.transitionActive = false;
       this.showNotFoundMessage();
       return;
     }
@@ -384,7 +397,7 @@ export class PanelManager {
     elements.forEach(element => {
       if (element && !element.classList.contains('hidden')) {
         // Track slide-out transition
-        this.activeTransitions.add(element);
+        this.activeAnimations.add(element);
 
         // Use slide animation instead of fade
         element.classList.add('slide-exit-left');
@@ -412,7 +425,7 @@ export class PanelManager {
     elements.forEach(element => {
       if (element) {
         // Track slide-in transition
-        this.activeTransitions.add(element);
+        this.activeAnimations.add(element);
 
         element.classList.remove('hidden');
 
@@ -490,6 +503,7 @@ export class PanelManager {
       this.transitionTimeout = window.setTimeout(() => {
         console.warn('PanelManager: Transition timeout reached, forcing text update');
         this.activeTransitions.clear();
+        this.activeAnimations.clear();
         this.onAllTransitionsComplete();
       }, this.defaultTransition.duration + 100); // 100ms safety margin
     }
