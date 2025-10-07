@@ -186,21 +186,23 @@ void main() {
     // Returns height values from vessel wakes + ocean waves
     float wakeHeight = sampleWakeTexture(oceanPos);
 
-    // ===== CHARACTER-LEVEL WIGGLE WITH WAKE ENERGY =====
-    // Living system: Wake = energy pulse that triggers character wiggle, then decays back to anchor
+    // ===== RIGID CHARACTER FLOAT WITH WAKE ENERGY =====
+    // Living system: Wake = energy pulse that triggers character float, then decays back to anchor
 
-    // LAYER 1: High-frequency character-level noise (per-pixel variation)
-    // This creates individual character wiggle, not large ocean waves
-    float charNoiseX = noise(screenUV * 100.0 + v_time * 0.5);
-    float charNoiseY = noise(screenUV * 100.0 + vec2(50.0, 50.0) + v_time * 0.5);
+    // LAYER 1: Low-frequency noise for RIGID character motion (not shape warping)
+    // Frequency: 8 cycles across screen = ~240px per cycle
+    // Characters (50-100px) experience UNIFORM motion = rigid float, preserved typeface
+    float charNoiseX = noise(screenUV * 8.0 + v_time * 0.3);
+    float charNoiseY = noise(screenUV * 8.0 + vec2(30.0, 30.0) + v_time * 0.3);
 
-    // Base character wiggle (0.4% amplitude) - always present, creates "living text"
-    vec2 charWiggle = vec2(charNoiseX - 0.5, charNoiseY - 0.5) * 0.004;
+    // Base character rigid float (0.4% amplitude) - always present, creates "living text"
+    // Each character moves as a WHOLE UNIT, independently from neighbors
+    vec2 charFloat = vec2(charNoiseX - 0.5, charNoiseY - 0.5) * 0.004;
 
-    // LAYER 2: Wake-triggered impulse (energy amplifies character wiggle)
-    // When vessel passes, wake energy amplifies the wiggle, then naturally decays
+    // LAYER 2: Wake-triggered impulse (energy amplifies RIGID character float)
+    // When vessel passes, wake energy amplifies the rigid motion, then naturally decays
     float wakeEnergy = abs(wakeHeight); // Energy in the system [0, 1]
-    vec2 wakeImpulse = charWiggle * wakeEnergy * 4.0; // Amplify character wiggle by wake energy
+    vec2 wakeImpulse = charFloat * wakeEnergy * 4.0; // Amplify rigid character float by wake energy
 
     // LAYER 3: Baseline ocean ambient sway (0.3%)
     // Very low-frequency whole-text drift - feels like floating on water
@@ -209,9 +211,10 @@ void main() {
         cos(oceanPos.x * 0.3 + v_time * 0.6) * 0.003
     );
 
-    // Combine layers: Character wiggle + Wake impulse + Ocean sway
-    // Wake amplifies wiggle when present, naturally returns to baseline as wake dissipates
-    vec2 continuousMotion = charWiggle + wakeImpulse + oceanSway;
+    // Combine layers: Rigid character float + Wake impulse + Ocean sway
+    // Wake amplifies rigid motion when present, naturally returns to baseline as wake dissipates
+    // Characters move as WHOLE UNITS (typeface preserved), not per-pixel warping
+    vec2 continuousMotion = charFloat + wakeImpulse + oceanSway;
 
     // ===== TEXT INTRO ANIMATION =====
     // Separate additive wiggly motion for dramatic entrance effect
@@ -236,9 +239,10 @@ void main() {
         wave2 + wave3 + noiseValue
     ) * introStrength; // Fade out as intro progresses
 
-    // UNIFIED LIVING SYSTEM: Character wiggle + Wake energy + Ocean sway + Intro
-    // Character: 0.4% baseline wiggle, Wake: amplifies 4× when present, Ocean: 0.3% ambient, Intro: 30% entrance
-    // Motion "returns to anchor" as wake energy dissipates - not continuous oscillation
+    // UNIFIED LIVING SYSTEM: Rigid character float + Wake energy + Ocean sway + Intro
+    // Character: 0.4% baseline rigid float (8 cycles = ~240px/cycle), Wake: amplifies 4× when present
+    // Ocean: 0.3% ambient sway, Intro: 30% entrance wiggle
+    // Motion "returns to anchor" as wake energy dissipates - characters move RIGIDLY (typeface preserved)
     vec2 totalDistortion = continuousMotion + introDistortion;
     vec2 distortedUV = screenUV + totalDistortion;
 
