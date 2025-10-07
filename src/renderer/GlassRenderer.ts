@@ -56,7 +56,7 @@ export class GlassRenderer {
   private lastOceanCaptureTime: number = 0;
   private oceanCaptureThrottleMs: number = 32; // Max 30fps ocean captures (30Hz = 33ms, using 32ms)
 
-  // Transition tracking keeps panel UVs in sync with CSS transforms during orchestrated slides
+  // Transition tracking keeps panel UVs in sync with CSS transforms during panel slides and intro animations
   private transitionTracking: boolean = false;
 
   // Scroll tracking mode - continuous updates during scroll
@@ -604,8 +604,8 @@ export class GlassRenderer {
   }
 
   /**
-   * Start transition mode - keep UVs in sync with CSS transforms during panel slides
-   * CRITICAL: Called when CSS transitions start (transform animations)
+   * Start transition mode - keep UVs in sync with CSS transforms during panel slides and intro animations
+   * CRITICAL: Called when CSS transitions or keyframe animations start
    */
   public startTransitionMode(): void {
     if (this.transitionTracking) return; // Already tracking
@@ -618,7 +618,7 @@ export class GlassRenderer {
 
   /**
    * End transition mode - return to on-demand updates after transitions settle
-   * CRITICAL: Called when all CSS transitions complete
+   * CRITICAL: Called when all CSS transitions/animations complete
    */
   public endTransitionMode(): void {
     if (!this.transitionTracking) return;

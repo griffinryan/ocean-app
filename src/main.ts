@@ -197,34 +197,45 @@ class OceanApp {
       return;
     }
 
+    const glassRenderer = this.renderer.getGlassRenderer();
     const textRenderer = this.renderer.getTextRenderer();
-    if (!textRenderer) {
-      return;
+
+    if (textRenderer) {
+      // Block text rendering during initial animation
+      textRenderer.setTransitioning(true);
     }
 
-    // Block text rendering during initial animation
-    textRenderer.setTransitioning(true);
+    // Keep liquid glass perfectly aligned during landing animation
+    if (glassRenderer) {
+      glassRenderer.startTransitionMode();
+      glassRenderer.markPositionsDirty();
+    }
 
     console.log('OceanApp: Waiting for landing panel animation to complete...');
+
+    const handleLandingReady = () => {
+      if (textRenderer) {
+        console.log('OceanApp: Landing panel animation complete, enabling text rendering');
+        textRenderer.setTransitioning(false);
+        textRenderer.forceTextureUpdate();
+        textRenderer.markSceneDirty();
+      }
+
+      if (glassRenderer) {
+        glassRenderer.endTransitionMode();
+        glassRenderer.markPositionsDirty();
+      }
+    };
 
     // Listen for animationend event on landing panel
     const landingPanel = document.getElementById('landing-panel');
     if (landingPanel) {
-      landingPanel.addEventListener('animationend', () => {
-        console.log('OceanApp: Landing panel animation complete, enabling text rendering');
-
-        // Enable text rendering now that animation is complete
-        textRenderer.setTransitioning(false);
-        textRenderer.forceTextureUpdate();
-        textRenderer.markSceneDirty();
-      }, { once: true });
+      landingPanel.addEventListener('animationend', handleLandingReady, { once: true });
     } else {
       // Fallback: Enable after timeout if landing panel not found
       setTimeout(() => {
         console.warn('OceanApp: Landing panel not found, enabling text after timeout');
-        textRenderer.setTransitioning(false);
-        textRenderer.forceTextureUpdate();
-        textRenderer.markSceneDirty();
+        handleLandingReady();
       }, 1300); // 1.2s animation + 100ms safety
     }
   }

@@ -634,6 +634,10 @@ export class PanelManager {
   public setGlassRenderer(glassRenderer: GlassRenderer | null): void {
     this.glassRenderer = glassRenderer;
     this.scrollTracker.setGlassRenderer(glassRenderer);
+
+    if (this.glassRenderer) {
+      this.glassRenderer.markPositionsDirty();
+    }
   }
 
   public dispose(): void {
