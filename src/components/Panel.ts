@@ -44,10 +44,10 @@ export class PanelManager {
 
   // Transition tracking for proper text update timing
   private activeTransitions: Set<HTMLElement> = new Set();
-  private activeAnimations: Set<HTMLElement> = new Set();
-  private pendingTimeouts: Set<number> = new Set();
   private transitionTimeout: number | null = null;
   private transitionActive: boolean = false;
+  private pendingExitCount: number = 0;
+  private pendingEnterCount: number = 0;
 
   // Event handler references for proper cleanup
   private paperBtnClickHandler: ((e: Event) => void) | null = null;
@@ -170,10 +170,10 @@ export class PanelManager {
     ];
 
     panels.forEach(panel => {
-      panel.addEventListener('animationend', (e) => {
+      panel.addEventListener('animationend', (e: AnimationEvent) => {
         // Only handle animations on the panel itself, not child elements
         if (e.target === panel) {
-          this.handleAnimationEnd(panel);
+          this.handleAnimationEnd(panel, e);
         }
       });
     });
@@ -222,13 +222,46 @@ export class PanelManager {
   /**
    * Handle animation completion on a panel
    */
-  private handleAnimationEnd(panel: HTMLElement): void {
-    // Remove from active animations set
-    this.activeAnimations.delete(panel);
+  private handleAnimationEnd(panel: HTMLElement, event: AnimationEvent): void {
+    const animationName = event.animationName;
 
-    console.debug(`PanelManager: Animation ended on ${panel.id}, ${this.activeAnimations.size} remaining`);
+    if (animationName === 'slideExitLeft') {
+      panel.classList.add('hidden');
+      panel.classList.remove('slide-exit-left');
+      panel.style.transform = '';
 
-    // Check if all state changes complete
+      if (this.pendingExitCount > 0) {
+        this.pendingExitCount -= 1;
+      }
+
+      console.debug(`PanelManager: Exit animation ended on ${panel.id}, ${this.pendingExitCount} remaining`);
+
+      if (this.pendingExitCount === 0) {
+        this.onExitAnimationsComplete();
+      }
+
+      return;
+    }
+
+    if (animationName === 'slideEnterRight') {
+      panel.classList.remove('slide-enter-right');
+
+      if (this.shouldActivatePanel(panel, this.currentState)) {
+        panel.classList.add('active');
+        this.activeTransitions.add(panel);
+      }
+
+      if (this.pendingEnterCount > 0) {
+        this.pendingEnterCount -= 1;
+      }
+
+      console.debug(`PanelManager: Enter animation ended on ${panel.id}, ${this.pendingEnterCount} remaining`);
+
+      this.checkAllStateChangesComplete();
+      return;
+    }
+
+    // Other animations (landing intro, etc.)
     this.checkAllStateChangesComplete();
   }
 
@@ -236,9 +269,9 @@ export class PanelManager {
    * Check if all transitions, animations, and async state changes are complete
    */
   private checkAllStateChangesComplete(): void {
-    if (this.activeTransitions.size === 0 &&
-        this.activeAnimations.size === 0 &&
-        this.pendingTimeouts.size === 0) {
+    if (this.pendingExitCount === 0 &&
+        this.pendingEnterCount === 0 &&
+        this.activeTransitions.size === 0) {
       this.onAllTransitionsComplete();
     }
   }
@@ -378,79 +411,79 @@ export class PanelManager {
     }
 
     // Perform the transition
-    this.performTransition(oldState, newState);
+    this.startExitAnimations(oldState);
   }
 
-  private performTransition(oldState: PanelState, newState: PanelState): void {
-    // Fade out current panel
-    this.fadeOutCurrentPanel(oldState);
+  /**
+   * Kick off exit animations for the outgoing state
+   */
+  private startExitAnimations(state: PanelState): void {
+    const elements = this.getPanelElements(state).filter(element =>
+      element && !element.classList.contains('hidden')
+    );
 
-    // After fade out, show new panel
-    setTimeout(() => {
-      this.updatePanelVisibility();
-      this.fadeInNewPanel(newState);
-    }, this.defaultTransition.duration / 2);
-  }
+    this.pendingExitCount = elements.length;
 
-  private fadeOutCurrentPanel(state: PanelState): void {
-    const elements = this.getPanelElements(state);
+    if (this.pendingExitCount === 0) {
+      this.onExitAnimationsComplete();
+      return;
+    }
+
     elements.forEach(element => {
-      if (element && !element.classList.contains('hidden')) {
-        // Track slide-out transition
-        this.activeAnimations.add(element);
-
-        // Use slide animation instead of fade
-        element.classList.add('slide-exit-left');
-
-        // Track setTimeout callback
-        const timeoutId = window.setTimeout(() => {
-          element.classList.add('hidden');
-          element.classList.remove('slide-exit-left');
-
-          // Reset transform
-          element.style.transform = '';
-
-          // Remove from pending timeouts
-          this.pendingTimeouts.delete(timeoutId);
-          this.checkAllStateChangesComplete();
-        }, this.defaultTransition.duration / 2);
-
-        this.pendingTimeouts.add(timeoutId);
-      }
+      element.classList.remove('slide-enter-right');
+      element.classList.add('slide-exit-left');
     });
   }
 
-  private fadeInNewPanel(state: PanelState): void {
-    const elements = this.getPanelElements(state);
+  /**
+   * Called when all exit animations complete
+   */
+  private onExitAnimationsComplete(): void {
+    if (this.pendingExitCount !== 0) {
+      return;
+    }
+
+    this.updatePanelVisibility();
+    this.startEnterAnimations(this.currentState);
+  }
+
+  /**
+   * Kick off enter animations for the incoming state
+   */
+  private startEnterAnimations(state: PanelState): void {
+    const elements = this.getPanelElements(state).filter(Boolean);
+
+    this.pendingEnterCount = elements.length;
+
+    if (this.pendingEnterCount === 0) {
+      this.checkAllStateChangesComplete();
+      return;
+    }
+
     elements.forEach(element => {
-      if (element) {
-        // Track slide-in transition
-        this.activeAnimations.add(element);
-
-        element.classList.remove('hidden');
-
-        // Use slide animation instead of fade
-        element.classList.add('slide-enter-right');
-
-        // Track setTimeout callback
-        const timeoutId = window.setTimeout(() => {
-          element.classList.remove('slide-enter-right');
-
-          // Add active class for content panels (this triggers final positioning)
-          if (state === 'app' || state === 'portfolio' || state === 'resume') {
-            element.classList.add('active');
-            // Track the transform transition that follows
-            this.activeTransitions.add(element);
-          }
-
-          // Remove from pending timeouts
-          this.pendingTimeouts.delete(timeoutId);
-          this.checkAllStateChangesComplete();
-        }, this.defaultTransition.duration / 2);
-
-        this.pendingTimeouts.add(timeoutId);
-      }
+      element.classList.remove('slide-exit-left');
+      element.classList.remove('hidden');
+      element.classList.add('slide-enter-right');
     });
+  }
+
+  /**
+   * Determine whether a panel needs the active class (triggers transform transition)
+   */
+  private shouldActivatePanel(panel: HTMLElement, state: PanelState): boolean {
+    if (state === 'app') {
+      return panel === this.appBioPanel || panel === this.appProfilePicture;
+    }
+
+    if (state === 'portfolio') {
+      return panel === this.portfolioContainer;
+    }
+
+    if (state === 'resume') {
+      return panel === this.resumeContainer;
+    }
+
+    return false;
   }
 
   private updatePanelVisibility(): void {
@@ -503,7 +536,8 @@ export class PanelManager {
       this.transitionTimeout = window.setTimeout(() => {
         console.warn('PanelManager: Transition timeout reached, forcing text update');
         this.activeTransitions.clear();
-        this.activeAnimations.clear();
+        this.pendingExitCount = 0;
+        this.pendingEnterCount = 0;
         this.onAllTransitionsComplete();
       }, this.defaultTransition.duration + 100); // 100ms safety margin
     }
@@ -662,22 +696,17 @@ export class PanelManager {
       this.keyDownHandler = null;
     }
 
-    // Clear any pending timeouts
-    this.pendingTimeouts.forEach(timeoutId => clearTimeout(timeoutId));
-    this.pendingTimeouts.clear();
-
     if (this.transitionTimeout !== null) {
       clearTimeout(this.transitionTimeout);
       this.transitionTimeout = null;
     }
 
-    // Clear transition/animation tracking
+    // Clear transition tracking
     this.activeTransitions.clear();
-    this.activeAnimations.clear();
+    this.pendingExitCount = 0;
+    this.pendingEnterCount = 0;
 
-    // Dispose scroll tracker
-    if (this.scrollTracker) {
-      this.scrollTracker.dispose();
-    }
+    this.scrollTracker.dispose();
   }
+
 }
