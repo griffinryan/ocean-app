@@ -20,7 +20,6 @@ export interface PanelLayoutSnapshot {
 export class PanelLayoutTracker {
   private readonly panelIds: string[] = [
     'landing-panel',
-    'app-panel',
     'app-bio-panel',
     'navbar',
     'portfolio-lakehouse-panel',
@@ -117,4 +116,3 @@ export class PanelLayoutTracker {
     };
   }
 }
-

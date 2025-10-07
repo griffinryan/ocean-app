@@ -5,6 +5,7 @@
 
 import { Router } from './Router';
 import { PanelState } from './Panel';
+import type { PanelLayoutTracker } from '../utils/PanelLayoutTracker';
 
 export interface NavigationItem {
   id: string;
@@ -25,6 +26,7 @@ export class NavigationManager {
   private navItems: NodeListOf<HTMLElement>;
   private brandElement: HTMLElement;
   private router: Router;
+  private layoutTracker: PanelLayoutTracker | null = null;
 
   private state: NavigationState = {
     isVisible: false,
@@ -135,6 +137,7 @@ export class NavigationManager {
     } else {
       this.navbar.classList.remove('scrolled');
     }
+    this.markLayoutDirty();
   }
 
   private updateActiveState(): void {
@@ -181,7 +184,9 @@ export class NavigationManager {
     setTimeout(() => {
       this.navbar.classList.remove('navbar-enter');
       this.navbar.classList.add('navbar-visible');
+      this.markLayoutDirty();
     }, 50);
+    this.markLayoutDirty();
   }
 
   public hide(): void {
@@ -193,7 +198,9 @@ export class NavigationManager {
     setTimeout(() => {
       this.navbar.classList.remove('navbar-visible', 'navbar-exit');
       this.navbar.classList.add('hidden');
+      this.markLayoutDirty();
     }, 300);
+    this.markLayoutDirty();
   }
 
   public isVisible(): boolean {
@@ -229,6 +236,15 @@ export class NavigationManager {
         this.hide();
         break;
     }
+  }
+
+  public setLayoutTracker(tracker: PanelLayoutTracker | null): void {
+    this.layoutTracker = tracker;
+    this.markLayoutDirty();
+  }
+
+  private markLayoutDirty(): void {
+    this.layoutTracker?.markDirty();
   }
 
   public dispose(): void {

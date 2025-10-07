@@ -62,6 +62,9 @@ class OceanApp {
       if (this.panelManager) {
         this.panelManager.setLayoutTracker(this.layoutTracker);
       }
+      if (this.navigationManager) {
+        this.navigationManager.setLayoutTracker(this.layoutTracker);
+      }
 
       // Create loading sequence
       this.loadingSequence = new LoadingSequence({

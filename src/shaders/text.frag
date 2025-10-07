@@ -147,11 +147,12 @@ float sampleWakeTexture(vec2 oceanPos) {
 }
 
 // Check if current fragment is within any panel boundary (from GlassRenderer)
-bool isWithinPanel(vec2 screenPos, out vec2 panelUV) {
+bool isWithinPanel(vec2 screenPos, out vec2 panelUV, out vec2 panelHalfSize) {
+    panelHalfSize = vec2(0.0);
     for (int i = 0; i < u_panelCount && i < 5; i++) {
         // Convert screen position to panel-relative coordinates
         vec2 panelCenter = (u_panelPositions[i] + 1.0) * 0.5; // Convert from [-1,1] to [0,1]
-        vec2 panelHalfSize = u_panelSizes[i] * 0.5;
+        panelHalfSize = u_panelSizes[i] * 0.5;
 
         // Calculate position relative to panel center
         vec2 deltaFromCenter = screenPos - panelCenter;
@@ -173,7 +174,8 @@ void main() {
 
     // Check if we're within any panel boundary
     vec2 panelUV;
-    if (!isWithinPanel(screenUV, panelUV)) {
+    vec2 panelHalfSize;
+    if (!isWithinPanel(screenUV, panelUV, panelHalfSize)) {
         discard; // Only render text within panels
     }
 
@@ -224,18 +226,17 @@ void main() {
     float eased = cubicEaseOut(u_textIntroProgress);
     float introStrength = 1.0 - eased; // 1.0 at start, 0.0 at end
 
-    // OPTIMIZED: Reduced from 4 sine waves to 2, using fast sine approximation
-    float wave1 = fastSin(screenUV.y * 30.0 + v_time * 8.0) * 0.12;
-    float wave2 = fastSin(screenUV.x * 20.0 - v_time * 6.0) * 0.08;
+    // OPTIMIZED: Reduced amplitude so distortion stays within panel bounds
+    float wave1 = fastSin(screenUV.y * 30.0 + v_time * 8.0) * 0.05;
+    float wave2 = fastSin(screenUV.x * 20.0 - v_time * 6.0) * 0.04;
+    float deepWave = fastSin(screenUV.y * 8.0 + v_time * 3.0) * 0.06;
 
-    // Low-frequency wave for deep amplitude sway (keep for dramatic effect)
-    float deepWave = fastSin(screenUV.y * 8.0 + v_time * 3.0) * 0.20;
-
-    // Combine intro wiggly waves (removed noise and wave3 for performance)
+    // Scale intro distortion relative to panel size so larger panels can move slightly more
+    float panelScale = clamp(min(panelHalfSize.x, panelHalfSize.y), 0.02, 0.25);
     vec2 introDistortion = vec2(
         wave1 + deepWave,
         wave2
-    ) * introStrength; // Fade out as intro progresses
+    ) * introStrength * panelScale * 0.6; // Fade out as intro progresses
 
     // UNIFIED LIVING SYSTEM: Rigid character float + Wake energy + Ocean sway + Intro
     // Character: 0.4% baseline rigid float (8 cycles = ~240px/cycle), Wake: amplifies 4× when present

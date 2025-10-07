@@ -12,7 +12,9 @@ import { WakeRenderer } from './WakeRenderer';
 import { QualityManager, QualitySettings } from '../config/QualityPresets';
 import { PerformanceMonitor } from '../utils/PerformanceMonitor';
 import { FrameBudgetManager } from '../utils/FrameBudget';
-import type { PanelLayoutTracker } from '../utils/PanelLayoutTracker';
+import type { PanelLayoutTracker, PanelLayoutSnapshot } from '../utils/PanelLayoutTracker';
+
+const IS_DEV = import.meta.env.DEV;
 
 export interface RenderConfig {
   canvas: HTMLCanvasElement;
@@ -108,6 +110,9 @@ export class OceanRenderer {
     lastDebugMode: -1,
     lastWakesEnabled: false
   };
+
+  private lastLayoutValidationTime: number = 0;
+  private layoutWarningSet: Set<string> = new Set();
 
   constructor(config: RenderConfig) {
     this.canvas = config.canvas;
@@ -766,6 +771,7 @@ export class OceanRenderer {
     if (this.layoutTracker) {
       const snapshot = this.layoutTracker.getSnapshot(this.canvas);
       if (snapshot) {
+        this.validatePanelSnapshot(snapshot);
         if (this.glassRenderer) {
           this.glassRenderer.applyPanelLayouts(snapshot);
         }
@@ -818,6 +824,59 @@ export class OceanRenderer {
     } else if (this.glassRenderer) {
       this.glassRenderer.setBlurMapTexture(null);
     }
+  }
+
+  private validatePanelSnapshot(snapshot: PanelLayoutSnapshot): void {
+    if (!IS_DEV) {
+      return;
+    }
+
+    const now = performance.now();
+    if (now - this.lastLayoutValidationTime < 500) {
+      return;
+    }
+    this.lastLayoutValidationTime = now;
+
+    const canvasRect = this.canvas.getBoundingClientRect();
+    if (canvasRect.width === 0 || canvasRect.height === 0) {
+      return;
+    }
+
+    snapshot.layouts.forEach((layout, elementId) => {
+      const element = document.getElementById(elementId);
+      if (!element) {
+        this.layoutWarningSet.delete(elementId);
+        return;
+      }
+
+      const rect = element.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) {
+        return;
+      }
+
+      const centerX = ((rect.left + rect.width / 2) - canvasRect.left) / canvasRect.width;
+      const centerY = ((rect.top + rect.height / 2) - canvasRect.top) / canvasRect.height;
+      const glX = centerX * 2.0 - 1.0;
+      const glY = (1.0 - centerY) * 2.0 - 1.0;
+      const width = (rect.width / canvasRect.width) * 2.0;
+      const height = (rect.height / canvasRect.height) * 2.0;
+
+      const posDelta = Math.max(Math.abs(layout.position[0] - glX), Math.abs(layout.position[1] - glY));
+      const sizeDelta = Math.max(Math.abs(layout.size[0] - width), Math.abs(layout.size[1] - height));
+      const threshold = 0.02;
+
+      if (posDelta > threshold || sizeDelta > threshold) {
+        if (!this.layoutWarningSet.has(elementId)) {
+          console.debug(
+            `OceanRenderer: panel "${elementId}" snapshot drift detected (Δpos=${posDelta.toFixed(3)}, Δsize=${sizeDelta.toFixed(3)})`
+          );
+          this.layoutWarningSet.add(elementId);
+        }
+      } else if (this.layoutWarningSet.has(elementId)) {
+        console.debug(`OceanRenderer: panel "${elementId}" snapshot realigned`);
+        this.layoutWarningSet.delete(elementId);
+      }
+    });
   }
 
   /**
