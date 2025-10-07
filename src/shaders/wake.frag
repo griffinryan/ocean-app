@@ -18,6 +18,7 @@ uniform float u_vesselClasses[5];
 uniform float u_vesselHullLengths[5];
 uniform float u_vesselStates[5];
 uniform bool u_wakesEnabled;
+uniform int u_wakeWaveComponents;
 
 out vec4 fragColor;
 
@@ -166,6 +167,9 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float weight
 
         // Optimized wave components (reduced from 3 to 2 for performance)
         for (int j = 0; j < 2; j++) {
+            if (j >= u_wakeWaveComponents) {
+                break;
+            }
             float wavelength = (2.5 + vesselSpeed * 0.5) * pow(phi, float(j) * 0.5);
             float k = waveNumber(wavelength);
             float omega = waveFrequency(k);
@@ -186,6 +190,9 @@ float calculateVesselWake(vec2 pos, vec3 vesselPos, vec3 vesselVel, float weight
 
         // Optimized wave components (reduced from 3 to 2 for performance)
         for (int j = 0; j < 2; j++) {
+            if (j >= u_wakeWaveComponents) {
+                break;
+            }
             float wavelength = (2.5 + vesselSpeed * 0.5) * pow(phi, float(j) * 0.5);
             float k = waveNumber(wavelength);
             float omega = waveFrequency(k);

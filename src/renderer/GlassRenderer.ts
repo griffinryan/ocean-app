@@ -6,6 +6,9 @@
 import { ShaderManager, ShaderProgram } from './ShaderManager';
 import { GeometryBuilder, BufferManager, GeometryData } from './Geometry';
 import { Mat4 } from '../utils/math';
+import { QualitySettings } from '../config/QualityPresets';
+
+const IS_DEV = import.meta.env.DEV;
 
 export interface GlassPanelConfig {
   position: [number, number]; // Screen position in normalized coordinates
@@ -46,6 +49,7 @@ export class GlassRenderer {
   private blurMapEnabled: boolean = false;
   private blurOpacityBoost: number = 0.45; // How much to increase opacity in text regions (0.0-0.5)
   private blurDistortionBoost: number = 0.85; // How much to reduce distortion in text regions (0.0-1.0)
+  private distortionDetail: number = 1.0;
 
   private textPresence: number = 1.0;
 
@@ -72,7 +76,8 @@ export class GlassRenderer {
     blurMapEnabled: -1,
     blurOpacityBoost: -1,
     blurDistortionBoost: -1,
-    textPresence: -1
+    textPresence: -1,
+    distortionDetail: -1
   };
 
   constructor(gl: WebGL2RenderingContext, shaderManager: ShaderManager) {
@@ -120,7 +125,8 @@ export class GlassRenderer {
         'u_blurMapEnabled',
         'u_blurOpacityBoost',
         'u_blurDistortionBoost',
-        'u_textPresence'
+        'u_textPresence',
+        'u_distortionDetail'
       ];
 
       const attributes = [
@@ -366,6 +372,11 @@ export class GlassRenderer {
       this.uniformCache.textPresence = this.textPresence;
     }
 
+    if (this.distortionDetail !== this.uniformCache.distortionDetail) {
+      this.shaderManager.setUniform1f(program, 'u_distortionDetail', this.distortionDetail);
+      this.uniformCache.distortionDetail = this.distortionDetail;
+    }
+
     // Bind ocean texture
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.oceanTexture);
@@ -595,7 +606,9 @@ export class GlassRenderer {
 
       if (element) {
         this.resizeObserver!.observe(element);
-        console.debug(`GlassRenderer: Observing panel ${elementId} for position changes`);
+        if (IS_DEV) {
+          console.debug(`GlassRenderer: Observing panel ${elementId} for position changes`);
+        }
       } else {
         console.warn(`GlassRenderer: Panel element ${elementId} not found, cannot observe`);
       }
@@ -622,7 +635,9 @@ export class GlassRenderer {
     this.transitionTracking = true;
     this.positionsDirty = true;
 
-    console.debug('GlassRenderer: Transition mode started - continuous position updates enabled');
+    if (IS_DEV) {
+      console.debug('GlassRenderer: Transition mode started - continuous position updates enabled');
+    }
   }
 
   /**
@@ -635,7 +650,9 @@ export class GlassRenderer {
     this.transitionTracking = false;
     this.positionsDirty = true;
 
-    console.debug('GlassRenderer: Transition mode ended - returning to on-demand updates');
+    if (IS_DEV) {
+      console.debug('GlassRenderer: Transition mode ended - returning to on-demand updates');
+    }
   }
 
   /**
@@ -646,7 +663,9 @@ export class GlassRenderer {
     if (this.isScrolling) return; // Already active
 
     this.isScrolling = true;
-    console.debug('GlassRenderer: Scroll mode started - continuous position updates enabled');
+    if (IS_DEV) {
+      console.debug('GlassRenderer: Scroll mode started - continuous position updates enabled');
+    }
   }
 
   /**
@@ -659,7 +678,9 @@ export class GlassRenderer {
     // One final update to ensure positions are correct
     this.positionsDirty = true;
 
-    console.debug('GlassRenderer: Scroll mode ended - continuous position updates disabled');
+    if (IS_DEV) {
+      console.debug('GlassRenderer: Scroll mode ended - continuous position updates disabled');
+    }
   }
 
   /**
@@ -729,11 +750,13 @@ export class GlassRenderer {
     const height = (elementRect.height / canvasRect.height) * 2.0;
 
     // Debug logging (can be removed in production)
-    console.debug(`GlassRenderer Panel Mapping:
+    if (IS_DEV) {
+      console.debug(`GlassRenderer Panel Mapping:
       Element: ${elementRect.width}x${elementRect.height} at (${elementRect.left}, ${elementRect.top})
       Canvas: ${canvasRect.width}x${canvasRect.height}
       WebGL Center: (${glX.toFixed(3)}, ${glY.toFixed(3)})
       WebGL Size: (${width.toFixed(3)}, ${height.toFixed(3)})`);
+    }
 
     return {
       position: [glX, glY],
@@ -759,9 +782,15 @@ export class GlassRenderer {
   /**
    * Update quality settings (stub for future quality-based optimizations)
    */
-  public updateQualitySettings(_settings: any): void {
-    // Future: Adjust glass distortion quality based on settings
-    // For now, resolution scaling is handled by OceanRenderer
+  public updateQualitySettings(settings: QualitySettings): void {
+    const clamped = Math.max(0.25, Math.min(1.0, settings.glassDistortionQuality ?? 1.0));
+    if (this.distortionDetail !== clamped) {
+      this.distortionDetail = clamped;
+      this.uniformCache.distortionDetail = -1;
+    }
+
+    // Allow quality presets to toggle blur map usage
+    this.setBlurMapEnabled(settings.enableBlurMap !== false);
   }
 
   /**

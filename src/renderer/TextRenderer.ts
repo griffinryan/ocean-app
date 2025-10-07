@@ -6,6 +6,9 @@
 import { ShaderManager, ShaderProgram } from './ShaderManager';
 import { GeometryBuilder, BufferManager, GeometryData } from './Geometry';
 import { Mat4 } from '../utils/math';
+import { QualitySettings } from '../config/QualityPresets';
+
+const IS_DEV = import.meta.env.DEV;
 
 export interface TextElementConfig {
   selector: string;            // CSS selector for the element
@@ -26,6 +29,8 @@ export class TextRenderer {
   private sceneFramebuffer: WebGLFramebuffer | null = null;
   private sceneTexture: WebGLTexture | null = null;
   private sceneDepthBuffer: WebGLRenderbuffer | null = null;
+  private sceneWidth: number = 0;
+  private sceneHeight: number = 0;
 
   // Canvas for text generation (RESTORED)
   private textCanvas!: HTMLCanvasElement;
@@ -450,6 +455,9 @@ export class TextRenderer {
     // Bind framebuffer
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFramebuffer);
 
+    this.sceneWidth = width;
+    this.sceneHeight = height;
+
     // Setup color texture
     gl.bindTexture(gl.TEXTURE_2D, this.sceneTexture);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
@@ -488,27 +496,30 @@ export class TextRenderer {
   /**
    * Capture current scene (ocean + glass) to texture for text background analysis
    */
-  public captureScene(renderSceneCallback: () => void): void {
+  public captureScene(renderSceneCallback: () => void): boolean {
     const gl = this.gl;
     const currentTime = performance.now();
 
     if (!this.sceneFramebuffer || !this.sceneTexture) {
-      return;
+      return false;
     }
 
     // Skip capture if scene isn't dirty and we're within throttle window
     if (!this.sceneTextureDirty && (currentTime - this.lastCaptureTime) < this.captureThrottleMs) {
-      return;
+      return false;
     }
 
     // Store current viewport
     const viewport = gl.getParameter(gl.VIEWPORT);
 
+    const width = this.sceneWidth || gl.canvas.width;
+    const height = this.sceneHeight || gl.canvas.height;
+
     // Bind framebuffer for rendering
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFramebuffer);
 
     // Set viewport to match framebuffer size
-    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+    gl.viewport(0, 0, width, height);
 
     // Clear framebuffer
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
@@ -525,6 +536,7 @@ export class TextRenderer {
     // Update cache state
     this.sceneTextureDirty = false;
     this.lastCaptureTime = currentTime;
+    return true;
   }
 
   /**
@@ -682,7 +694,7 @@ export class TextRenderer {
       }
 
       // Debug logging for button positioning
-      if (element.id === 'paper-btn' || element.id === 'app-btn') {
+      if (IS_DEV && (element.id === 'paper-btn' || element.id === 'app-btn')) {
         console.debug(`Button ${element.id} positioning:`, {
           elementRect: {
             left: elementRect.left,
@@ -820,7 +832,9 @@ export class TextRenderer {
       this.forceCompleteBatching();
     }, this.BATCH_TIMEOUT_MS);
 
-    console.debug(`TextRenderer: Starting amortized update, ${this.textUpdateBatches.length} batches, ${visibleElements.length} elements`);
+    if (IS_DEV) {
+      console.debug(`TextRenderer: Starting amortized update, ${this.textUpdateBatches.length} batches, ${visibleElements.length} elements`);
+    }
   }
 
   /**
@@ -916,7 +930,9 @@ export class TextRenderer {
         this.batchTimeoutId = null;
       }
 
-      console.debug('TextRenderer: Amortized update complete');
+      if (IS_DEV) {
+        console.debug('TextRenderer: Amortized update complete');
+      }
 
       // Execute callback if provided
       if (this.batchRenderCallback) {
@@ -1001,7 +1017,9 @@ export class TextRenderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.bindTexture(gl.TEXTURE_2D, null);
 
-    console.debug('TextRenderer: Text texture uploaded');
+    if (IS_DEV) {
+      console.debug('TextRenderer: Text texture uploaded');
+    }
   }
 
   /**
@@ -1012,7 +1030,9 @@ export class TextRenderer {
   private updateTextTexture(): void {
     // CRITICAL: Block updates during CSS transitions to prevent capturing mid-animation positions
     if (this.isTransitioningFlag) {
-      console.debug('TextRenderer: Skipping update during CSS transition');
+      if (IS_DEV) {
+        console.debug('TextRenderer: Skipping update during CSS transition');
+      }
       return;
     }
 
@@ -1043,7 +1063,9 @@ export class TextRenderer {
     // Get visible text element IDs
     const visibleIds = this.getVisibleTextElementIds();
 
-    console.debug('TextRenderer: Updating text texture, visible elements:', visibleIds.length);
+    if (IS_DEV) {
+      console.debug('TextRenderer: Updating text texture, visible elements:', visibleIds.length);
+    }
 
     // Render all visible text elements immediately
     visibleIds.forEach(id => {
@@ -1804,7 +1826,7 @@ export class TextRenderer {
   /**
    * Update quality settings
    */
-  public updateQualitySettings(settings: any): void {
+  public updateQualitySettings(settings: QualitySettings): void {
     // Update text canvas resolution based on quality settings
     if (settings.textCanvasResolution) {
       const newWidth = settings.textCanvasResolution;

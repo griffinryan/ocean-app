@@ -13,6 +13,7 @@ uniform vec2 u_panelPosition;     // Panel position in screen space
 uniform vec2 u_panelSize;         // Panel size in screen space
 uniform float u_distortionStrength; // How strong the distortion is
 uniform float u_refractionIndex;    // Index of refraction for glass
+uniform float u_distortionDetail;   // Quality scalar (0.25 - 1.0)
 
 // Blur map uniforms for frosted glass effect around text
 uniform sampler2D u_blurMapTexture;
@@ -122,35 +123,37 @@ vec3 calculateLiquidGlassNormalAdaptive(vec2 uv, float time, float lod) {
     vec2 flowDir1 = vec2(cos(flow1 * 0.8), sin(flow1 * 1.2));
     vec2 flowDir2 = vec2(cos(flow2 * 1.3), sin(flow2 * 0.9));
 
+    float detail = clamp(u_distortionDetail, 0.25, 1.0);
+
     // Adaptive noise octaves based on LOD
     // LOD 0-1: 3 noise layers (full detail)
     // LOD 1-2: 2 noise layers
     // LOD 2+: 1 noise layer (minimal)
-    float h = noise(uv * DISTORTION_SCALE + flowDir1 * 2.0) * 0.08;
+    float h = noise(uv * DISTORTION_SCALE + flowDir1 * 2.0) * 0.08 * detail;
 
-    if (lod < 2.0) {
-        h += noise(uv * DISTORTION_SCALE * 1.5 + flowDir2 * 1.5) * 0.05;
+    if (lod < 2.0 && detail > 0.35) {
+        h += noise(uv * DISTORTION_SCALE * 1.5 + flowDir2 * 1.5) * (0.05 * detail);
     }
 
-    if (lod < 1.0) {
-        h += noise(uv * DISTORTION_SCALE * 2.5 + time * 0.6) * 0.03;
+    if (lod < 1.0 && detail > 0.6) {
+        h += noise(uv * DISTORTION_SCALE * 2.5 + time * 0.6) * (0.03 * detail);
     }
 
     // Ripple and cell patterns only at high detail
-    if (lod < 1.5) {
-        float ripple = sin(length(uv - 0.5) * 20.0 - time * 4.0) * 0.02;
+    if (lod < 1.5 && detail > 0.5) {
+        float ripple = sin(length(uv - 0.5) * 20.0 - time * 4.0) * (0.02 * detail);
         h += ripple * exp(-length(uv - 0.5) * 3.0);
 
         vec2 cellUv = uv * 8.0 + time * 0.2;
         vec2 cellPos = fract(cellUv);
         float cellDist = length(cellPos - 0.5);
-        h += (0.5 - cellDist) * 0.01;
+        h += (0.5 - cellDist) * (0.01 * detail);
     }
 
     // Simplified gradient calculation at higher LOD
-    float epsilon = 0.002 * (1.0 + lod * 0.3);
-    float hx = noise((uv + vec2(epsilon, 0.0)) * DISTORTION_SCALE + flowDir1 * 2.0) * 0.08;
-    float hy = noise((uv + vec2(0.0, epsilon)) * DISTORTION_SCALE + flowDir1 * 2.0) * 0.08;
+    float epsilon = 0.002 * (1.0 + lod * 0.3) / mix(0.45, 1.0, detail);
+    float hx = noise((uv + vec2(epsilon, 0.0)) * DISTORTION_SCALE + flowDir1 * 2.0) * 0.08 * detail;
+    float hy = noise((uv + vec2(0.0, epsilon)) * DISTORTION_SCALE + flowDir1 * 2.0) * 0.08 * detail;
 
     vec3 normal = normalize(vec3(
         (h - hx) / epsilon * 2.0,
@@ -190,6 +193,8 @@ void main() {
         blurIntensity = texture(u_blurMapTexture, screenUV).r;
         blurIntensity *= u_textPresence;
     }
+
+    float detailFactor = clamp(u_distortionDetail, 0.25, 1.0);
 
     // Calculate position relative to panel with corrected coordinate mapping
     vec2 panelCenter = (u_panelPosition + 1.0) * 0.5; // Convert from [-1,1] to [0,1]
@@ -232,7 +237,7 @@ void main() {
 
     // MODULATE DISTORTION based on blur intensity
     // In text regions: reduce distortion for cleaner frosted effect
-    float effectiveDistortion = u_distortionStrength;
+    float effectiveDistortion = u_distortionStrength * mix(0.6, 1.0, detailFactor);
     if (u_blurMapEnabled && blurIntensity > 0.01) {
         // Simple distortion reduction in blur regions
         effectiveDistortion *= (1.0 - blurIntensity * u_blurDistortionBoost);
@@ -246,28 +251,29 @@ void main() {
         vec2 refractionOffset = refractionDir.xy * effectiveDistortion;
 
         // Enhanced flowing liquid distortion patterns
+        float liquidScale = mix(0.4, 1.0, detailFactor);
         vec2 liquidOffset = vec2(
             sin(panelUV.y * 12.0 + v_time * 2.5) * 0.04,
             cos(panelUV.x * 10.0 + v_time * 2.0) * 0.04
-        );
+        ) * liquidScale;
 
         // Multiple ripple layers for complexity
         float ripplePhase1 = length(panelUV - 0.5) * 15.0 - v_time * 4.0;
         float ripplePhase2 = length(panelUV - 0.3) * 20.0 - v_time * 3.5;
-        vec2 rippleOffset = normalize(panelUV - 0.5) * (sin(ripplePhase1) * 0.025 + sin(ripplePhase2) * 0.015);
+        vec2 rippleOffset = normalize(panelUV - 0.5) * (sin(ripplePhase1) * 0.025 + sin(ripplePhase2) * 0.015) * detailFactor;
 
         // Add noise-based distortion for more organic feel
         vec2 noisePos = panelUV * 8.0 + v_time * 0.8;
         vec2 noiseOffset = vec2(
             noise(noisePos) - 0.5,
             noise(noisePos + vec2(100.0)) - 0.5
-        ) * 0.03;
+        ) * (0.03 * mix(0.5, 1.0, detailFactor));
 
         // Combine all distortion effects with enhanced strength
         vec2 totalOffset = refractionOffset + liquidOffset + rippleOffset + noiseOffset;
 
         // Enhanced distortion balanced with opacity (use effectiveDistortion)
-        totalOffset *= effectiveDistortion * 2.5;
+        totalOffset *= effectiveDistortion * mix(1.2, 2.5, detailFactor);
 
         distortedUV += totalOffset;
     }
@@ -282,8 +288,8 @@ void main() {
     oceanColor *= GLASS_TINT;
 
     // Uniform chromatic aberration across entire panel
-    float chromaticAberration = u_distortionStrength * 0.006;
-    float chromaticFlow = sin(v_time * 1.0) * 0.001;
+    float chromaticAberration = u_distortionStrength * 0.006 * detailFactor;
+    float chromaticFlow = sin(v_time * 1.0) * 0.001 * detailFactor;
 
     vec3 chromaticColor = vec3(
         texture(u_oceanTexture, distortedUV + vec2(chromaticAberration + chromaticFlow, 0.0)).r,
@@ -306,6 +312,7 @@ void main() {
         min(panelUV.x, 1.0 - panelUV.x),
         min(panelUV.y, 1.0 - panelUV.y)
     ));
+    edgeGlow *= mix(0.6, 1.0, detailFactor);
 
     // Add pulsing edge effect
     float edgePulse = 0.5 + 0.5 * sin(v_time * 4.0);
@@ -317,27 +324,27 @@ void main() {
     // PERFORMANCE: Caustic light patterns only at high detail (LOD < 1.5)
     // These sin/cos patterns are expensive and barely visible at low pixel density
     vec3 causticLight = vec3(0.0);
-    if (lod < 1.5) {
+    if (lod < 1.5 && detailFactor > 0.4) {
         vec2 causticUV = panelUV * 3.0 + v_time * 0.1;
         float caustic1 = sin(causticUV.x * 12.0) * sin(causticUV.y * 8.0);
         float caustic2 = cos(causticUV.x * 8.0 + v_time * 2.0) * cos(causticUV.y * 10.0 + v_time * 1.5);
         float causticPattern = (caustic1 + caustic2) * 0.5;
-        causticPattern = max(0.0, causticPattern) * 0.08;
+        causticPattern = max(0.0, causticPattern) * (0.08 * detailFactor);
         causticLight = vec3(0.7, 0.9, 1.0) * causticPattern * fresnelReflection;
     }
 
     // Add surface imperfections and micro-scratches
     float scratchPattern = noise(panelUV * 50.0 + v_time * 0.05);
-    scratchPattern = smoothstep(0.4, 0.6, scratchPattern) * 0.02;
+    scratchPattern = smoothstep(0.4, 0.6, scratchPattern) * (0.02 * detailFactor);
     vec3 scratches = vec3(1.0, 1.0, 1.0) * scratchPattern;
 
     // Apple-style rim lighting
     float rimIntensity = pow(1.0 - abs(dot(normalize(vec3(0, 0, 1)), glassNormal)), 2.0);
-    vec3 rimLight = vec3(0.9, 0.95, 1.0) * rimIntensity * 0.1;
+    vec3 rimLight = vec3(0.9, 0.95, 1.0) * rimIntensity * 0.1 * mix(0.6, 1.0, detailFactor);
 
     // Depth-based color tinting (thicker glass appears more blue)
     float depth = length(panelUV - 0.5) * GLASS_THICKNESS;
-    vec3 depthTint = mix(vec3(1.0), vec3(0.85, 0.92, 1.0), depth * 2.0);
+    vec3 depthTint = mix(vec3(1.0), vec3(0.85, 0.92, 1.0), depth * 2.0 * detailFactor);
 
     // Combine all effects with proper layering
     vec3 finalColor = oceanColor * depthTint + reflection + edgeLight + causticLight + scratches + rimLight;
@@ -350,10 +357,10 @@ void main() {
     alpha += opacityFlow * 0.05;
 
     // Reduced edge opacity addition for cleaner look
-    alpha += edgeGlow * 0.15;
+    alpha += edgeGlow * 0.15 * mix(0.6, 1.0, detailFactor);
 
     // Reduced depth-based opacity
-    alpha += depth * 0.1;
+    alpha += depth * 0.1 * mix(0.6, 1.0, detailFactor);
 
     // Add a subtle glass tint to the background
     vec3 glassTint = vec3(0.9, 0.95, 1.0);
@@ -370,7 +377,7 @@ void main() {
 
         // Add subtle blue-white frost tint (KEEP SUBTLE at 0.10 for text coloring preservation)
         // Reduced from original 0.12 to minimize background luminance impact
-        float frostTint = blurIntensity * 0.10;
+        float frostTint = blurIntensity * 0.10 * mix(0.7, 1.0, detailFactor);
         vec3 frostColor = vec3(0.92, 0.96, 1.0);
         finalColor = mix(finalColor, frostColor, frostTint);
     }

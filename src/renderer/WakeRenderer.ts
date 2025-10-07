@@ -19,12 +19,11 @@ export class WakeRenderer {
   // Framebuffer for wake texture
   private wakeFramebuffer: WebGLFramebuffer | null = null;
   private wakeTexture: WebGLTexture | null = null;
-  private depthBuffer: WebGLRenderbuffer | null = null;
-
   // Resolution management
   private wakeWidth: number = 0;
   private wakeHeight: number = 0;
   private wakeResolutionScale: number = 0.5; // Default to 0.5x for performance
+  private wakeWaveComponents: number = 2;
 
   // Animation
   private enabled: boolean = true;
@@ -60,7 +59,8 @@ export class WakeRenderer {
         'u_vesselClasses',
         'u_vesselHullLengths',
         'u_vesselStates',
-        'u_wakesEnabled'
+        'u_wakesEnabled',
+        'u_wakeWaveComponents'
       ];
 
       const attributes = [
@@ -117,12 +117,6 @@ export class WakeRenderer {
       throw new Error('WakeRenderer: Failed to create wake texture');
     }
 
-    // Create depth renderbuffer
-    this.depthBuffer = gl.createRenderbuffer();
-    if (!this.depthBuffer) {
-      throw new Error('WakeRenderer: Failed to create depth buffer');
-    }
-
     console.log('WakeRenderer: Framebuffer initialized (using R16F format)');
   }
 
@@ -132,7 +126,7 @@ export class WakeRenderer {
   resizeFramebuffer(width: number, height: number): void {
     const gl = this.gl;
 
-    if (!this.wakeFramebuffer || !this.wakeTexture || !this.depthBuffer) {
+    if (!this.wakeFramebuffer || !this.wakeTexture) {
       return;
     }
 
@@ -160,11 +154,6 @@ export class WakeRenderer {
     // Attach texture to framebuffer
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.wakeTexture, 0);
 
-    // Setup depth buffer
-    gl.bindRenderbuffer(gl.RENDERBUFFER, this.depthBuffer);
-    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, this.wakeWidth, this.wakeHeight);
-    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, this.depthBuffer);
-
     // Check framebuffer completeness
     const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
     if (status !== gl.FRAMEBUFFER_COMPLETE) {
@@ -185,8 +174,6 @@ export class WakeRenderer {
     // Unbind
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.bindTexture(gl.TEXTURE_2D, null);
-    gl.bindRenderbuffer(gl.RENDERBUFFER, null);
-
     console.log(`WakeRenderer: Framebuffer resized to ${this.wakeWidth}×${this.wakeHeight} (${(this.wakeResolutionScale * 100).toFixed(0)}% scale)`);
   }
 
@@ -194,10 +181,13 @@ export class WakeRenderer {
    * Update quality settings
    */
   updateQualitySettings(settings: QualitySettings): void {
-    // Use wake resolution from quality settings
+    // Use wake resolution and wave components from quality settings
     this.wakeResolutionScale = settings.wakeResolution;
+    this.wakeWaveComponents = Math.max(1, Math.min(2, Math.round(settings.wakeWaveComponents)));
 
-    console.log(`WakeRenderer: Wake resolution set to ${(this.wakeResolutionScale * 100).toFixed(0)}%`);
+    if (import.meta.env.DEV) {
+      console.log(`WakeRenderer: Wake resolution ${(this.wakeResolutionScale * 100).toFixed(0)}%, wave components ${this.wakeWaveComponents}`);
+    }
   }
 
   /**
@@ -219,6 +209,10 @@ export class WakeRenderer {
       return;
     }
 
+    if (vesselData.count === 0) {
+      return;
+    }
+
     const gl = this.gl;
 
     // Save current viewport to restore after rendering
@@ -227,6 +221,8 @@ export class WakeRenderer {
     // Bind wake framebuffer
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.wakeFramebuffer);
     gl.viewport(0, 0, this.wakeWidth, this.wakeHeight);
+
+    gl.disable(gl.DEPTH_TEST);
 
     // Clear to zero (no wakes)
     gl.clearColor(0.0, 0.0, 0.0, 1.0);
@@ -250,6 +246,7 @@ export class WakeRenderer {
 
     // Set vessel data
     this.shaderManager.setUniform1i(program, 'u_vesselCount', vesselData.count);
+    this.shaderManager.setUniform1i(program, 'u_wakeWaveComponents', this.wakeWaveComponents);
 
     if (vesselData.count > 0) {
       this.shaderManager.setUniform3fv(program, 'u_vesselPositions', vesselData.positions);
@@ -263,6 +260,8 @@ export class WakeRenderer {
     // Render full-screen quad
     this.bufferManager.bind();
     gl.drawElements(gl.TRIANGLES, this.geometry.indexCount, gl.UNSIGNED_SHORT, 0);
+
+    gl.enable(gl.DEPTH_TEST);
 
     // Restore screen framebuffer and viewport
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -315,11 +314,6 @@ export class WakeRenderer {
     if (this.wakeTexture) {
       gl.deleteTexture(this.wakeTexture);
       this.wakeTexture = null;
-    }
-
-    if (this.depthBuffer) {
-      gl.deleteRenderbuffer(this.depthBuffer);
-      this.depthBuffer = null;
     }
 
     this.bufferManager.dispose();

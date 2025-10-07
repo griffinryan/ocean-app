@@ -517,6 +517,7 @@ export class OceanRenderer {
   private initializeWakeRenderer(): void {
     try {
       this.wakeRenderer = new WakeRenderer(this.gl, this.shaderManager);
+      this.wakeRenderer.updateQualitySettings(this.currentQuality);
       console.log('Wake renderer initialized successfully!');
     } catch (error) {
       console.error('Failed to initialize wake renderer:', error);
@@ -531,6 +532,7 @@ export class OceanRenderer {
     try {
       this.glassRenderer = new GlassRenderer(this.gl, this.shaderManager);
       this.glassRenderer.setupDefaultPanels();
+      this.glassRenderer.updateQualitySettings(this.currentQuality);
       console.log('Glass renderer initialized successfully!');
     } catch (error) {
       console.error('Failed to initialize glass renderer:', error);
@@ -545,6 +547,7 @@ export class OceanRenderer {
     try {
       this.textRenderer = new TextRenderer(this.gl, this.shaderManager);
       this.textRenderer.setupDefaultTextElements();
+      this.textRenderer.updateQualitySettings(this.currentQuality);
       console.log('Text renderer initialized successfully!');
     } catch (error) {
       console.error('Failed to initialize text renderer:', error);
@@ -804,13 +807,13 @@ export class OceanRenderer {
 
         // 3. Text captures glass overlay (MEDIUM priority - skip if tight on budget)
         const canAffordTextCapture = this.frameBudget.canAfford(2.0, WorkPriority.MEDIUM);
-        if (canAffordTextCapture) {
-          this.textRenderer.captureScene(() => {
-            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-            this.compositeTexture(this.sharedOceanTexture); // Composite instead of re-render
-            this.glassRenderer!.render();
-          });
-        }
+        const performedCapture = canAffordTextCapture
+          ? this.textRenderer.captureScene(() => {
+              gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+              this.compositeTexture(this.sharedOceanTexture); // Composite instead of re-render
+              this.glassRenderer!.render();
+            })
+          : false;
 
         // 4. Pass blur map from TextRenderer to GlassRenderer (OPTIONAL - skip if tight)
         if (!this.frameBudget.shouldSkipOptionalWork()) {
@@ -818,10 +821,15 @@ export class OceanRenderer {
           this.glassRenderer.setBlurMapTexture(blurMapTexture);
         }
 
-        // 5. Final render: Ocean (composited from shared buffer, NO re-render!) + Glass + Text (CRITICAL - always do)
+        // 5. Final render: Use capture when available to avoid duplicate glass render
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-        this.compositeTexture(this.sharedOceanTexture); // Composite instead of re-render
-        this.glassRenderer.render();
+        const capturedSceneTexture = this.textRenderer.getSceneTexture();
+        if (performedCapture && capturedSceneTexture) {
+          this.compositeTexture(capturedSceneTexture);
+        } else {
+          this.compositeTexture(this.sharedOceanTexture);
+          this.glassRenderer.render();
+        }
         this.textRenderer.render(wakeTexture, this.wakesEnabled);
       } else {
         // Ocean + Text pipeline (no glass)
@@ -831,16 +839,21 @@ export class OceanRenderer {
 
         // 2. Text captures ocean from shared buffer (MEDIUM priority - skip if tight)
         const canAffordTextCapture = this.frameBudget.canAfford(2.0, WorkPriority.MEDIUM);
-        if (canAffordTextCapture) {
-          this.textRenderer.captureScene(() => {
-            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-            this.compositeTexture(this.sharedOceanTexture); // Composite instead of re-render
-          });
-        }
+        const performedCapture = canAffordTextCapture
+          ? this.textRenderer.captureScene(() => {
+              gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+              this.compositeTexture(this.sharedOceanTexture); // Composite instead of re-render
+            })
+          : false;
 
         // 3. Final render: Ocean (composited from shared buffer, NO re-render!) + Text (CRITICAL - always do)
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-        this.compositeTexture(this.sharedOceanTexture); // Composite instead of re-render
+        const capturedSceneTexture = this.textRenderer.getSceneTexture();
+        if (performedCapture && capturedSceneTexture) {
+          this.compositeTexture(capturedSceneTexture);
+        } else {
+          this.compositeTexture(this.sharedOceanTexture); // Composite instead of re-render
+        }
         this.textRenderer.render(wakeTexture, this.wakesEnabled);
       }
     } else if (this.glassEnabled && this.glassRenderer) {
