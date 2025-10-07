@@ -101,6 +101,9 @@ export class TextRenderer {
   private blurRadius: number = 60.0; // pixels (tight wrap around text for frosted glass effect)
   private blurFalloffPower: number = 2.5; // >1.0 = exponential falloff for dramatic, sharp fade
 
+  // Intro visibility tracking for glass/text coordination
+  private introVisibility: number = 0.0;
+
   constructor(gl: WebGL2RenderingContext, _shaderManager: ShaderManager) {
     this.gl = gl;
     this.shaderManager = _shaderManager;
@@ -1193,6 +1196,7 @@ export class TextRenderer {
     // CRITICAL: Skip rendering entirely during CSS transitions
     // This prevents rendering stale texture data at wrong positions
     if (this.isTransitioningFlag) {
+      this.introVisibility = 0.0;
       return;
     }
 
@@ -1237,6 +1241,8 @@ export class TextRenderer {
       this.shaderManager.setUniform1f(program, 'u_textIntroProgress', introProgress);
       this.uniformCache.textIntroProgress = introProgress;
     }
+
+    this.introVisibility = this.isIntroActive ? introProgress : 1.0;
 
     // Set resolution (only if changed)
     const width = gl.canvas.width;
@@ -1337,16 +1343,29 @@ export class TextRenderer {
    * Set transitioning state - blocks text updates during CSS transitions
    */
   public setTransitioning(transitioning: boolean): void {
+    // Avoid redundant state flips that would retrigger intro animation
+    if (this.isTransitioningFlag === transitioning) {
+      if (transitioning) {
+        // Still cancel any in-flight batching if a new transition restarts mid-process
+        this.cancelAmortizedUpdate();
+        this.introVisibility = 0.0;
+      }
+      return;
+    }
+
     this.isTransitioningFlag = transitioning;
 
     // SAFETY: When transition starts, cancel any ongoing batching
     if (transitioning) {
       this.cancelAmortizedUpdate();
+      this.introVisibility = 0.0;
+      this.needsBlurMapUpdate = true;
     }
     // If transitioning just ended, use amortized update to avoid frame spike
     else {
       this.needsBlurMapUpdate = true;
       this.markSceneDirty();
+      this.introVisibility = 0.0;
 
       // PERFORMANCE: Start amortized text update instead of immediate update
       // This spreads Canvas2D work across multiple frames (4-5 frames)
@@ -1359,6 +1378,7 @@ export class TextRenderer {
           // Trigger text intro animation AFTER all Canvas2D work is done
           this.textIntroStartTime = performance.now();
           this.isIntroActive = true;
+          this.introVisibility = 0.0;
           console.log('TextRenderer: Text intro animation started (after batching complete)');
         });
       });
@@ -1812,6 +1832,16 @@ export class TextRenderer {
    */
   public getBlurMapTexture(): WebGLTexture | null {
     return this.blurMapTexture;
+  }
+
+  /**
+   * Get current intro visibility factor (0.0 during transitions → 1.0 when fully settled)
+   */
+  public getIntroVisibility(): number {
+    if (this.isTransitioningFlag) {
+      return 0.0;
+    }
+    return Math.max(0.0, Math.min(1.0, this.introVisibility));
   }
 
   /**

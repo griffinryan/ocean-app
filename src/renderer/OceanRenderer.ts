@@ -747,6 +747,7 @@ export class OceanRenderer {
 
     // Check if text is transitioning (blocks expensive multi-pass rendering)
     const isTransitioning = this.textRenderer?.isTransitioning() || false;
+    const textPresence = this.textRenderer ? this.textRenderer.getIntroVisibility() : 0.0;
 
     // Determine if we need upscaling
     const needsUpscale = this.currentQuality.finalPassResolution < 1.0 && this.upscaleProgram;
@@ -763,20 +764,23 @@ export class OceanRenderer {
     // PERFORMANCE OPTIMIZATION: Lightweight rendering during text transitions
     // Reduces 3 ocean draws to 1, skips glass/text captures
     if (isTransitioning) {
-      // Simple single-pass rendering during transition
-      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-      this.drawOcean(elapsedTime);
+      // During CSS transitions we still want glass distortion active for visual continuity,
+      // but we keep text disabled until positions settle.
+      if (this.glassEnabled && this.glassRenderer) {
+        // Render ocean once to shared buffer and composite with glass
+        this.captureOceanToSharedBuffer(elapsedTime);
+        this.glassRenderer.setOceanTexture(this.sharedOceanTexture);
+        this.glassRenderer.setTextPresence(textPresence);
 
-      // CRITICAL FIX: Skip glass rendering entirely during CSS transitions
-      // During CSS transform animations (e.g., bio panel slide), getBoundingClientRect()
-      // returns the FINAL position, not the mid-animation position. This causes glass
-      // to render ahead of the HTML panel, creating a visual gap (black artifact).
-      // Glass will resume rendering when transition completes with correct positions.
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        this.compositeTexture(this.sharedOceanTexture);
+        this.glassRenderer.render();
+      } else {
+        // Fall back to simple ocean render (no glass configured)
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        this.drawOcean(elapsedTime);
+      }
 
-      // Skip text rendering entirely (already blocked by TextRenderer)
-      // No scene captures, no blur map, no adaptive text, no glass
-
-      // Apply upscaling if needed
       if (needsUpscale) {
         this.applyUpscaling();
       }
@@ -796,6 +800,7 @@ export class OceanRenderer {
 
         // 2. Glass uses shared ocean texture (no capture needed)
         this.glassRenderer.setOceanTexture(this.sharedOceanTexture);
+        this.glassRenderer.setTextPresence(textPresence);
 
         // 3. Text captures glass overlay (MEDIUM priority - skip if tight on budget)
         const canAffordTextCapture = this.frameBudget.canAfford(2.0, WorkPriority.MEDIUM);
@@ -846,6 +851,7 @@ export class OceanRenderer {
 
       // 2. Glass uses shared ocean texture (no capture needed)
       this.glassRenderer.setOceanTexture(this.sharedOceanTexture);
+      this.glassRenderer.setTextPresence(textPresence);
 
       // 3. Final render: Ocean (composited from shared buffer, CONSISTENT!) + Glass (HIGH priority - always do unless desperate)
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);

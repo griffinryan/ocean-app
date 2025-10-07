@@ -1395,6 +1395,83 @@ body {
 
 /* ===== PROFILE PICTURE ===== */
 
+/* ===== DEBUG OVERLAY ===== */
+.debug-overlay {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 260px;
+  padding: 18px 20px;
+  z-index: 300;
+  font-family: 'SF Pro Text', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-size: 0.8rem;
+  letter-spacing: 0.01em;
+  line-height: 1.55;
+  background: rgba(10, 18, 28, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.35);
+  backdrop-filter: none;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(8px);
+  transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s ease;
+}
+
+.debug-overlay.is-visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.debug-overlay-title {
+  font-weight: 600;
+  margin-bottom: 10px;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.75rem;
+}
+
+.debug-overlay-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  gap: 8px;
+}
+
+.debug-overlay-row:last-of-type {
+  margin-bottom: 0;
+}
+
+.debug-label {
+  color: rgba(255, 255, 255, 0.55);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.7rem;
+}
+
+.debug-value {
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+.debug-overlay-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.12);
+  margin: 14px 0;
+}
+
+.debug-overlay-footnote {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+
 .profile-picture-container {
   position: absolute;
   top: 100px; /* Below navbar */

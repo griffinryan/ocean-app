@@ -47,6 +47,8 @@ export class GlassRenderer {
   private blurOpacityBoost: number = 0.45; // How much to increase opacity in text regions (0.0-0.5)
   private blurDistortionBoost: number = 0.85; // How much to reduce distortion in text regions (0.0-1.0)
 
+  private textPresence: number = 1.0;
+
   // PERFORMANCE: Position caching to avoid redundant getBoundingClientRect calls
   private positionsDirty: boolean = true;
   private resizeObserver: ResizeObserver | null = null;
@@ -56,10 +58,8 @@ export class GlassRenderer {
   private lastOceanCaptureTime: number = 0;
   private oceanCaptureThrottleMs: number = 32; // Max 30fps ocean captures (30Hz = 33ms, using 32ms)
 
-  // CRITICAL FIX: Freeze position updates during CSS transitions
-  // getBoundingClientRect() returns final position during transforms, not mid-animation position
-  // So we freeze positions at transition start and only update when transition completes
-  private activeTransitions: boolean = false;
+  // Transition tracking keeps panel UVs in sync with CSS transforms during panel slides and intro animations
+  private transitionTracking: boolean = false;
 
   // Scroll tracking mode - continuous updates during scroll
   private isScrolling: boolean = false;
@@ -71,7 +71,8 @@ export class GlassRenderer {
     aspectRatio: -1,
     blurMapEnabled: -1,
     blurOpacityBoost: -1,
-    blurDistortionBoost: -1
+    blurDistortionBoost: -1,
+    textPresence: -1
   };
 
   constructor(gl: WebGL2RenderingContext, shaderManager: ShaderManager) {
@@ -118,7 +119,8 @@ export class GlassRenderer {
         'u_blurMapTexture',
         'u_blurMapEnabled',
         'u_blurOpacityBoost',
-        'u_blurDistortionBoost'
+        'u_blurDistortionBoost',
+        'u_textPresence'
       ];
 
       const attributes = [
@@ -325,15 +327,11 @@ export class GlassRenderer {
     }
 
     // PERFORMANCE: Only update panel positions when marked dirty (resize, panel changes)
-    // This avoids expensive getBoundingClientRect calls every frame
-    // CRITICAL: Do NOT update positions during CSS transitions (activeTransitions = true)
-    // because getBoundingClientRect() returns final position, not mid-animation position
-    // SCROLL MODE: Always update positions during scroll for smooth tracking
-    if ((this.positionsDirty || this.isScrolling) && !this.activeTransitions) {
+    // Enables continuous tracking during scroll and orchestrated transitions
+    const shouldUpdatePositions = this.positionsDirty || this.isScrolling || this.transitionTracking;
+    if (shouldUpdatePositions) {
       this.updatePanelPositions();
-      if (!this.isScrolling) {
-        this.positionsDirty = false; // Keep dirty during scroll for continuous updates
-      }
+      this.positionsDirty = false;
     }
 
     // Use glass shader program
@@ -361,6 +359,11 @@ export class GlassRenderer {
       const aspectRatio = width / height;
       this.shaderManager.setUniform1f(program, 'u_aspectRatio', aspectRatio);
       this.uniformCache.aspectRatio = aspectRatio;
+    }
+
+    if (this.textPresence !== this.uniformCache.textPresence) {
+      this.shaderManager.setUniform1f(program, 'u_textPresence', this.textPresence);
+      this.uniformCache.textPresence = this.textPresence;
     }
 
     // Bind ocean texture
@@ -610,32 +613,29 @@ export class GlassRenderer {
   }
 
   /**
-   * Start transition mode - FREEZE position updates during CSS transforms
-   * CRITICAL: Called when CSS transitions start (transform animations)
-   * We freeze positions because getBoundingClientRect() returns final position during transforms,
-   * not the mid-animation position, which would cause glass to jump ahead of HTML panels
+   * Start transition mode - keep UVs in sync with CSS transforms during panel slides and intro animations
+   * CRITICAL: Called when CSS transitions or keyframe animations start
    */
   public startTransitionMode(): void {
-    if (this.activeTransitions) return; // Already active
+    if (this.transitionTracking) return; // Already tracking
 
-    this.activeTransitions = true;
-    // Do NOT update positions during transition - keep last known positions frozen
-    // Position updates will resume when endTransitionMode() is called
+    this.transitionTracking = true;
+    this.positionsDirty = true;
 
-    console.debug('GlassRenderer: Transition mode started - position updates FROZEN');
+    console.debug('GlassRenderer: Transition mode started - continuous position updates enabled');
   }
 
   /**
-   * End transition mode - UNFREEZE and update positions once
-   * CRITICAL: Called when all CSS transitions complete
+   * End transition mode - return to on-demand updates after transitions settle
+   * CRITICAL: Called when all CSS transitions/animations complete
    */
   public endTransitionMode(): void {
-    this.activeTransitions = false;
+    if (!this.transitionTracking) return;
 
-    // Unfreeze positions and trigger ONE final update to capture final panel positions
+    this.transitionTracking = false;
     this.positionsDirty = true;
 
-    console.debug('GlassRenderer: Transition mode ended - position updates UNFROZEN');
+    console.debug('GlassRenderer: Transition mode ended - returning to on-demand updates');
   }
 
   /**
@@ -787,6 +787,18 @@ export class GlassRenderer {
   public setBlurMapTexture(texture: WebGLTexture | null): void {
     this.blurMapTexture = texture;
     this.blurMapEnabled = texture !== null;
+  }
+
+  /**
+   * Set the current text presence factor (0 = hidden, 1 = fully visible)
+   */
+  public setTextPresence(presence: number): void {
+    const clamped = Math.max(0, Math.min(1, presence));
+    if (this.textPresence !== clamped) {
+      this.textPresence = clamped;
+      // Force uniform update next render
+      this.uniformCache.textPresence = -1;
+    }
   }
 
   /**
