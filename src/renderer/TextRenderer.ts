@@ -540,6 +540,13 @@ export class TextRenderer {
   }
 
   /**
+   * Check if scene texture is ready to use
+   */
+  public isSceneTextureReady(): boolean {
+    return !!this.sceneTexture && !this.sceneTextureDirty;
+  }
+
+  /**
    * Mark scene texture as dirty to force recapture on next render
    */
   public markSceneDirty(): void {
