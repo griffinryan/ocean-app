@@ -186,53 +186,32 @@ void main() {
     // Returns height values from vessel wakes + ocean waves
     float wakeHeight = sampleWakeTexture(oceanPos);
 
-    // ===== PHYSICS-BASED OCEAN WAVE DISTORTION =====
-    // Calculate actual ocean wave heights at text position using same physics as ocean.frag
-    // This creates text motion that perfectly matches the underlying ocean waves
+    // ===== CHARACTER-LEVEL WIGGLE WITH WAKE ENERGY =====
+    // Living system: Wake = energy pulse that triggers character wiggle, then decays back to anchor
 
-    // Use wake intensity to modulate wave amplitude (vessels affect text motion)
-    // Wake range: [-1, 1], map to amplitude multiplier [1.0, 1.5]
-    // Subtle boost for tight, anchored oceanic feel
-    float wakeAmplitudeBoost = 1.0 + (wakeHeight * 0.5);
-    wakeAmplitudeBoost = clamp(wakeAmplitudeBoost, 1.0, 1.5);
+    // LAYER 1: High-frequency character-level noise (per-pixel variation)
+    // This creates individual character wiggle, not large ocean waves
+    float charNoiseX = noise(screenUV * 100.0 + v_time * 0.5);
+    float charNoiseY = noise(screenUV * 100.0 + vec2(50.0, 50.0) + v_time * 0.5);
 
-    // Calculate ocean wave displacement using physics-based sine waves
-    // Using fastSin for 2× performance improvement with <0.002 error
-    // Reduced wave count (6 vs ocean's 8) for text performance
-    float waveHeight1 = sineWaveFast(oceanPos, vec2(1.0, 0.0), 8.0, 0.4, 1.0, v_time);
-    float waveHeight2 = sineWaveFast(oceanPos, vec2(0.7, 0.7), 6.0, 0.3, 1.2, v_time);
-    float waveHeight3 = sineWaveFast(oceanPos, vec2(0.0, 1.0), 10.0, 0.35, 0.8, v_time);
-    float waveHeight4 = sineWaveFast(oceanPos, vec2(-0.6, 0.8), 4.0, 0.2, 1.5, v_time);
+    // Base character wiggle (0.4% amplitude) - always present, creates "living text"
+    vec2 charWiggle = vec2(charNoiseX - 0.5, charNoiseY - 0.5) * 0.004;
 
-    // Secondary detail waves for subtle variation
-    float waveHeight5 = sineWaveFast(oceanPos, vec2(0.9, 0.4), 3.0, 0.15, 2.0, v_time);
-    float waveHeight6 = sineWaveFast(oceanPos, vec2(0.2, -0.9), 2.5, 0.12, 2.2, v_time);
+    // LAYER 2: Wake-triggered impulse (energy amplifies character wiggle)
+    // When vessel passes, wake energy amplifies the wiggle, then naturally decays
+    float wakeEnergy = abs(wakeHeight); // Energy in the system [0, 1]
+    vec2 wakeImpulse = charWiggle * wakeEnergy * 4.0; // Amplify character wiggle by wake energy
 
-    // Combine all wave heights
-    float totalWaveHeight = waveHeight1 + waveHeight2 + waveHeight3 +
-                           waveHeight4 + waveHeight5 + waveHeight6;
-
-    // Apply vessel wake amplitude modulation
-    totalWaveHeight *= wakeAmplitudeBoost;
-
-    // Convert wave height to 2D distortion vector
-    // Calculate wave gradient (approximate surface slope) for displacement direction
-    vec2 waveGradient = vec2(
-        (waveHeight1 * 1.0 + waveHeight2 * 0.7 + waveHeight4 * -0.6) / 3.0,
-        (waveHeight2 * 0.7 + waveHeight3 * 1.0 + waveHeight4 * 0.8) / 3.0
-    );
-
-    // Scale distortion to screen space (0.015 = 1.5% max displacement)
-    // Tight, readable wiggle that feels anchored to ocean surface
-    vec2 waveDistortion = waveGradient * 0.015;
-
-    // Add gentle ambient baseline motion even when no wakes present (0.3%)
-    // Ensures text always has slight oceanic movement
-    vec2 ambientMotion = vec2(
+    // LAYER 3: Baseline ocean ambient sway (0.3%)
+    // Very low-frequency whole-text drift - feels like floating on water
+    vec2 oceanSway = vec2(
         sin(oceanPos.y * 0.3 + v_time * 0.8) * 0.003,
         cos(oceanPos.x * 0.3 + v_time * 0.6) * 0.003
     );
-    waveDistortion += ambientMotion;
+
+    // Combine layers: Character wiggle + Wake impulse + Ocean sway
+    // Wake amplifies wiggle when present, naturally returns to baseline as wake dissipates
+    vec2 continuousMotion = charWiggle + wakeImpulse + oceanSway;
 
     // ===== TEXT INTRO ANIMATION =====
     // Separate additive wiggly motion for dramatic entrance effect
@@ -257,10 +236,10 @@ void main() {
         wave2 + wave3 + noiseValue
     ) * introStrength; // Fade out as intro progresses
 
-    // ADDITIVE SYSTEM: Layer 1 (ocean physics 1.5%) + Layer 2 (vessel wake 1.5×) + Layer 3 (intro 30%)
-    // Base: 1.5% tight oceanic wiggle, Wake boost: up to 2.25%, Intro: adds 30% dramatic entrance
-    // Total motion: 1.5-2.25% continuous (readable), 31.5-32.25% during intro
-    vec2 totalDistortion = waveDistortion + introDistortion;
+    // UNIFIED LIVING SYSTEM: Character wiggle + Wake energy + Ocean sway + Intro
+    // Character: 0.4% baseline wiggle, Wake: amplifies 4× when present, Ocean: 0.3% ambient, Intro: 30% entrance
+    // Motion "returns to anchor" as wake energy dissipates - not continuous oscillation
+    vec2 totalDistortion = continuousMotion + introDistortion;
     vec2 distortedUV = screenUV + totalDistortion;
 
     // ===== UNIFIED ADAPTIVE COLORING =====
@@ -287,35 +266,9 @@ void main() {
         // Use clean quantized color as base
         finalColor = quantizedColor;
 
-        // ===== WAKE-REACTIVE EFFECTS =====
-        // Add subtle brightness boost and shimmer when vessels pass
-        if (u_wakesEnabled) {
-            // Wake intensity (0.0 = no wake, positive = wake present)
-            float wakeIntensity = abs(wakeHeight) * 2.0; // Amplify for visibility
-            wakeIntensity = clamp(wakeIntensity, 0.0, 1.0);
-
-            // Pulsing shimmer based on wake intensity
-            float shimmerPhase = v_time * 4.0 + oceanPos.x * 0.5 + oceanPos.y * 0.3;
-            float shimmer = sin(shimmerPhase) * 0.5 + 0.5; // [0, 1]
-            float wakeShimmer = wakeIntensity * shimmer * 0.12; // Gentle 12% max boost
-
-            // Brightness boost in wake regions
-            float wakeBrightness = wakeIntensity * 0.08; // 8% brightness boost
-
-            // Apply wake effects to text color
-            finalColor += vec3(wakeBrightness + wakeShimmer);
-
-            // Add subtle blue-white tint in high-intensity wake regions
-            // Mimics light refracting through disturbed water
-            if (wakeIntensity > 0.3) {
-                vec3 wakeTint = vec3(0.85, 0.92, 1.0); // Cool blue-white
-                float tintStrength = (wakeIntensity - 0.3) * 0.15; // Fade in above threshold
-                finalColor = mix(finalColor, wakeTint, tintStrength);
-            }
-
-            // Ensure color stays in valid range
-            finalColor = clamp(finalColor, vec3(0.0), vec3(1.0));
-        }
+        // PURE ADAPTIVE COLORING - No wake color effects
+        // Wake affects MOTION only, color stays pure black/white for readability
+        // All wake energy goes into character wiggle, not color modifications
 
         // Gentle anti-aliasing for text edges
         finalAlpha = smoothstep(0.1, 0.5, textAlpha);
