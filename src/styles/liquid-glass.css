@@ -1132,6 +1132,72 @@ body {
   to { opacity: 0; }
 }
 
+/* ===== SLIDE TRANSITIONS ===== */
+
+/* Slide exit to left */
+.slide-exit-left {
+  animation: slideExitLeft 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes slideExitLeft {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+}
+
+/* Slide enter from right */
+.slide-enter-right {
+  animation: slideEnterRight 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes slideEnterRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Slide enter from left (for reverse navigation) */
+.slide-enter-left {
+  animation: slideEnterLeft 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes slideEnterLeft {
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Slide exit to right (for reverse navigation) */
+.slide-exit-right {
+  animation: slideExitRight 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes slideExitRight {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
 /* ===== RESPONSIVE DESIGN ===== */
 
 @media (max-width: 768px) {

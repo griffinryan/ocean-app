@@ -6,6 +6,7 @@ import { OceanRenderer } from './renderer/OceanRenderer';
 import { PanelManager } from './components/Panel';
 import { Router } from './components/Router';
 import { NavigationManager } from './components/Navigation';
+import { LoadingSequence } from './components/LoadingSequence';
 
 // Import shaders as strings
 import oceanVertexShader from './shaders/ocean.vert';
@@ -26,6 +27,7 @@ class OceanApp {
   public panelManager: PanelManager | null = null;
   public router: Router | null = null;
   public navigationManager: NavigationManager | null = null;
+  private loadingSequence: LoadingSequence | null = null;
 
   async init(): Promise<void> {
     try {
@@ -35,10 +37,18 @@ class OceanApp {
         throw new Error('Canvas element not found');
       }
 
-      console.log('Initializing Ocean Portfolio...');
+      console.log('Initializing Ocean Portfolio with ocean-first loading sequence...');
 
       // Initialize UI components first
       this.initializeUI();
+
+      // Create loading sequence
+      this.loadingSequence = new LoadingSequence({
+        showLoadingIndicator: false, // Disable indicator for cleaner UX
+        glassFadeInDuration: 300,
+        textFadeInDuration: 300,
+        textStaggerDelay: 50
+      });
 
       // Create renderer
       this.renderer = new OceanRenderer({
@@ -47,7 +57,14 @@ class OceanApp {
         alpha: false
       });
 
+      // Set references for loading sequence
+      this.loadingSequence.setOceanRenderer(this.renderer);
+      if (this.panelManager) {
+        this.loadingSequence.setPanelManager(this.panelManager);
+      }
+
       // Initialize shaders (ocean, wake, glass, text, blur map, and upscaling)
+      // Phase 2: Background initialization (shaders)
       await this.renderer.initializeShaders(
         oceanVertexShader,
         oceanFragmentShader,
@@ -68,22 +85,16 @@ class OceanApp {
       // Prevents visual "jump" when switching from simple→complex pipeline
       this.connectUIToRenderer();
 
-      // CRITICAL: Set first-frame callback for smooth CSS→WebGL transition
-      // After first frame renders, we remove CSS backdrop-filter and let WebGL take over
-      this.renderer.setOnFirstFrameCallback(() => {
-        if (this.panelManager) {
-          this.panelManager.enableWebGLReady();
-          console.log('OceanApp: CSS→WebGL transition complete');
-        }
-      });
-
-      // Start rendering LAST - ensures single consistent pipeline
+      // Start rendering - this enables Phase 1 (WebGL ocean)
       this.renderer.start();
 
       // CRITICAL: Wait for landing panel animation before enabling text rendering
       // Landing panel has `animation: fadeInUp 1.2s` that moves elements
       // Text positions must NOT be captured during this animation
       this.waitForInitialAnimation();
+
+      // Start loading sequence (ocean-first progressive enhancement)
+      await this.loadingSequence.start();
 
       console.log('Ocean Portfolio initialized successfully!');
 

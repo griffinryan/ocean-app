@@ -61,6 +61,9 @@ export class GlassRenderer {
   // So we freeze positions at transition start and only update when transition completes
   private activeTransitions: boolean = false;
 
+  // Scroll tracking mode - continuous updates during scroll
+  private isScrolling: boolean = false;
+
   // PERFORMANCE: Uniform caching to avoid redundant WebGL calls
   private uniformCache = {
     time: -1,
@@ -325,9 +328,12 @@ export class GlassRenderer {
     // This avoids expensive getBoundingClientRect calls every frame
     // CRITICAL: Do NOT update positions during CSS transitions (activeTransitions = true)
     // because getBoundingClientRect() returns final position, not mid-animation position
-    if (this.positionsDirty && !this.activeTransitions) {
+    // SCROLL MODE: Always update positions during scroll for smooth tracking
+    if ((this.positionsDirty || this.isScrolling) && !this.activeTransitions) {
       this.updatePanelPositions();
-      this.positionsDirty = false;
+      if (!this.isScrolling) {
+        this.positionsDirty = false; // Keep dirty during scroll for continuous updates
+      }
     }
 
     // Use glass shader program
@@ -630,6 +636,37 @@ export class GlassRenderer {
     this.positionsDirty = true;
 
     console.debug('GlassRenderer: Transition mode ended - position updates UNFROZEN');
+  }
+
+  /**
+   * Start scroll mode - enable continuous position updates
+   * Called when user starts scrolling portfolio/resume containers
+   */
+  public startScrollMode(): void {
+    if (this.isScrolling) return; // Already active
+
+    this.isScrolling = true;
+    console.debug('GlassRenderer: Scroll mode started - continuous position updates enabled');
+  }
+
+  /**
+   * End scroll mode - disable continuous updates
+   * Called when scroll stops (after cooldown)
+   */
+  public endScrollMode(): void {
+    this.isScrolling = false;
+
+    // One final update to ensure positions are correct
+    this.positionsDirty = true;
+
+    console.debug('GlassRenderer: Scroll mode ended - continuous position updates disabled');
+  }
+
+  /**
+   * Check if currently in scroll mode
+   */
+  public isInScrollMode(): boolean {
+    return this.isScrolling;
   }
 
 
