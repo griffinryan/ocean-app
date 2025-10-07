@@ -1132,6 +1132,72 @@ body {
   to { opacity: 0; }
 }
 
+/* ===== SLIDE TRANSITIONS ===== */
+
+/* Slide exit to left */
+.slide-exit-left {
+  animation: slideExitLeft 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes slideExitLeft {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+}
+
+/* Slide enter from right */
+.slide-enter-right {
+  animation: slideEnterRight 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes slideEnterRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Slide enter from left (for reverse navigation) */
+.slide-enter-left {
+  animation: slideEnterLeft 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes slideEnterLeft {
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Slide exit to right (for reverse navigation) */
+.slide-exit-right {
+  animation: slideExitRight 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes slideExitRight {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
 /* ===== RESPONSIVE DESIGN ===== */
 
 @media (max-width: 768px) {
@@ -1274,10 +1340,6 @@ body {
 /* These styles will be enhanced with WebGL distortion effects */
 
 .glass-panel.webgl-enhanced {
-  /* WebGL renderer will add dynamic distortion */
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-
   /* Ensure proper layering with WebGL canvas */
   z-index: 150;
 
@@ -1292,6 +1354,14 @@ body {
   box-shadow:
     var(--glass-shadow),
     inset 0 1px 1px rgba(255, 255, 255, 0.1);
+}
+
+/* Applied after first WebGL frame renders successfully */
+/* This ensures smooth transition from CSS to WebGL effects */
+.glass-panel.webgl-ready {
+  /* Remove CSS backdrop-filter once WebGL is rendering */
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 /* ===== ADAPTIVE TEXT COLOR SYSTEM (WebGL Per-Pixel Rendering) ===== */

@@ -26,6 +26,7 @@ export class GlassRenderer {
   // Framebuffer for ocean texture
   private oceanFramebuffer: WebGLFramebuffer | null = null;
   private oceanTexture: WebGLTexture | null = null;
+  private oceanTextureOwned: boolean = true; // Track if we own the texture for cleanup
   private depthBuffer: WebGLRenderbuffer | null = null;
 
   // Matrix uniforms
@@ -59,6 +60,9 @@ export class GlassRenderer {
   // getBoundingClientRect() returns final position during transforms, not mid-animation position
   // So we freeze positions at transition start and only update when transition completes
   private activeTransitions: boolean = false;
+
+  // Scroll tracking mode - continuous updates during scroll
+  private isScrolling: boolean = false;
 
   // PERFORMANCE: Uniform caching to avoid redundant WebGL calls
   private uniformCache = {
@@ -324,9 +328,12 @@ export class GlassRenderer {
     // This avoids expensive getBoundingClientRect calls every frame
     // CRITICAL: Do NOT update positions during CSS transitions (activeTransitions = true)
     // because getBoundingClientRect() returns final position, not mid-animation position
-    if (this.positionsDirty && !this.activeTransitions) {
+    // SCROLL MODE: Always update positions during scroll for smooth tracking
+    if ((this.positionsDirty || this.isScrolling) && !this.activeTransitions) {
       this.updatePanelPositions();
-      this.positionsDirty = false;
+      if (!this.isScrolling) {
+        this.positionsDirty = false; // Keep dirty during scroll for continuous updates
+      }
     }
 
     // Use glass shader program
@@ -631,6 +638,37 @@ export class GlassRenderer {
     console.debug('GlassRenderer: Transition mode ended - position updates UNFROZEN');
   }
 
+  /**
+   * Start scroll mode - enable continuous position updates
+   * Called when user starts scrolling portfolio/resume containers
+   */
+  public startScrollMode(): void {
+    if (this.isScrolling) return; // Already active
+
+    this.isScrolling = true;
+    console.debug('GlassRenderer: Scroll mode started - continuous position updates enabled');
+  }
+
+  /**
+   * End scroll mode - disable continuous updates
+   * Called when scroll stops (after cooldown)
+   */
+  public endScrollMode(): void {
+    this.isScrolling = false;
+
+    // One final update to ensure positions are correct
+    this.positionsDirty = true;
+
+    console.debug('GlassRenderer: Scroll mode ended - continuous position updates disabled');
+  }
+
+  /**
+   * Check if currently in scroll mode
+   */
+  public isInScrollMode(): boolean {
+    return this.isScrolling;
+  }
+
 
   /**
    * Update panel positions based on HTML element positions
@@ -732,7 +770,14 @@ export class GlassRenderer {
    */
   public setOceanTexture(texture: WebGLTexture | null): void {
     if (texture) {
+      // Delete old texture if we own it (not shared)
+      if (this.oceanTextureOwned && this.oceanTexture) {
+        this.gl.deleteTexture(this.oceanTexture);
+      }
+
+      // Set new texture (shared, not owned by us)
       this.oceanTexture = texture;
+      this.oceanTextureOwned = false;
     }
   }
 
@@ -800,10 +845,12 @@ export class GlassRenderer {
       this.oceanFramebuffer = null;
     }
 
-    if (this.oceanTexture) {
+    // Only delete texture if we own it (not shared from OceanRenderer)
+    if (this.oceanTexture && this.oceanTextureOwned) {
       gl.deleteTexture(this.oceanTexture);
-      this.oceanTexture = null;
     }
+    this.oceanTexture = null;
+    this.oceanTextureOwned = true;
 
     if (this.depthBuffer) {
       gl.deleteRenderbuffer(this.depthBuffer);

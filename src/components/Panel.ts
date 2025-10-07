@@ -5,6 +5,7 @@
 
 import type { TextRenderer } from '../renderer/TextRenderer';
 import type { GlassRenderer } from '../renderer/GlassRenderer';
+import { ScrollTracker } from '../utils/ScrollTracker';
 
 export type PanelState = 'landing' | 'app' | 'portfolio' | 'resume' | 'paper' | 'not-found';
 
@@ -32,6 +33,9 @@ export class PanelManager {
   // Optional GlassRenderer reference for updating glass panel positions
   private glassRenderer: GlassRenderer | null = null;
 
+  // Scroll tracker for continuous glass position updates during scroll
+  private scrollTracker: ScrollTracker;
+
   // Default transition settings
   private defaultTransition: PanelTransition = {
     duration: 600,
@@ -43,6 +47,12 @@ export class PanelManager {
   private activeAnimations: Set<HTMLElement> = new Set();
   private pendingTimeouts: Set<number> = new Set();
   private transitionTimeout: number | null = null;
+
+  // Event handler references for proper cleanup
+  private paperBtnClickHandler: ((e: Event) => void) | null = null;
+  private appBtnClickHandler: ((e: Event) => void) | null = null;
+  private hashChangeHandler: (() => void) | null = null;
+  private keyDownHandler: ((e: KeyboardEvent) => void) | null = null;
 
   constructor() {
     this.landingPanel = this.getElement('landing-panel');
@@ -75,6 +85,9 @@ export class PanelManager {
     this.appBtn = this.getElement('app-btn');
     this.navbar = this.getElement('navbar');
 
+    // Initialize scroll tracker
+    this.scrollTracker = new ScrollTracker();
+
     this.setupEventListeners();
     this.setupTransitionListeners();
     this.setupAnimationListeners();
@@ -91,26 +104,30 @@ export class PanelManager {
   }
 
   private setupEventListeners(): void {
-    // Button click handlers
-    this.paperBtn.addEventListener('click', (e) => {
+    // Button click handlers - store references for cleanup
+    this.paperBtnClickHandler = (e) => {
       e.preventDefault();
       this.transitionTo('paper');
-    });
+    };
+    this.paperBtn.addEventListener('click', this.paperBtnClickHandler);
 
-    this.appBtn.addEventListener('click', (e) => {
+    this.appBtnClickHandler = (e) => {
       e.preventDefault();
       this.transitionTo('app');
-    });
+    };
+    this.appBtn.addEventListener('click', this.appBtnClickHandler);
 
-    // Hash change for browser navigation
-    window.addEventListener('hashchange', () => {
+    // Hash change for browser navigation - store reference for cleanup
+    this.hashChangeHandler = () => {
       this.handleHashChange();
-    });
+    };
+    window.addEventListener('hashchange', this.hashChangeHandler);
 
-    // Keyboard shortcuts
-    document.addEventListener('keydown', (e) => {
+    // Keyboard shortcuts - store reference for cleanup
+    this.keyDownHandler = (e) => {
       this.handleKeyPress(e);
-    });
+    };
+    document.addEventListener('keydown', this.keyDownHandler);
   }
 
   /**
@@ -161,19 +178,17 @@ export class PanelManager {
 
   /**
    * Setup scroll event tracking for text/glass renderer updates
+   * Uses ScrollTracker for RAF-based continuous position updates
    */
   private setupScrollTracking(): void {
     const containers = [this.portfolioContainer, this.resumeContainer];
 
+    // Track scroll containers with ScrollTracker
     containers.forEach(container => {
-      container.addEventListener('scroll', () => {
-        if (this.textRenderer) {
-          // Force text renderer to update positions on scroll
-          this.textRenderer.forceTextureUpdate();
-          this.textRenderer.markSceneDirty();
-        }
-      }, { passive: true });
+      this.scrollTracker.trackContainer(container);
     });
+
+    console.log('PanelManager: Scroll tracking initialized for portfolio and resume containers');
   }
 
   /**
@@ -243,11 +258,14 @@ export class PanelManager {
     // Frame 3: We can safely capture positions
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        // CRITICAL FIX: Stop continuous glass position updates
+        // CRITICAL: Stop continuous glass position updates
         if (this.glassRenderer) {
-          this.glassRenderer.endTransitionMode();
-          console.debug('PanelManager: Ended glass transition mode');
+          this.glassRenderer.endScrollMode(); // End scroll mode used for slide tracking
+          console.debug('PanelManager: Ended glass scroll mode for slide transition');
         }
+
+        // Notify scroll tracker that transition ended (resumes independent scroll tracking)
+        this.scrollTracker.notifyTransitionEnd();
 
         if (this.textRenderer) {
           console.debug('PanelManager: Render settled, enabling text');
@@ -324,12 +342,16 @@ export class PanelManager {
     const oldState = this.currentState;
     this.currentState = newState;
 
-    // CRITICAL FIX: Start continuous glass position updates during CSS transitions
-    // ResizeObserver doesn't fire on transform changes, so we use RAF loop
+    // CRITICAL: Enable continuous glass tracking during slide transitions
+    // For slide transitions, we want continuous position updates (like scroll mode)
+    // NOT freeze mode, because we need glass to follow the sliding panels
     if (this.glassRenderer) {
-      this.glassRenderer.startTransitionMode();
-      console.debug('PanelManager: Started glass transition mode');
+      this.glassRenderer.startScrollMode(); // Use scroll mode for continuous tracking
+      console.debug('PanelManager: Started glass scroll mode for slide transition');
     }
+
+    // Notify scroll tracker that transition started (pauses independent scroll tracking)
+    this.scrollTracker.notifyTransitionStart();
 
     // Handle special cases
     if (newState === 'paper') {
@@ -361,15 +383,19 @@ export class PanelManager {
     const elements = this.getPanelElements(state);
     elements.forEach(element => {
       if (element && !element.classList.contains('hidden')) {
-        // Track fade-out transition
+        // Track slide-out transition
         this.activeTransitions.add(element);
 
-        element.classList.add('fade-out');
+        // Use slide animation instead of fade
+        element.classList.add('slide-exit-left');
 
         // Track setTimeout callback
         const timeoutId = window.setTimeout(() => {
           element.classList.add('hidden');
-          element.classList.remove('fade-out');
+          element.classList.remove('slide-exit-left');
+
+          // Reset transform
+          element.style.transform = '';
 
           // Remove from pending timeouts
           this.pendingTimeouts.delete(timeoutId);
@@ -385,17 +411,19 @@ export class PanelManager {
     const elements = this.getPanelElements(state);
     elements.forEach(element => {
       if (element) {
-        // Track fade-in transition
+        // Track slide-in transition
         this.activeTransitions.add(element);
 
         element.classList.remove('hidden');
-        element.classList.add('fade-in');
+
+        // Use slide animation instead of fade
+        element.classList.add('slide-enter-right');
 
         // Track setTimeout callback
         const timeoutId = window.setTimeout(() => {
-          element.classList.remove('fade-in');
+          element.classList.remove('slide-enter-right');
 
-          // Add active class for content panels (this triggers transform transition)
+          // Add active class for content panels (this triggers final positioning)
           if (state === 'app' || state === 'portfolio' || state === 'resume') {
             element.classList.add('active');
             // Track the transform transition that follows
@@ -564,10 +592,26 @@ export class PanelManager {
   }
 
   /**
+   * Apply webgl-ready class to transition from CSS to WebGL effects
+   * Called after first WebGL frame renders successfully
+   */
+  public enableWebGLReady(): void {
+    // Add webgl-ready class to remove CSS backdrop-filter
+    this.landingPanel.classList.add('webgl-ready');
+    this.appBioPanel.classList.add('webgl-ready');
+    this.portfolioPanels.forEach(panel => panel.classList.add('webgl-ready'));
+    this.resumePanels.forEach(panel => panel.classList.add('webgl-ready'));
+    this.portfolioContainer.classList.add('webgl-ready');
+    this.resumeContainer.classList.add('webgl-ready');
+    this.navbar.classList.add('webgl-ready');
+  }
+
+  /**
    * Set TextRenderer reference for triggering updates on panel transitions
    */
   public setTextRenderer(textRenderer: TextRenderer | null): void {
     this.textRenderer = textRenderer;
+    this.scrollTracker.setTextRenderer(textRenderer);
   }
 
   /**
@@ -575,13 +619,47 @@ export class PanelManager {
    */
   public setGlassRenderer(glassRenderer: GlassRenderer | null): void {
     this.glassRenderer = glassRenderer;
+    this.scrollTracker.setGlassRenderer(glassRenderer);
   }
 
   public dispose(): void {
-    // Clean up event listeners
-    this.paperBtn.removeEventListener('click', () => {});
-    this.appBtn.removeEventListener('click', () => {});
-    window.removeEventListener('hashchange', () => {});
-    document.removeEventListener('keydown', () => {});
+    // Clean up event listeners using stored references
+    if (this.paperBtnClickHandler) {
+      this.paperBtn.removeEventListener('click', this.paperBtnClickHandler);
+      this.paperBtnClickHandler = null;
+    }
+
+    if (this.appBtnClickHandler) {
+      this.appBtn.removeEventListener('click', this.appBtnClickHandler);
+      this.appBtnClickHandler = null;
+    }
+
+    if (this.hashChangeHandler) {
+      window.removeEventListener('hashchange', this.hashChangeHandler);
+      this.hashChangeHandler = null;
+    }
+
+    if (this.keyDownHandler) {
+      document.removeEventListener('keydown', this.keyDownHandler);
+      this.keyDownHandler = null;
+    }
+
+    // Clear any pending timeouts
+    this.pendingTimeouts.forEach(timeoutId => clearTimeout(timeoutId));
+    this.pendingTimeouts.clear();
+
+    if (this.transitionTimeout !== null) {
+      clearTimeout(this.transitionTimeout);
+      this.transitionTimeout = null;
+    }
+
+    // Clear transition/animation tracking
+    this.activeTransitions.clear();
+    this.activeAnimations.clear();
+
+    // Dispose scroll tracker
+    if (this.scrollTracker) {
+      this.scrollTracker.dispose();
+    }
   }
 }

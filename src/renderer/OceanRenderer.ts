@@ -11,6 +11,8 @@ import { TextRenderer } from './TextRenderer';
 import { WakeRenderer } from './WakeRenderer';
 import { QualityManager, QualitySettings } from '../config/QualityPresets';
 import { PerformanceMonitor } from '../utils/PerformanceMonitor';
+import { FrameBudgetManager, WorkPriority } from '../utils/FrameBudget';
+import { PipelineManager } from './PipelineManager';
 
 export interface RenderConfig {
   canvas: HTMLCanvasElement;
@@ -46,6 +48,10 @@ export class OceanRenderer {
   // Debug mode
   private debugMode: number = 0;
 
+  // First-frame callback for smooth CSS→WebGL transition
+  private firstFrameRendered: boolean = false;
+  private onFirstFrameCallback: (() => void) | null = null;
+
   // Vessel system for wake generation
   private vesselSystem!: VesselSystem;
   private wakesEnabled: boolean = true;
@@ -64,6 +70,8 @@ export class OceanRenderer {
   // Quality and performance management
   private qualityManager: QualityManager;
   private performanceMonitor: PerformanceMonitor;
+  private frameBudget: FrameBudgetManager;
+  private pipelineManager: PipelineManager;
   private currentQuality: QualitySettings;
 
   // Upscaling system
@@ -125,6 +133,8 @@ export class OceanRenderer {
     // Initialize quality and performance systems
     this.qualityManager = new QualityManager();
     this.performanceMonitor = new PerformanceMonitor(this.qualityManager);
+    this.frameBudget = new FrameBudgetManager();
+    this.pipelineManager = new PipelineManager();
     this.currentQuality = this.qualityManager.getSettings();
 
     // Listen for quality changes
@@ -675,6 +685,10 @@ export class OceanRenderer {
         console.error('Failed to initialize upscaling shaders:', error);
       }
     }
+
+    // Pre-warm all pipeline variants after all shaders are compiled
+    await this.pipelineManager.preWarmAllVariants();
+    console.log('OceanRenderer: All pipeline variants pre-warmed');
   }
 
   /**
@@ -777,24 +791,29 @@ export class OceanRenderer {
       // Full pipeline: Ocean -> Glass -> Text Color Analysis
 
       if (this.glassEnabled && this.glassRenderer) {
-        // 1. Render ocean ONCE to shared buffer
+        // 1. Render ocean ONCE to shared buffer (CRITICAL - always do)
         this.captureOceanToSharedBuffer(elapsedTime);
 
         // 2. Glass uses shared ocean texture (no capture needed)
         this.glassRenderer.setOceanTexture(this.sharedOceanTexture);
 
-        // 3. Text captures glass overlay (ocean from shared buffer, NO re-render!)
-        this.textRenderer.captureScene(() => {
-          gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-          this.compositeTexture(this.sharedOceanTexture); // Composite instead of re-render
-          this.glassRenderer!.render();
-        });
+        // 3. Text captures glass overlay (MEDIUM priority - skip if tight on budget)
+        const canAffordTextCapture = this.frameBudget.canAfford(2.0, WorkPriority.MEDIUM);
+        if (canAffordTextCapture) {
+          this.textRenderer.captureScene(() => {
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+            this.compositeTexture(this.sharedOceanTexture); // Composite instead of re-render
+            this.glassRenderer!.render();
+          });
+        }
 
-        // 4. Pass blur map from TextRenderer to GlassRenderer
-        const blurMapTexture = this.textRenderer.getBlurMapTexture();
-        this.glassRenderer.setBlurMapTexture(blurMapTexture);
+        // 4. Pass blur map from TextRenderer to GlassRenderer (OPTIONAL - skip if tight)
+        if (!this.frameBudget.shouldSkipOptionalWork()) {
+          const blurMapTexture = this.textRenderer.getBlurMapTexture();
+          this.glassRenderer.setBlurMapTexture(blurMapTexture);
+        }
 
-        // 5. Final render: Ocean (composited from shared buffer, NO re-render!) + Glass + Text
+        // 5. Final render: Ocean (composited from shared buffer, NO re-render!) + Glass + Text (CRITICAL - always do)
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
         this.compositeTexture(this.sharedOceanTexture); // Composite instead of re-render
         this.glassRenderer.render();
@@ -802,16 +821,19 @@ export class OceanRenderer {
       } else {
         // Ocean + Text pipeline (no glass)
 
-        // 1. Render ocean ONCE to shared buffer
+        // 1. Render ocean ONCE to shared buffer (CRITICAL - always do)
         this.captureOceanToSharedBuffer(elapsedTime);
 
-        // 2. Text captures ocean from shared buffer (NO re-render!)
-        this.textRenderer.captureScene(() => {
-          gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-          this.compositeTexture(this.sharedOceanTexture); // Composite instead of re-render
-        });
+        // 2. Text captures ocean from shared buffer (MEDIUM priority - skip if tight)
+        const canAffordTextCapture = this.frameBudget.canAfford(2.0, WorkPriority.MEDIUM);
+        if (canAffordTextCapture) {
+          this.textRenderer.captureScene(() => {
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+            this.compositeTexture(this.sharedOceanTexture); // Composite instead of re-render
+          });
+        }
 
-        // 3. Final render: Ocean (composited from shared buffer, NO re-render!) + Text
+        // 3. Final render: Ocean (composited from shared buffer, NO re-render!) + Text (CRITICAL - always do)
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
         this.compositeTexture(this.sharedOceanTexture); // Composite instead of re-render
         this.textRenderer.render(wakeTexture, this.wakesEnabled);
@@ -819,18 +841,20 @@ export class OceanRenderer {
     } else if (this.glassEnabled && this.glassRenderer) {
       // Glass pipeline only (no text)
 
-      // 1. Render ocean ONCE to shared buffer
+      // 1. Render ocean ONCE to shared buffer (CRITICAL - always do)
       this.captureOceanToSharedBuffer(elapsedTime);
 
       // 2. Glass uses shared ocean texture (no capture needed)
       this.glassRenderer.setOceanTexture(this.sharedOceanTexture);
 
-      // 3. Final render: Ocean (composited from shared buffer, CONSISTENT!) + Glass
+      // 3. Final render: Ocean (composited from shared buffer, CONSISTENT!) + Glass (HIGH priority - always do unless desperate)
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
       this.compositeTexture(this.sharedOceanTexture); // Use shared buffer (not drawOcean)
-      this.glassRenderer.render();
+      if (this.frameBudget.canAfford(1.5, WorkPriority.HIGH)) {
+        this.glassRenderer.render();
+      }
     } else {
-      // Basic ocean rendering only
+      // Basic ocean rendering only (CRITICAL - always do)
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
       this.drawOcean(elapsedTime);
     }
@@ -1021,6 +1045,7 @@ export class OceanRenderer {
 
     // Begin performance monitoring
     this.performanceMonitor.beginFrame();
+    this.frameBudget.beginFrame();
 
     const currentTime = performance.now();
     const elapsedTime = (currentTime - this.startTime) / 1000; // Convert to seconds
@@ -1038,8 +1063,21 @@ export class OceanRenderer {
     // Render ocean scene with integrated glass distortion and per-pixel adaptive text
     this.renderOceanScene(elapsedTime);
 
+    // CRITICAL: First-frame callback for smooth CSS→WebGL transition
+    // After first successful render, we can safely remove CSS backdrop-filter
+    if (!this.firstFrameRendered && this.onFirstFrameCallback) {
+      this.firstFrameRendered = true;
+      this.onFirstFrameCallback();
+      this.onFirstFrameCallback = null; // Clear callback after use
+      console.log('OceanRenderer: First frame rendered, CSS→WebGL transition complete');
+    }
+
+    // Process any deferred work before ending frame
+    this.frameBudget.processDeferredWork();
+
     // End performance monitoring
     this.performanceMonitor.endFrame();
+    this.frameBudget.endFrame();
 
     // Update FPS counter
     this.updateFPS(currentTime);
@@ -1128,6 +1166,9 @@ export class OceanRenderer {
     if (this.wakeRenderer) {
       this.wakeRenderer.setEnabled(this.wakesEnabled);
     }
+
+    // Update pipeline manager
+    this.pipelineManager.toggleFeature('wakes');
   }
 
   /**
@@ -1149,6 +1190,9 @@ export class OceanRenderer {
    */
   setGlassEnabled(enabled: boolean): void {
     this.glassEnabled = enabled && this.glassRenderer !== null;
+
+    // Update pipeline manager
+    this.pipelineManager.switchToState({ glass: this.glassEnabled });
   }
 
 
@@ -1171,6 +1215,9 @@ export class OceanRenderer {
    */
   setTextEnabled(enabled: boolean): void {
     this.textEnabled = enabled && this.textRenderer !== null;
+
+    // Update pipeline manager
+    this.pipelineManager.switchToState({ text: this.textEnabled });
   }
 
   /**
@@ -1194,6 +1241,9 @@ export class OceanRenderer {
     if (this.glassRenderer) {
       this.glassRenderer.setBlurMapEnabled(enabled);
     }
+
+    // Update pipeline manager
+    this.pipelineManager.switchToState({ blurMap: enabled });
   }
 
   /**
@@ -1250,6 +1300,41 @@ export class OceanRenderer {
   }
 
   /**
+   * Get frame budget manager instance
+   */
+  getFrameBudgetManager(): FrameBudgetManager {
+    return this.frameBudget;
+  }
+
+  /**
+   * Get frame budget statistics
+   */
+  getFrameBudgetStats() {
+    return this.frameBudget.getStats();
+  }
+
+  /**
+   * Get frame budget report
+   */
+  getFrameBudgetReport(): string {
+    return this.frameBudget.generateReport();
+  }
+
+  /**
+   * Get pipeline manager instance
+   */
+  getPipelineManager(): PipelineManager {
+    return this.pipelineManager;
+  }
+
+  /**
+   * Get pipeline manager report
+   */
+  getPipelineReport(): string {
+    return this.pipelineManager.generateReport();
+  }
+
+  /**
    * Get current quality settings
    */
   getQualitySettings(): QualitySettings {
@@ -1285,6 +1370,14 @@ export class OceanRenderer {
 
     this.cachedElements.fpsElement = document.getElementById('fps');
     this.cachedElements.elementsInitialized = true;
+  }
+
+  /**
+   * Set callback to be invoked after first frame renders
+   * Used for smooth CSS→WebGL transition
+   */
+  public setOnFirstFrameCallback(callback: () => void): void {
+    this.onFirstFrameCallback = callback;
   }
 
 
