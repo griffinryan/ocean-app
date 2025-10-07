@@ -308,6 +308,7 @@ export class PanelManager {
 
         // Notify scroll tracker that transition ended (resumes independent scroll tracking)
         this.scrollTracker.notifyTransitionEnd();
+        this.scrollTracker.forceUpdate();
 
         if (this.textRenderer) {
           console.debug('PanelManager: Render settled, enabling text');
@@ -433,6 +434,10 @@ export class PanelManager {
       element.classList.remove('slide-enter-right');
       element.classList.add('slide-exit-left');
     });
+
+    if (this.glassRenderer) {
+      this.glassRenderer.markPositionsDirty();
+    }
   }
 
   /**
@@ -444,6 +449,7 @@ export class PanelManager {
     }
 
     this.updatePanelVisibility();
+    this.scrollTracker.forceUpdate();
     this.startEnterAnimations(this.currentState);
   }
 
@@ -465,6 +471,10 @@ export class PanelManager {
       element.classList.remove('hidden');
       element.classList.add('slide-enter-right');
     });
+
+    if (this.glassRenderer) {
+      this.glassRenderer.markPositionsDirty();
+    }
   }
 
   /**
@@ -541,6 +551,11 @@ export class PanelManager {
         this.onAllTransitionsComplete();
       }, this.defaultTransition.duration + 100); // 100ms safety margin
     }
+
+    if (this.glassRenderer) {
+      this.glassRenderer.markPositionsDirty();
+    }
+    this.scrollTracker.forceUpdate();
   }
 
   private getPanelElements(state: PanelState): HTMLElement[] {
