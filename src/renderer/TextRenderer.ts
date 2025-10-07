@@ -1264,8 +1264,9 @@ export class TextRenderer {
     this.introVisibility = this.isIntroActive ? introProgress : 1.0;
 
     // Set resolution (only if changed)
-    const width = gl.canvas.width;
-    const height = gl.canvas.height;
+    const viewport = gl.getParameter(gl.VIEWPORT) as Int32Array;
+    const width = viewport[2];
+    const height = viewport[3];
     if (width !== this.uniformCache.resolution[0] || height !== this.uniformCache.resolution[1]) {
       this.shaderManager.setUniform2f(program, 'u_resolution', width, height);
       this.uniformCache.resolution[0] = width;
