@@ -46,6 +46,10 @@ export class OceanRenderer {
   // Debug mode
   private debugMode: number = 0;
 
+  // First-frame callback for smooth CSS→WebGL transition
+  private firstFrameRendered: boolean = false;
+  private onFirstFrameCallback: (() => void) | null = null;
+
   // Vessel system for wake generation
   private vesselSystem!: VesselSystem;
   private wakesEnabled: boolean = true;
@@ -1038,6 +1042,15 @@ export class OceanRenderer {
     // Render ocean scene with integrated glass distortion and per-pixel adaptive text
     this.renderOceanScene(elapsedTime);
 
+    // CRITICAL: First-frame callback for smooth CSS→WebGL transition
+    // After first successful render, we can safely remove CSS backdrop-filter
+    if (!this.firstFrameRendered && this.onFirstFrameCallback) {
+      this.firstFrameRendered = true;
+      this.onFirstFrameCallback();
+      this.onFirstFrameCallback = null; // Clear callback after use
+      console.log('OceanRenderer: First frame rendered, CSS→WebGL transition complete');
+    }
+
     // End performance monitoring
     this.performanceMonitor.endFrame();
 
@@ -1285,6 +1298,14 @@ export class OceanRenderer {
 
     this.cachedElements.fpsElement = document.getElementById('fps');
     this.cachedElements.elementsInitialized = true;
+  }
+
+  /**
+   * Set callback to be invoked after first frame renders
+   * Used for smooth CSS→WebGL transition
+   */
+  public setOnFirstFrameCallback(callback: () => void): void {
+    this.onFirstFrameCallback = callback;
   }
 
 

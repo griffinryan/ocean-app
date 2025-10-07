@@ -1350,12 +1350,17 @@ export class TextRenderer {
 
       // PERFORMANCE: Start amortized text update instead of immediate update
       // This spreads Canvas2D work across multiple frames (4-5 frames)
+      // CRITICAL FIX: Defer intro animation until AFTER batching completes
+      // This prevents overlapping CPU (Canvas2D) and GPU (shader) heavy work
       this.startAmortizedTextUpdate(() => {
         // Callback: executed after all batches complete
-        // Trigger text intro animation AFTER text is rendered
-        this.textIntroStartTime = performance.now();
-        this.isIntroActive = true;
-        console.log('TextRenderer: Text intro animation started');
+        // Wait one additional frame to ensure texture upload completes
+        requestAnimationFrame(() => {
+          // Trigger text intro animation AFTER all Canvas2D work is done
+          this.textIntroStartTime = performance.now();
+          this.isIntroActive = true;
+          console.log('TextRenderer: Text intro animation started (after batching complete)');
+        });
       });
     }
   }

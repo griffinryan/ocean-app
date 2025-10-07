@@ -219,24 +219,21 @@ void main() {
     // ===== TEXT INTRO ANIMATION =====
     // Separate additive wiggly motion for dramatic entrance effect
     // This layer is INDEPENDENT of ocean physics and fades out completely
+    // PERFORMANCE: Optimized with fast sine and reduced wave count
     float eased = cubicEaseOut(u_textIntroProgress);
     float introStrength = 1.0 - eased; // 1.0 at start, 0.0 at end
 
-    // Multi-frequency wiggly waves for organic entrance motion
-    float wave1 = sin(screenUV.y * 30.0 + v_time * 8.0) * 0.12;
-    float wave2 = sin(screenUV.x * 20.0 - v_time * 6.0) * 0.08;
-    float wave3 = sin((screenUV.x + screenUV.y) * 25.0 + v_time * 7.0) * 0.06;
+    // OPTIMIZED: Reduced from 4 sine waves to 2, using fast sine approximation
+    float wave1 = fastSin(screenUV.y * 30.0 + v_time * 8.0) * 0.12;
+    float wave2 = fastSin(screenUV.x * 20.0 - v_time * 6.0) * 0.08;
 
-    // Low-frequency wave for deep amplitude sway
-    float deepWave = sin(screenUV.y * 8.0 + v_time * 3.0) * 0.20;
+    // Low-frequency wave for deep amplitude sway (keep for dramatic effect)
+    float deepWave = fastSin(screenUV.y * 8.0 + v_time * 3.0) * 0.20;
 
-    // Organic noise variation
-    float noiseValue = noise(screenUV * 12.0 + v_time * 1.5) * 0.04;
-
-    // Combine intro wiggly waves
+    // Combine intro wiggly waves (removed noise and wave3 for performance)
     vec2 introDistortion = vec2(
-        wave1 + wave3 + deepWave + noiseValue,
-        wave2 + wave3 + noiseValue
+        wave1 + deepWave,
+        wave2
     ) * introStrength; // Fade out as intro progresses
 
     // UNIFIED LIVING SYSTEM: Rigid character float + Wake energy + Ocean sway + Intro

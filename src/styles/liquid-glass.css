@@ -1274,10 +1274,6 @@ body {
 /* These styles will be enhanced with WebGL distortion effects */
 
 .glass-panel.webgl-enhanced {
-  /* WebGL renderer will add dynamic distortion */
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-
   /* Ensure proper layering with WebGL canvas */
   z-index: 150;
 
@@ -1292,6 +1288,14 @@ body {
   box-shadow:
     var(--glass-shadow),
     inset 0 1px 1px rgba(255, 255, 255, 0.1);
+}
+
+/* Applied after first WebGL frame renders successfully */
+/* This ensures smooth transition from CSS to WebGL effects */
+.glass-panel.webgl-ready {
+  /* Remove CSS backdrop-filter once WebGL is rendering */
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 /* ===== ADAPTIVE TEXT COLOR SYSTEM (WebGL Per-Pixel Rendering) ===== */

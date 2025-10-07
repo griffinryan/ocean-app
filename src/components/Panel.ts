@@ -574,6 +574,21 @@ export class PanelManager {
   }
 
   /**
+   * Apply webgl-ready class to transition from CSS to WebGL effects
+   * Called after first WebGL frame renders successfully
+   */
+  public enableWebGLReady(): void {
+    // Add webgl-ready class to remove CSS backdrop-filter
+    this.landingPanel.classList.add('webgl-ready');
+    this.appBioPanel.classList.add('webgl-ready');
+    this.portfolioPanels.forEach(panel => panel.classList.add('webgl-ready'));
+    this.resumePanels.forEach(panel => panel.classList.add('webgl-ready'));
+    this.portfolioContainer.classList.add('webgl-ready');
+    this.resumeContainer.classList.add('webgl-ready');
+    this.navbar.classList.add('webgl-ready');
+  }
+
+  /**
    * Set TextRenderer reference for triggering updates on panel transitions
    */
   public setTextRenderer(textRenderer: TextRenderer | null): void {

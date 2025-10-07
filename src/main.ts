@@ -68,6 +68,15 @@ class OceanApp {
       // Prevents visual "jump" when switching from simple→complex pipeline
       this.connectUIToRenderer();
 
+      // CRITICAL: Set first-frame callback for smooth CSS→WebGL transition
+      // After first frame renders, we remove CSS backdrop-filter and let WebGL take over
+      this.renderer.setOnFirstFrameCallback(() => {
+        if (this.panelManager) {
+          this.panelManager.enableWebGLReady();
+          console.log('OceanApp: CSS→WebGL transition complete');
+        }
+      });
+
       // Start rendering LAST - ensures single consistent pipeline
       this.renderer.start();
 
