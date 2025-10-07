@@ -61,8 +61,6 @@ export class TextRenderer {
 
   // Scene texture caching for performance
   private sceneTextureDirty: boolean = true;
-  private lastCaptureTime: number = 0;
-  private captureThrottleMs: number = 33; // PERFORMANCE: 30fps captures (sufficient for text background)
 
   // Text texture update flag
   private needsTextureUpdate: boolean = false;
@@ -498,14 +496,7 @@ export class TextRenderer {
    */
   public captureScene(renderSceneCallback: () => void): boolean {
     const gl = this.gl;
-    const currentTime = performance.now();
-
     if (!this.sceneFramebuffer || !this.sceneTexture) {
-      return false;
-    }
-
-    // Skip capture if scene isn't dirty and we're within throttle window
-    if (!this.sceneTextureDirty && (currentTime - this.lastCaptureTime) < this.captureThrottleMs) {
       return false;
     }
 
@@ -535,7 +526,6 @@ export class TextRenderer {
 
     // Update cache state
     this.sceneTextureDirty = false;
-    this.lastCaptureTime = currentTime;
     return true;
   }
 

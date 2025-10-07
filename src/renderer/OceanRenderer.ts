@@ -11,8 +11,7 @@ import { TextRenderer } from './TextRenderer';
 import { WakeRenderer } from './WakeRenderer';
 import { QualityManager, QualitySettings } from '../config/QualityPresets';
 import { PerformanceMonitor } from '../utils/PerformanceMonitor';
-import { FrameBudgetManager, WorkPriority } from '../utils/FrameBudget';
-import { PipelineManager } from './PipelineManager';
+import { FrameBudgetManager } from '../utils/FrameBudget';
 
 export interface RenderConfig {
   canvas: HTMLCanvasElement;
@@ -71,7 +70,6 @@ export class OceanRenderer {
   private qualityManager: QualityManager;
   private performanceMonitor: PerformanceMonitor;
   private frameBudget: FrameBudgetManager;
-  private pipelineManager: PipelineManager;
   private currentQuality: QualitySettings;
 
   // Upscaling system
@@ -134,7 +132,6 @@ export class OceanRenderer {
     this.qualityManager = new QualityManager();
     this.performanceMonitor = new PerformanceMonitor(this.qualityManager);
     this.frameBudget = new FrameBudgetManager();
-    this.pipelineManager = new PipelineManager();
     this.currentQuality = this.qualityManager.getSettings();
 
     // Listen for quality changes
@@ -690,8 +687,6 @@ export class OceanRenderer {
     }
 
     // Pre-warm all pipeline variants after all shaders are compiled
-    await this.pipelineManager.preWarmAllVariants();
-    console.log('OceanRenderer: All pipeline variants pre-warmed');
   }
 
   /**
@@ -740,16 +735,13 @@ export class OceanRenderer {
 
   /**
    * Render ocean scene with glass and text overlay pipeline
-   * OPTIMIZED: Skips expensive captures during text transitions
+   * Always runs the full pipeline each frame for consistent visuals
    */
   private renderOceanScene(elapsedTime: number): void {
     const gl = this.gl;
 
     // Get wake texture for text renderer glow distortion
     const wakeTexture = this.wakeRenderer?.getWakeTexture() || null;
-
-    // Check if text is transitioning (blocks expensive multi-pass rendering)
-    const isTransitioning = this.textRenderer?.isTransitioning() || false;
     const textPresence = this.textRenderer ? this.textRenderer.getIntroVisibility() : 0.0;
 
     // Determine if we need upscaling
@@ -764,121 +756,53 @@ export class OceanRenderer {
       gl.viewport(0, 0, this.displayWidth, this.displayHeight);
     }
 
-    // PERFORMANCE OPTIMIZATION: Lightweight rendering during text transitions
-    // Reduces 3 ocean draws to 1, skips glass/text captures
-    if (isTransitioning) {
-      // During CSS transitions we still want glass distortion active for visual continuity,
-      // but we keep text disabled until positions settle.
-      if (this.glassEnabled && this.glassRenderer) {
-        // Render ocean once to shared buffer and composite with glass
-        this.captureOceanToSharedBuffer(elapsedTime);
-        this.glassRenderer.setOceanTexture(this.sharedOceanTexture);
-        this.glassRenderer.setTextPresence(textPresence);
+    // Render ocean once to shared buffer for reuse by downstream passes
+    this.captureOceanToSharedBuffer(elapsedTime);
 
-        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-        this.compositeTexture(this.sharedOceanTexture);
-        this.glassRenderer.render();
-      } else {
-        // Fall back to simple ocean render (no glass configured)
-        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-        this.drawOcean(elapsedTime);
-      }
-
-      if (needsUpscale) {
-        this.applyUpscaling();
-      }
-      return;
-    }
-
-    // MAJOR PERFORMANCE OPTIMIZATION: Shared Ocean Buffer Pipeline
-    // Renders ocean ONCE to shared buffer, then samples it multiple times
-    // Reduces 3 ocean draws per frame → 1 ocean draw (~30-40% speedup)
-
-    if (this.textEnabled && this.textRenderer) {
-      // Full pipeline: Ocean -> Glass -> Text Color Analysis
-
-      if (this.glassEnabled && this.glassRenderer) {
-        // 1. Render ocean ONCE to shared buffer (CRITICAL - always do)
-        this.captureOceanToSharedBuffer(elapsedTime);
-
-        // 2. Glass uses shared ocean texture (no capture needed)
-        this.glassRenderer.setOceanTexture(this.sharedOceanTexture);
-        this.glassRenderer.setTextPresence(textPresence);
-
-        // 3. Text captures glass overlay (MEDIUM priority - skip if tight on budget)
-        if (this.frameBudget.canAfford(2.0, WorkPriority.MEDIUM)) {
-          this.textRenderer.captureScene(() => {
-            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-            this.compositeTexture(this.sharedOceanTexture); // Composite instead of re-render
-            this.glassRenderer!.render();
-          });
-        }
-
-        // 4. Pass blur map from TextRenderer to GlassRenderer (OPTIONAL - skip if tight)
-        if (!this.frameBudget.shouldSkipOptionalWork()) {
-          const blurMapTexture = this.textRenderer.getBlurMapTexture();
-          this.glassRenderer.setBlurMapTexture(blurMapTexture);
-        }
-
-        // 5. Final render: Use capture when available to avoid duplicate glass render
-        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-        const capturedSceneTexture = this.textRenderer.getSceneTexture();
-        const useSceneCapture = this.textRenderer.isSceneTextureReady() && !!capturedSceneTexture;
-        if (useSceneCapture && capturedSceneTexture) {
-          this.compositeTexture(capturedSceneTexture);
-        } else {
-          this.compositeTexture(this.sharedOceanTexture);
-          this.glassRenderer.render();
-        }
-        this.textRenderer.render(wakeTexture, this.wakesEnabled);
-      } else {
-        // Ocean + Text pipeline (no glass)
-
-        // 1. Render ocean ONCE to shared buffer (CRITICAL - always do)
-        this.captureOceanToSharedBuffer(elapsedTime);
-
-        // 2. Text captures ocean from shared buffer (MEDIUM priority - skip if tight)
-        if (this.frameBudget.canAfford(2.0, WorkPriority.MEDIUM)) {
-          this.textRenderer.captureScene(() => {
-            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-            this.compositeTexture(this.sharedOceanTexture); // Composite instead of re-render
-          });
-        }
-
-        // 3. Final render: Ocean (composited from shared buffer, NO re-render!) + Text (CRITICAL - always do)
-        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-        const capturedSceneTexture = this.textRenderer.getSceneTexture();
-        const useSceneCapture = this.textRenderer.isSceneTextureReady() && !!capturedSceneTexture;
-        if (useSceneCapture && capturedSceneTexture) {
-          this.compositeTexture(capturedSceneTexture);
-        } else {
-          this.compositeTexture(this.sharedOceanTexture); // Composite instead of re-render
-        }
-        this.textRenderer.render(wakeTexture, this.wakesEnabled);
-      }
-    } else if (this.glassEnabled && this.glassRenderer) {
-      // Glass pipeline only (no text)
-
-      // 1. Render ocean ONCE to shared buffer (CRITICAL - always do)
-      this.captureOceanToSharedBuffer(elapsedTime);
-
-      // 2. Glass uses shared ocean texture (no capture needed)
+    if (this.glassEnabled && this.glassRenderer) {
       this.glassRenderer.setOceanTexture(this.sharedOceanTexture);
       this.glassRenderer.setTextPresence(textPresence);
-
-      // 3. Final render: Ocean (composited from shared buffer, CONSISTENT!) + Glass (HIGH priority - always do unless desperate)
-      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-      this.compositeTexture(this.sharedOceanTexture); // Use shared buffer (not drawOcean)
-      if (this.frameBudget.canAfford(1.5, WorkPriority.HIGH)) {
-        this.glassRenderer.render();
-      }
-    } else {
-      // Basic ocean rendering only (CRITICAL - always do)
-      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-      this.drawOcean(elapsedTime);
     }
 
-    // Apply upscaling if needed
+    let capturedSceneTexture: WebGLTexture | null = null;
+
+    if (this.textEnabled && this.textRenderer) {
+      this.textRenderer.captureScene(() => {
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        this.compositeTexture(this.sharedOceanTexture);
+        if (this.glassEnabled && this.glassRenderer) {
+          this.glassRenderer.render();
+        }
+      });
+
+      if (!this.frameBudget.shouldSkipOptionalWork()) {
+        const blurMapTexture = this.textRenderer.getBlurMapTexture();
+        if (this.glassRenderer) {
+          this.glassRenderer.setBlurMapTexture(blurMapTexture);
+        }
+      }
+
+      capturedSceneTexture = this.textRenderer.getSceneTexture();
+    } else if (this.glassRenderer) {
+      this.glassRenderer.setBlurMapTexture(null);
+    }
+
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    const useSceneCapture = this.textRenderer?.isSceneTextureReady() && !!capturedSceneTexture;
+    if (useSceneCapture && capturedSceneTexture) {
+      this.compositeTexture(capturedSceneTexture);
+    } else {
+      this.compositeTexture(this.sharedOceanTexture);
+      if (this.glassEnabled && this.glassRenderer) {
+        this.glassRenderer.render();
+      }
+    }
+
+    if (this.textEnabled && this.textRenderer) {
+      this.textRenderer.render(wakeTexture, this.wakesEnabled);
+    }
+
     if (needsUpscale) {
       this.applyUpscaling();
     }
@@ -1185,9 +1109,6 @@ export class OceanRenderer {
     if (this.wakeRenderer) {
       this.wakeRenderer.setEnabled(this.wakesEnabled);
     }
-
-    // Update pipeline manager
-    this.pipelineManager.toggleFeature('wakes');
   }
 
   /**
@@ -1209,9 +1130,6 @@ export class OceanRenderer {
    */
   setGlassEnabled(enabled: boolean): void {
     this.glassEnabled = enabled && this.glassRenderer !== null;
-
-    // Update pipeline manager
-    this.pipelineManager.switchToState({ glass: this.glassEnabled });
   }
 
 
@@ -1234,9 +1152,6 @@ export class OceanRenderer {
    */
   setTextEnabled(enabled: boolean): void {
     this.textEnabled = enabled && this.textRenderer !== null;
-
-    // Update pipeline manager
-    this.pipelineManager.switchToState({ text: this.textEnabled });
   }
 
   /**
@@ -1260,9 +1175,6 @@ export class OceanRenderer {
     if (this.glassRenderer) {
       this.glassRenderer.setBlurMapEnabled(enabled);
     }
-
-    // Update pipeline manager
-    this.pipelineManager.switchToState({ blurMap: enabled });
   }
 
   /**
@@ -1337,20 +1249,6 @@ export class OceanRenderer {
    */
   getFrameBudgetReport(): string {
     return this.frameBudget.generateReport();
-  }
-
-  /**
-   * Get pipeline manager instance
-   */
-  getPipelineManager(): PipelineManager {
-    return this.pipelineManager;
-  }
-
-  /**
-   * Get pipeline manager report
-   */
-  getPipelineReport(): string {
-    return this.pipelineManager.generateReport();
   }
 
   /**
