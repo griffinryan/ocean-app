@@ -71,6 +71,10 @@ export class PanelLayoutTracker {
         continue;
       }
 
+      if (element.classList.contains('hidden')) {
+        continue;
+      }
+
       const rect = element.getBoundingClientRect();
       if (rect.width === 0 || rect.height === 0) {
         continue;

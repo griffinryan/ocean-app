@@ -252,7 +252,16 @@ export class PanelManager {
 
       if (this.shouldActivatePanel(panel, this.currentState)) {
         panel.classList.add('active');
-        this.activeTransitions.add(panel);
+
+        const computedTransition = window.getComputedStyle(panel).transitionProperty;
+        const hasTransformTransition = computedTransition
+          .split(',')
+          .map(prop => prop.trim())
+          .some(prop => prop === 'transform' || prop === 'all');
+
+        if (hasTransformTransition) {
+          this.activeTransitions.add(panel);
+        }
       }
 
       if (this.pendingEnterCount > 0) {
@@ -489,15 +498,7 @@ export class PanelManager {
    */
   private shouldActivatePanel(panel: HTMLElement, state: PanelState): boolean {
     if (state === 'app') {
-      return panel === this.appBioPanel || panel === this.appProfilePicture;
-    }
-
-    if (state === 'portfolio') {
-      return panel === this.portfolioContainer;
-    }
-
-    if (state === 'resume') {
-      return panel === this.resumeContainer;
+      return panel === this.appBioPanel;
     }
 
     return false;

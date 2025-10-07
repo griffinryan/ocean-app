@@ -151,7 +151,10 @@ bool isWithinPanel(vec2 screenPos, out vec2 panelUV, out vec2 panelHalfSize) {
     panelHalfSize = vec2(0.0);
     for (int i = 0; i < u_panelCount && i < 5; i++) {
         // Convert screen position to panel-relative coordinates
-        vec2 panelCenter = (u_panelPositions[i] + 1.0) * 0.5; // Convert from [-1,1] to [0,1]
+        vec2 panelCenter = vec2(
+            (u_panelPositions[i].x + 1.0) * 0.5,
+            (1.0 - u_panelPositions[i].y) * 0.5
+        ); // Convert from [-1,1] to [0,1] with top-left origin
         panelHalfSize = u_panelSizes[i] * 0.5;
 
         // Calculate position relative to panel center
@@ -170,7 +173,10 @@ bool isWithinPanel(vec2 screenPos, out vec2 panelUV, out vec2 panelHalfSize) {
 
 void main() {
     // Convert screen position to UV coordinates [0,1]
-    vec2 screenUV = (v_screenPos + 1.0) * 0.5;
+    vec2 screenUV = vec2(
+        (v_screenPos.x + 1.0) * 0.5,
+        (1.0 - v_screenPos.y) * 0.5
+    );
 
     // Check if we're within any panel boundary
     vec2 panelUV;

@@ -185,7 +185,10 @@ vec3 calculateRefraction(vec3 incident, vec3 normal, float eta) {
 
 void main() {
     // Convert screen position to UV coordinates
-    vec2 screenUV = (v_screenPos + 1.0) * 0.5;
+    vec2 screenUV = vec2(
+        (v_screenPos.x + 1.0) * 0.5,
+        (1.0 - v_screenPos.y) * 0.5
+    );
 
     // Sample blur map EARLY (before boundary check for efficiency)
     float blurIntensity = 0.0;
@@ -197,7 +200,10 @@ void main() {
     float detailFactor = clamp(u_distortionDetail, 0.25, 1.0);
 
     // Calculate position relative to panel with corrected coordinate mapping
-    vec2 panelCenter = (u_panelPosition + 1.0) * 0.5; // Convert from [-1,1] to [0,1]
+    vec2 panelCenter = vec2(
+        (u_panelPosition.x + 1.0) * 0.5,
+        (1.0 - u_panelPosition.y) * 0.5
+    ); // Convert from [-1,1] to [0,1] with top-left origin
     vec2 panelHalfSize = u_panelSize * 0.5; // Half-size for center-based calculation
 
     // Calculate panel UV coordinates directly

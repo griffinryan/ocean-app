@@ -63,7 +63,10 @@ float calculateTextDistance(vec2 uv, vec2 pixelSize) {
 
 void main() {
     // Convert screen position to UV [0,1]
-    vec2 screenUV = (v_screenPos + 1.0) * 0.5;
+    vec2 screenUV = vec2(
+        (v_screenPos.x + 1.0) * 0.5,
+        (1.0 - v_screenPos.y) * 0.5
+    );
 
     // Sample text alpha directly
     float textAlpha = texture(u_textTexture, screenUV).a;
