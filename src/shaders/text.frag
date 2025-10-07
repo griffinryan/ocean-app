@@ -197,12 +197,13 @@ void main() {
 
     // Base character rigid float (0.4% amplitude) - always present, creates "living text"
     // Each character moves as a WHOLE UNIT, independently from neighbors
-    vec2 charFloat = vec2(charNoiseX - 0.5, charNoiseY - 0.5) * 0.004;
+    vec2 charFloat = vec2(charNoiseX - 0.5, charNoiseY - 0.5) * 0.0035;
 
     // LAYER 2: Wake-triggered impulse (energy amplifies RIGID character float)
     // When vessel passes, wake energy amplifies the rigid motion, then naturally decays
-    float wakeEnergy = abs(wakeHeight); // Energy in the system [0, 1]
-    vec2 wakeImpulse = charFloat * wakeEnergy * 4.0; // Amplify rigid character float by wake energy
+    float wakeEnergy = smoothstep(0.02, 0.25, abs(wakeHeight));
+    wakeEnergy = pow(wakeEnergy, 0.75);
+    vec2 wakeImpulse = charFloat * wakeEnergy * 3.0; // Amplify rigid character float by wake energy (smoothed)
 
     // LAYER 3: Baseline ocean ambient sway (0.3%)
     // Very low-frequency whole-text drift - feels like floating on water

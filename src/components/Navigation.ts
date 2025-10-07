@@ -90,10 +90,6 @@ export class NavigationManager {
       this.updateActiveState();
     });
 
-    // Keyboard navigation
-    document.addEventListener('keydown', (e) => {
-      this.handleKeyboardNavigation(e);
-    });
   }
 
   private handleNavItemClick(item: HTMLElement): void {
@@ -138,67 +134,6 @@ export class NavigationManager {
       this.navbar.classList.add('scrolled');
     } else {
       this.navbar.classList.remove('scrolled');
-    }
-  }
-
-  private handleKeyboardNavigation(event: KeyboardEvent): void {
-    // Only handle keys when not typing in input elements
-    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
-      return;
-    }
-
-    // Quick navigation shortcuts
-    switch (event.key) {
-      case 'h':
-      case 'H':
-        if (event.ctrlKey || event.metaKey) {
-          event.preventDefault();
-          this.navigateToSection('home');
-        }
-        break;
-      case 'p':
-      case 'P':
-        if (event.ctrlKey || event.metaKey) {
-          event.preventDefault();
-          this.navigateToSection('portfolio');
-        }
-        break;
-      case 'r':
-      case 'R':
-        if (event.ctrlKey || event.metaKey) {
-          event.preventDefault();
-          this.navigateToSection('resume');
-        }
-        break;
-      case 'ArrowLeft':
-        if (event.altKey) {
-          event.preventDefault();
-          this.navigatePrevious();
-        }
-        break;
-      case 'ArrowRight':
-        if (event.altKey) {
-          event.preventDefault();
-          this.navigateNext();
-        }
-        break;
-    }
-  }
-
-  private navigatePrevious(): void {
-    const currentIndex = this.navigationItems.findIndex(nav => nav.id === this.state.activeItem);
-    if (currentIndex > 0) {
-      const prevItem = this.navigationItems[currentIndex - 1];
-      this.navigateToSection(prevItem.id);
-    }
-  }
-
-  private navigateNext(): void {
-    const currentIndex = this.navigationItems.findIndex(nav => nav.id === this.state.activeItem);
-    const nonExternalItems = this.navigationItems.filter(nav => !nav.isExternal);
-    if (currentIndex < nonExternalItems.length - 1) {
-      const nextItem = nonExternalItems[currentIndex + 1];
-      this.navigateToSection(nextItem.id);
     }
   }
 

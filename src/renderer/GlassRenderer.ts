@@ -47,6 +47,8 @@ export class GlassRenderer {
   private blurOpacityBoost: number = 0.45; // How much to increase opacity in text regions (0.0-0.5)
   private blurDistortionBoost: number = 0.85; // How much to reduce distortion in text regions (0.0-1.0)
 
+  private textPresence: number = 1.0;
+
   // PERFORMANCE: Position caching to avoid redundant getBoundingClientRect calls
   private positionsDirty: boolean = true;
   private resizeObserver: ResizeObserver | null = null;
@@ -69,7 +71,8 @@ export class GlassRenderer {
     aspectRatio: -1,
     blurMapEnabled: -1,
     blurOpacityBoost: -1,
-    blurDistortionBoost: -1
+    blurDistortionBoost: -1,
+    textPresence: -1
   };
 
   constructor(gl: WebGL2RenderingContext, shaderManager: ShaderManager) {
@@ -116,7 +119,8 @@ export class GlassRenderer {
         'u_blurMapTexture',
         'u_blurMapEnabled',
         'u_blurOpacityBoost',
-        'u_blurDistortionBoost'
+        'u_blurDistortionBoost',
+        'u_textPresence'
       ];
 
       const attributes = [
@@ -355,6 +359,11 @@ export class GlassRenderer {
       const aspectRatio = width / height;
       this.shaderManager.setUniform1f(program, 'u_aspectRatio', aspectRatio);
       this.uniformCache.aspectRatio = aspectRatio;
+    }
+
+    if (this.textPresence !== this.uniformCache.textPresence) {
+      this.shaderManager.setUniform1f(program, 'u_textPresence', this.textPresence);
+      this.uniformCache.textPresence = this.textPresence;
     }
 
     // Bind ocean texture
@@ -778,6 +787,18 @@ export class GlassRenderer {
   public setBlurMapTexture(texture: WebGLTexture | null): void {
     this.blurMapTexture = texture;
     this.blurMapEnabled = texture !== null;
+  }
+
+  /**
+   * Set the current text presence factor (0 = hidden, 1 = fully visible)
+   */
+  public setTextPresence(presence: number): void {
+    const clamped = Math.max(0, Math.min(1, presence));
+    if (this.textPresence !== clamped) {
+      this.textPresence = clamped;
+      // Force uniform update next render
+      this.uniformCache.textPresence = -1;
+    }
   }
 
   /**

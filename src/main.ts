@@ -28,6 +28,20 @@ class OceanApp {
   public router: Router | null = null;
   public navigationManager: NavigationManager | null = null;
   private loadingSequence: LoadingSequence | null = null;
+  private debugOverlayVisible = false;
+  private debugOverlayFields: {
+    mode: HTMLElement | null;
+    wakes: HTMLElement | null;
+    glass: HTMLElement | null;
+    text: HTMLElement | null;
+    blur: HTMLElement | null;
+  } = {
+    mode: null,
+    wakes: null,
+    glass: null,
+    text: null,
+    blur: null
+  };
 
   async init(): Promise<void> {
     try {
@@ -244,6 +258,8 @@ class OceanApp {
    * Set up keyboard controls for debugging
    */
   private setupControls(): void {
+    this.initializeDebugOverlay();
+
     document.addEventListener('keydown', (event) => {
       switch (event.key) {
         case ' ': // Spacebar
@@ -369,6 +385,14 @@ class OceanApp {
             console.log(`Blur falloff power: ${newPower.toFixed(2)}`);
           }
           break;
+        case 'o':
+        case 'O':
+          if (!event.ctrlKey && !event.metaKey) {
+            event.preventDefault();
+            event.stopPropagation();
+            this.toggleDebugOverlay();
+          }
+          break;
         case '1':
         case '2':
         case '3':
@@ -383,68 +407,6 @@ class OceanApp {
               this.renderer.setDebugMode(mode);
               this.updateDebugInfo(mode);
             }
-          }
-          break;
-        case 'q':
-        case 'Q':
-          // Quality preset: Ultra
-          event.preventDefault();
-          event.stopPropagation();
-          if (this.renderer) {
-            this.renderer.setQualityPreset('ultra');
-            this.updateQualityInfo('ultra');
-          }
-          break;
-        case 'w':
-        case 'W':
-          // Quality preset: High
-          event.preventDefault();
-          event.stopPropagation();
-          if (this.renderer) {
-            this.renderer.setQualityPreset('high');
-            this.updateQualityInfo('high');
-          }
-          break;
-        case 'e':
-        case 'E':
-          // Quality preset: Medium
-          event.preventDefault();
-          event.stopPropagation();
-          if (this.renderer) {
-            this.renderer.setQualityPreset('medium');
-            this.updateQualityInfo('medium');
-          }
-          break;
-        case 'r':
-        case 'R':
-          // Quality preset: Low
-          event.preventDefault();
-          event.stopPropagation();
-          if (this.renderer) {
-            this.renderer.setQualityPreset('low');
-            this.updateQualityInfo('low');
-          }
-          break;
-        case 'a':
-        case 'A':
-          // Toggle dynamic quality scaling
-          event.preventDefault();
-          event.stopPropagation();
-          if (this.renderer) {
-            const perfMonitor = this.renderer.getPerformanceMonitor();
-            // Toggle dynamic quality (get current state from config)
-            const currentState = (perfMonitor as any).config?.enableDynamicQuality || false;
-            this.renderer.setDynamicQuality(!currentState);
-            this.updateDynamicQualityInfo(!currentState);
-          }
-          break;
-        case 'p':
-        case 'P':
-          // Print performance report
-          event.preventDefault();
-          event.stopPropagation();
-          if (this.renderer) {
-            console.log(this.renderer.getPerformanceReport());
           }
           break;
       }
@@ -465,61 +427,127 @@ class OceanApp {
     console.log('  G - Toggle glass panel rendering');
     console.log('  T - Toggle text rendering');
     console.log('  B - Toggle blur map (frosted glass)');
+    console.log('  O - Toggle debug overlay');
     console.log('');
     console.log('Blur Tuning:');
     console.log('  N - Decrease blur radius (tighter)');
     console.log('  M - Increase blur radius (wider)');
     console.log('  , - Decrease falloff power (softer)');
     console.log('  . - Increase falloff power (sharper)');
-    console.log('');
-    console.log('Quality:');
-    console.log('  Q - Ultra quality');
-    console.log('  W - High quality');
-    console.log('  E - Medium quality');
-    console.log('  R - Low quality');
-    console.log('  A - Toggle dynamic quality scaling');
-    console.log('  P - Print performance report');
     console.log('================');
+  }
+
+  /**
+   * Initialize minimal debug overlay without runtime overhead
+   */
+  private initializeDebugOverlay(): void {
+    const existing = document.getElementById('debug-overlay');
+    if (existing && existing.parentElement) {
+      existing.parentElement.removeChild(existing);
+    }
+
+    const overlay = document.createElement('div');
+    overlay.id = 'debug-overlay';
+    overlay.className = 'debug-overlay';
+    overlay.innerHTML = `
+      <div class="debug-overlay-title">Debug Panel</div>
+      <div class="debug-overlay-row">
+        <span class="debug-label">Mode</span>
+        <span class="debug-value" data-debug-field="mode">Normal (0)</span>
+      </div>
+      <div class="debug-overlay-row">
+        <span class="debug-label">Wakes</span>
+        <span class="debug-value" data-debug-field="wakes">ON</span>
+      </div>
+      <div class="debug-overlay-row">
+        <span class="debug-label">Glass</span>
+        <span class="debug-value" data-debug-field="glass">ON</span>
+      </div>
+      <div class="debug-overlay-row">
+        <span class="debug-label">Text</span>
+        <span class="debug-value" data-debug-field="text">ON</span>
+      </div>
+      <div class="debug-overlay-row">
+        <span class="debug-label">Frost</span>
+        <span class="debug-value" data-debug-field="blur">ON</span>
+      </div>
+      <div class="debug-overlay-divider"></div>
+      <div class="debug-overlay-footnote">
+        D: cycle modes · V/G/T/B: toggle systems · N/M,./: blur tuning
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+    this.debugOverlayFields = {
+      mode: overlay.querySelector('[data-debug-field="mode"]'),
+      wakes: overlay.querySelector('[data-debug-field="wakes"]'),
+      glass: overlay.querySelector('[data-debug-field="glass"]'),
+      text: overlay.querySelector('[data-debug-field="text"]'),
+      blur: overlay.querySelector('[data-debug-field="blur"]')
+    };
+
+    this.refreshDebugOverlayState();
+    this.setDebugOverlayVisibility(false);
+  }
+
+  private setDebugOverlayField(field: keyof OceanApp['debugOverlayFields'], value: string): void {
+    const element = this.debugOverlayFields[field];
+    if (element) {
+      element.textContent = value;
+    }
+  }
+
+  private setDebugOverlayVisibility(visible: boolean): void {
+    this.debugOverlayVisible = visible;
+    const overlay = document.getElementById('debug-overlay');
+    if (!overlay) return;
+
+    if (visible) {
+      overlay.classList.add('is-visible');
+    } else {
+      overlay.classList.remove('is-visible');
+    }
+  }
+
+  private toggleDebugOverlay(): void {
+    const newVisibility = !this.debugOverlayVisible;
+    if (newVisibility) {
+      this.refreshDebugOverlayState();
+    }
+    this.setDebugOverlayVisibility(newVisibility);
+  }
+
+  private refreshDebugOverlayState(): void {
+    if (!this.renderer) {
+      this.setDebugOverlayField('wakes', '—');
+      this.setDebugOverlayField('glass', '—');
+      this.setDebugOverlayField('text', '—');
+      this.setDebugOverlayField('blur', '—');
+      return;
+    }
+
+    this.setDebugOverlayField('wakes', this.renderer.getWakesEnabled() ? 'ON' : 'OFF');
+    this.setDebugOverlayField('glass', this.renderer.getGlassEnabled() ? 'ON' : 'OFF');
+    this.setDebugOverlayField('text', this.renderer.getTextEnabled() ? 'ON' : 'OFF');
+    this.setDebugOverlayField('blur', this.renderer.getBlurMapEnabled() ? 'ON' : 'OFF');
   }
 
   /**
    * Update debug info display
    */
   private updateDebugInfo(mode: number): void {
-    const infoElement = document.getElementById('info');
-    if (infoElement) {
-      const modeNames = ['Normal', 'UV Coords', 'Wave Height', 'Normals', 'Wake Map'];
-      const modeName = modeNames[mode] || 'Unknown';
-
-      // Update the existing info or add debug info
-      let debugElement = document.getElementById('debug-mode');
-      if (!debugElement) {
-        debugElement = document.createElement('div');
-        debugElement.id = 'debug-mode';
-        infoElement.appendChild(debugElement);
-      }
-      debugElement.innerHTML = `<br>Debug Mode: ${modeName} (${mode})`;
-    }
+    const modeNames = ['Normal', 'UV Coords', 'Wave Height', 'Normals', 'Wake Map'];
+    const modeName = modeNames[mode] || 'Unknown';
+    this.setDebugOverlayField('mode', `${modeName} (${mode})`);
   }
 
   /**
    * Update vessel system info display
    */
   private updateVesselInfo(): void {
-    const infoElement = document.getElementById('info');
-    if (infoElement && this.renderer) {
+    if (this.renderer) {
       const wakesEnabled = this.renderer.getWakesEnabled();
-      const stats = this.renderer.getVesselStats();
-
-      // Update the existing info or add vessel info
-      let vesselElement = document.getElementById('vessel-info');
-      if (!vesselElement) {
-        vesselElement = document.createElement('div');
-        vesselElement.id = 'vessel-info';
-        infoElement.appendChild(vesselElement);
-      }
-
-      vesselElement.innerHTML = `<br>Vessel Wakes: ${wakesEnabled ? 'ON' : 'OFF'}<br>Active Vessels: ${stats.activeVessels}<br>Wake Points: ${stats.totalWakePoints}`;
+      this.setDebugOverlayField('wakes', wakesEnabled ? 'ON' : 'OFF');
     }
   }
 
@@ -527,99 +555,21 @@ class OceanApp {
    * Update glass system info display
    */
   private updateGlassInfo(enabled: boolean): void {
-    const infoElement = document.getElementById('info');
-    if (infoElement && this.renderer) {
-      // Update the existing info or add glass info
-      let glassElement = document.getElementById('glass-info');
-      if (!glassElement) {
-        glassElement = document.createElement('div');
-        glassElement.id = 'glass-info';
-        infoElement.appendChild(glassElement);
-      }
-
-      glassElement.innerHTML = `<br>Glass Panels: ${enabled ? 'ON' : 'OFF'}`;
-    }
+    this.setDebugOverlayField('glass', enabled ? 'ON' : 'OFF');
   }
 
   /**
    * Update text rendering info display
    */
   private updateTextInfo(enabled: boolean): void {
-    const infoElement = document.getElementById('info');
-    if (infoElement && this.renderer) {
-      // Update the existing info or add text info
-      let textElement = document.getElementById('text-info');
-      if (!textElement) {
-        textElement = document.createElement('div');
-        textElement.id = 'text-info';
-        infoElement.appendChild(textElement);
-      }
-
-      textElement.innerHTML = `<br>Adaptive Text: ${enabled ? 'ON' : 'OFF'}`;
-    }
+    this.setDebugOverlayField('text', enabled ? 'ON' : 'OFF');
   }
 
   /**
    * Update blur map info display
    */
   private updateBlurMapInfo(enabled: boolean): void {
-    const infoElement = document.getElementById('info');
-    if (infoElement && this.renderer) {
-      // Update the existing info or add blur map info
-      let blurElement = document.getElementById('blur-map-info');
-      if (!blurElement) {
-        blurElement = document.createElement('div');
-        blurElement.id = 'blur-map-info';
-        infoElement.appendChild(blurElement);
-      }
-
-      blurElement.innerHTML = `<br>Frosted Glass: ${enabled ? 'ON' : 'OFF'}`;
-    }
-  }
-
-  /**
-   * Update quality preset info display
-   */
-  private updateQualityInfo(preset: string): void {
-    const infoElement = document.getElementById('info');
-    if (infoElement && this.renderer) {
-      const settings = this.renderer.getQualitySettings();
-      let qualityElement = document.getElementById('quality-info');
-      if (!qualityElement) {
-        qualityElement = document.createElement('div');
-        qualityElement.id = 'quality-info';
-        infoElement.appendChild(qualityElement);
-      }
-
-      const resScale = (settings.finalPassResolution * 100).toFixed(0);
-      qualityElement.innerHTML = `<br>Quality: ${preset.toUpperCase()} (${resScale}% resolution)`;
-
-      console.log(`Quality set to ${preset}`);
-      console.log(`  Resolution scale: ${resScale}%`);
-      console.log(`  Upscale method: ${settings.upscaleMethod}`);
-      console.log(`  Sharpness: ${settings.upscaleSharpness}`);
-    }
-  }
-
-  /**
-   * Update dynamic quality info display
-   */
-  private updateDynamicQualityInfo(enabled: boolean): void {
-    const infoElement = document.getElementById('info');
-    if (infoElement) {
-      let dynamicElement = document.getElementById('dynamic-quality-info');
-      if (!dynamicElement) {
-        dynamicElement = document.createElement('div');
-        dynamicElement.id = 'dynamic-quality-info';
-        infoElement.appendChild(dynamicElement);
-      }
-      dynamicElement.innerHTML = `<br>Dynamic Quality: ${enabled ? 'ON' : 'OFF'}`;
-
-      console.log(`Dynamic quality scaling ${enabled ? 'enabled' : 'disabled'}`);
-      if (enabled) {
-        console.log('  System will automatically adjust quality to maintain target FPS');
-      }
-    }
+    this.setDebugOverlayField('blur', enabled ? 'ON' : 'OFF');
   }
 
   /**

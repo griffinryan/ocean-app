@@ -19,6 +19,7 @@ uniform sampler2D u_blurMapTexture;
 uniform bool u_blurMapEnabled;
 uniform float u_blurOpacityBoost;      // How much to increase opacity (0.0-0.5)
 uniform float u_blurDistortionBoost;   // How much to reduce distortion (0.0-1.0)
+uniform float u_textPresence;             // Text visibility factor (0 = hidden, 1 = fully visible)
 
 out vec4 fragColor;
 
@@ -187,6 +188,7 @@ void main() {
     float blurIntensity = 0.0;
     if (u_blurMapEnabled) {
         blurIntensity = texture(u_blurMapTexture, screenUV).r;
+        blurIntensity *= u_textPresence;
     }
 
     // Calculate position relative to panel with corrected coordinate mapping
