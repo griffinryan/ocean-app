@@ -177,9 +177,6 @@ void main() {
         discard; // Only render text within panels
     }
 
-    // Sample the background scene (ocean + glass combined)
-    vec3 backgroundColor = texture(u_sceneTexture, screenUV).rgb;
-
     // ===== SAMPLE WAKE TEXTURE FOR CONTINUOUS MOTION =====
     // Convert screen position to ocean coordinates
     vec2 oceanPos = v_screenPos * 15.0;
@@ -194,9 +191,10 @@ void main() {
     // This creates text motion that perfectly matches the underlying ocean waves
 
     // Use wake intensity to modulate wave amplitude (vessels affect text motion)
-    // Wake range: [-1, 1], map to amplitude multiplier [0.5, 1.5]
+    // Wake range: [-1, 1], map to amplitude multiplier [1.0, 1.5]
+    // Subtle boost for tight, anchored oceanic feel
     float wakeAmplitudeBoost = 1.0 + (wakeHeight * 0.5);
-    wakeAmplitudeBoost = clamp(wakeAmplitudeBoost, 0.5, 1.5);
+    wakeAmplitudeBoost = clamp(wakeAmplitudeBoost, 1.0, 1.5);
 
     // Calculate ocean wave displacement using physics-based sine waves
     // Using fastSin for 2× performance improvement with <0.002 error
@@ -224,17 +222,51 @@ void main() {
         (waveHeight2 * 0.7 + waveHeight3 * 1.0 + waveHeight4 * 0.8) / 3.0
     );
 
-    // Scale distortion to screen space (0.02 = 2% max displacement)
-    vec2 waveDistortion = waveGradient * 0.02;
+    // Scale distortion to screen space (0.015 = 1.5% max displacement)
+    // Tight, readable wiggle that feels anchored to ocean surface
+    vec2 waveDistortion = waveGradient * 0.015;
+
+    // Add gentle ambient baseline motion even when no wakes present (0.3%)
+    // Ensures text always has slight oceanic movement
+    vec2 ambientMotion = vec2(
+        sin(oceanPos.y * 0.3 + v_time * 0.8) * 0.003,
+        cos(oceanPos.x * 0.3 + v_time * 0.6) * 0.003
+    );
+    waveDistortion += ambientMotion;
 
     // ===== TEXT INTRO ANIMATION =====
-    // Amplify distortion during intro for dramatic entrance effect
+    // Separate additive wiggly motion for dramatic entrance effect
+    // This layer is INDEPENDENT of ocean physics and fades out completely
     float eased = cubicEaseOut(u_textIntroProgress);
-    float introAmplification = 1.0 + (1.0 - eased) * 3.0; // 4× amplitude at start, 1× at end
+    float introStrength = 1.0 - eased; // 1.0 at start, 0.0 at end
 
-    // Apply intro amplification to wave distortion
-    vec2 totalDistortion = waveDistortion * introAmplification;
+    // Multi-frequency wiggly waves for organic entrance motion
+    float wave1 = sin(screenUV.y * 30.0 + v_time * 8.0) * 0.12;
+    float wave2 = sin(screenUV.x * 20.0 - v_time * 6.0) * 0.08;
+    float wave3 = sin((screenUV.x + screenUV.y) * 25.0 + v_time * 7.0) * 0.06;
+
+    // Low-frequency wave for deep amplitude sway
+    float deepWave = sin(screenUV.y * 8.0 + v_time * 3.0) * 0.20;
+
+    // Organic noise variation
+    float noiseValue = noise(screenUV * 12.0 + v_time * 1.5) * 0.04;
+
+    // Combine intro wiggly waves
+    vec2 introDistortion = vec2(
+        wave1 + wave3 + deepWave + noiseValue,
+        wave2 + wave3 + noiseValue
+    ) * introStrength; // Fade out as intro progresses
+
+    // ADDITIVE SYSTEM: Layer 1 (ocean physics 1.5%) + Layer 2 (vessel wake 1.5×) + Layer 3 (intro 30%)
+    // Base: 1.5% tight oceanic wiggle, Wake boost: up to 2.25%, Intro: adds 30% dramatic entrance
+    // Total motion: 1.5-2.25% continuous (readable), 31.5-32.25% during intro
+    vec2 totalDistortion = waveDistortion + introDistortion;
     vec2 distortedUV = screenUV + totalDistortion;
+
+    // ===== UNIFIED ADAPTIVE COLORING =====
+    // Sample background at DISTORTED position to ensure color matches where text actually renders
+    // This prevents color flickering as text moves across varying backgrounds
+    vec3 backgroundColor = texture(u_sceneTexture, distortedUV).rgb;
 
     // Sample the text texture with distorted UV coordinates
     float textAlpha = texture(u_textTexture, distortedUV).a;
