@@ -7,6 +7,7 @@ import { PanelManager } from './components/Panel';
 import { Router } from './components/Router';
 import { NavigationManager } from './components/Navigation';
 import { LoadingSequence } from './components/LoadingSequence';
+import { PanelLayoutTracker } from './utils/PanelLayoutTracker';
 
 // Import shaders as strings
 import oceanVertexShader from './shaders/ocean.vert';
@@ -42,6 +43,7 @@ class OceanApp {
     text: null,
     blur: null
   };
+  private layoutTracker: PanelLayoutTracker | null = null;
 
   async init(): Promise<void> {
     try {
@@ -56,6 +58,11 @@ class OceanApp {
       // Initialize UI components first
       this.initializeUI();
 
+      this.layoutTracker = new PanelLayoutTracker();
+      if (this.panelManager) {
+        this.panelManager.setLayoutTracker(this.layoutTracker);
+      }
+
       // Create loading sequence
       this.loadingSequence = new LoadingSequence({
         showLoadingIndicator: false, // Disable indicator for cleaner UX
@@ -68,7 +75,8 @@ class OceanApp {
       this.renderer = new OceanRenderer({
         canvas,
         antialias: true,
-        alpha: false
+        alpha: false,
+        layoutTracker: this.layoutTracker
       });
 
       // Set references for loading sequence

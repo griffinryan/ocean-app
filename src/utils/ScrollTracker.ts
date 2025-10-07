@@ -5,6 +5,7 @@
 
 import type { GlassRenderer } from '../renderer/GlassRenderer';
 import type { TextRenderer } from '../renderer/TextRenderer';
+import type { PanelLayoutTracker } from './PanelLayoutTracker';
 
 export interface ScrollTrackerConfig {
   cooldownMs: number;           // Time after last scroll to stop tracking (default: 100ms)
@@ -26,6 +27,7 @@ export class ScrollTracker {
   private config: ScrollTrackerConfig;
   private glassRenderer: GlassRenderer | null = null;
   private textRenderer: TextRenderer | null = null;
+  private layoutTracker: PanelLayoutTracker | null = null;
 
   // Scroll state
   private isScrolling: boolean = false;
@@ -60,6 +62,10 @@ export class ScrollTracker {
    */
   setTextRenderer(renderer: TextRenderer | null): void {
     this.textRenderer = renderer;
+  }
+
+  setLayoutTracker(tracker: PanelLayoutTracker | null): void {
+    this.layoutTracker = tracker;
   }
 
   /**
@@ -122,6 +128,8 @@ export class ScrollTracker {
       console.debug('ScrollTracker: Ignoring scroll during transition');
       return;
     }
+
+    this.layoutTracker?.markDirty();
 
     // Start continuous tracking if not already active
     if (!this.isScrolling) {
@@ -223,6 +231,8 @@ export class ScrollTracker {
       this.textRenderer.forceTextureUpdate();
       this.textRenderer.markSceneDirty();
     }
+
+    this.layoutTracker?.markDirty();
   }
 
   /**
@@ -238,6 +248,7 @@ export class ScrollTracker {
     }
 
     console.debug('ScrollTracker: Transition started, scroll tracking paused');
+    this.layoutTracker?.markDirty();
   }
 
   /**
@@ -247,6 +258,7 @@ export class ScrollTracker {
   notifyTransitionEnd(): void {
     this.isTransitioning = false;
     console.debug('ScrollTracker: Transition ended, scroll tracking resumed');
+    this.layoutTracker?.markDirty();
   }
 
   /**

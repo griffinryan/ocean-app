@@ -7,6 +7,7 @@ import { ShaderManager, ShaderProgram } from './ShaderManager';
 import { GeometryBuilder, BufferManager, GeometryData } from './Geometry';
 import { Mat4 } from '../utils/math';
 import { QualitySettings } from '../config/QualityPresets';
+import type { PanelLayoutSnapshot } from '../utils/PanelLayoutTracker';
 
 const IS_DEV = import.meta.env.DEV;
 
@@ -29,8 +30,6 @@ export class TextRenderer {
   private sceneFramebuffer: WebGLFramebuffer | null = null;
   private sceneTexture: WebGLTexture | null = null;
   private sceneDepthBuffer: WebGLRenderbuffer | null = null;
-  private sceneWidth: number = 0;
-  private sceneHeight: number = 0;
 
   // Canvas for text generation (RESTORED)
   private textCanvas!: HTMLCanvasElement;
@@ -59,8 +58,8 @@ export class TextRenderer {
   // Text element configurations
   private textElements: Map<string, TextElementConfig> = new Map();
 
-  // Scene texture caching for performance
-  private sceneTextureDirty: boolean = true;
+  private panelLayouts: PanelLayoutSnapshot | null = null;
+  private panelLayoutVersion: number = -1;
 
   // Text texture update flag
   private needsTextureUpdate: boolean = false;
@@ -453,8 +452,6 @@ export class TextRenderer {
     // Bind framebuffer
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFramebuffer);
 
-    this.sceneWidth = width;
-    this.sceneHeight = height;
 
     // Setup color texture
     gl.bindTexture(gl.TEXTURE_2D, this.sceneTexture);
@@ -491,56 +488,16 @@ export class TextRenderer {
     this.needsTextureUpdate = true;
   }
 
-  /**
-   * Capture current scene (ocean + glass) to texture for text background analysis
-   */
-  public captureScene(renderSceneCallback: () => void): boolean {
-    const gl = this.gl;
-    if (!this.sceneFramebuffer || !this.sceneTexture) {
-      return false;
-    }
-
-    // Store current viewport
-    const viewport = gl.getParameter(gl.VIEWPORT);
-
-    const width = this.sceneWidth || gl.canvas.width;
-    const height = this.sceneHeight || gl.canvas.height;
-
-    // Bind framebuffer for rendering
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFramebuffer);
-
-    // Set viewport to match framebuffer size
-    gl.viewport(0, 0, width, height);
-
-    // Clear framebuffer
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-    // Render scene to framebuffer
-    renderSceneCallback();
-
-    // Restore screen framebuffer
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-
-    // Restore viewport
-    gl.viewport(viewport[0], viewport[1], viewport[2], viewport[3]);
-
-    // Update cache state
-    this.sceneTextureDirty = false;
-    return true;
-  }
-
-  /**
-   * Check if scene texture is ready to use
-   */
   public isSceneTextureReady(): boolean {
-    return !!this.sceneTexture && !this.sceneTextureDirty;
+    return !!this.sceneTexture;
   }
 
   /**
    * Mark scene texture as dirty to force recapture on next render
    */
   public markSceneDirty(): void {
-    this.sceneTextureDirty = true;
+    this.needsTextureUpdate = true;
+    this.needsBlurMapUpdate = true;
   }
 
   /**
@@ -1085,6 +1042,14 @@ export class TextRenderer {
    * Returns positions and sizes for all 15 panels
    */
   private getPanelInfo(): { positions: Float32Array, sizes: Float32Array, count: number } {
+    if (this.panelLayouts) {
+      return {
+        positions: this.panelLayouts.positions,
+        sizes: this.panelLayouts.sizes,
+        count: this.panelLayouts.count
+      };
+    }
+
     const canvas = this.gl.canvas as HTMLCanvasElement;
     const canvasRect = canvas.getBoundingClientRect();
 
@@ -1211,13 +1176,6 @@ export class TextRenderer {
    */
   public render(wakeTexture: WebGLTexture | null = null, wakesEnabled: boolean = true): void {
     const gl = this.gl;
-
-    // CRITICAL: Skip rendering entirely during CSS transitions
-    // This prevents rendering stale texture data at wrong positions
-    if (this.isTransitioningFlag) {
-      this.introVisibility = 0.0;
-      return;
-    }
 
     if (!this.textProgram || !this.sceneTexture || this.textElements.size === 0) {
       return;
@@ -1436,6 +1394,24 @@ export class TextRenderer {
       position: [glX, glY],
       size: [width, height]
     };
+  }
+
+  /**
+   * Set up text element tracking from HTML elements
+   */
+  public applyPanelLayouts(snapshot: PanelLayoutSnapshot | null): void {
+    if (!snapshot || snapshot.version === this.panelLayoutVersion) {
+      return;
+    }
+
+    this.panelLayouts = snapshot;
+    this.panelLayoutVersion = snapshot.version;
+    this.needsTextureUpdate = true;
+    this.needsBlurMapUpdate = true;
+  }
+
+  public setSceneTexture(texture: WebGLTexture | null): void {
+    this.sceneTexture = texture;
   }
 
   /**

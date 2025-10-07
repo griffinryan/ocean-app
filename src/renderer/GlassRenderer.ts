@@ -7,6 +7,7 @@ import { ShaderManager, ShaderProgram } from './ShaderManager';
 import { GeometryBuilder, BufferManager, GeometryData } from './Geometry';
 import { Mat4 } from '../utils/math';
 import { QualitySettings } from '../config/QualityPresets';
+import type { PanelLayoutSnapshot } from '../utils/PanelLayoutTracker';
 
 const IS_DEV = import.meta.env.DEV;
 
@@ -38,6 +39,25 @@ export class GlassRenderer {
 
   // Panel configurations
   private panels: Map<string, GlassPanelConfig> = new Map();
+  private readonly panelElementIds: Map<string, string> = new Map([
+    ['landing', 'landing-panel'],
+    ['app-bio', 'app-bio-panel'],
+    ['portfolio-lakehouse', 'portfolio-lakehouse-panel'],
+    ['portfolio-encryption', 'portfolio-encryption-panel'],
+    ['portfolio-dotereditor', 'portfolio-dotereditor-panel'],
+    ['portfolio-dreamrequiem', 'portfolio-dreamrequiem-panel'],
+    ['portfolio-greenlightgo', 'portfolio-greenlightgo-panel'],
+    ['resume-playember', 'resume-playember-panel'],
+    ['resume-meta', 'resume-meta-panel'],
+    ['resume-outlier', 'resume-outlier-panel'],
+    ['resume-uwtutor', 'resume-uwtutor-panel'],
+    ['resume-uwedu', 'resume-uwedu-panel'],
+    ['navbar', 'navbar']
+  ]);
+  private readonly elementToPanelId: Map<string, string> = new Map();
+
+  private pendingLayout: PanelLayoutSnapshot | null = null;
+  private appliedLayoutVersion: number = -1;
 
   // Animation
   private startTime: number;
@@ -84,6 +104,10 @@ export class GlassRenderer {
     this.gl = gl;
     this.shaderManager = shaderManager;
     this.startTime = performance.now();
+
+    this.panelElementIds.forEach((elementId, panelId) => {
+      this.elementToPanelId.set(elementId, panelId);
+    });
 
     // Setup resize observer to mark positions dirty only when needed
     this.setupResizeObserver();
@@ -455,6 +479,22 @@ export class GlassRenderer {
   /**
    * Set up default panel configurations
    */
+  public applyPanelLayouts(snapshot: PanelLayoutSnapshot | null): void {
+    if (!snapshot) {
+      return;
+    }
+
+    if (this.pendingLayout && this.pendingLayout.version === snapshot.version) {
+      return;
+    }
+
+    this.pendingLayout = snapshot;
+    this.positionsDirty = true;
+  }
+
+  /**
+   * Set up default panel configurations
+   */
   public setupDefaultPanels(): void {
     // Initialize with temporary values - will be updated dynamically
     this.addPanel('landing', {
@@ -698,6 +738,38 @@ export class GlassRenderer {
    * PERFORMANCE: Only called when positionsDirty flag is set
    */
   public updatePanelPositions(): void {
+    if (this.pendingLayout && this.pendingLayout.version !== this.appliedLayoutVersion) {
+      this.updatePanelsFromSnapshot(this.pendingLayout);
+      this.appliedLayoutVersion = this.pendingLayout.version;
+      this.positionsDirty = false;
+      return;
+    }
+
+    this.updatePanelPositionsFromDOM();
+    this.positionsDirty = false;
+  }
+
+  private updatePanelsFromSnapshot(snapshot: PanelLayoutSnapshot): void {
+    snapshot.layouts.forEach((layout, elementId) => {
+      const panelId = this.elementToPanelId.get(elementId);
+      if (!panelId) {
+        return;
+      }
+
+      const existing = this.panels.get(panelId);
+      if (!existing) {
+        return;
+      }
+
+      this.panels.set(panelId, {
+        ...existing,
+        position: [layout.position[0], layout.position[1]],
+        size: [layout.size[0], layout.size[1]]
+      });
+    });
+  }
+
+  private updatePanelPositionsFromDOM(): void {
     const canvas = this.gl.canvas as HTMLCanvasElement;
     const canvasRect = canvas.getBoundingClientRect();
 

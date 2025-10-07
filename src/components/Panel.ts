@@ -6,6 +6,7 @@
 import type { TextRenderer } from '../renderer/TextRenderer';
 import type { GlassRenderer } from '../renderer/GlassRenderer';
 import { ScrollTracker } from '../utils/ScrollTracker';
+import type { PanelLayoutTracker } from '../utils/PanelLayoutTracker';
 
 export type PanelState = 'landing' | 'app' | 'portfolio' | 'resume' | 'paper' | 'not-found';
 
@@ -32,6 +33,8 @@ export class PanelManager {
 
   // Optional GlassRenderer reference for updating glass panel positions
   private glassRenderer: GlassRenderer | null = null;
+
+  private layoutTracker: PanelLayoutTracker | null = null;
 
   // Scroll tracker for continuous glass position updates during scroll
   private scrollTracker: ScrollTracker;
@@ -94,6 +97,7 @@ export class PanelManager {
     this.setupAnimationListeners();
     this.setupScrollTracking();
     this.initializeState();
+    this.markLayoutDirty();
   }
 
   private getElement(id: string): HTMLElement {
@@ -385,6 +389,7 @@ export class PanelManager {
     const oldState = this.currentState;
     this.currentState = newState;
     this.transitionActive = true;
+    this.markLayoutDirty();
 
     // CRITICAL: Enable continuous glass tracking during slide transitions
     // For slide transitions, we want continuous position updates (like scroll mode)
@@ -438,6 +443,7 @@ export class PanelManager {
     if (this.glassRenderer) {
       this.glassRenderer.markPositionsDirty();
     }
+    this.markLayoutDirty();
   }
 
   /**
@@ -475,6 +481,7 @@ export class PanelManager {
     if (this.glassRenderer) {
       this.glassRenderer.markPositionsDirty();
     }
+    this.markLayoutDirty();
   }
 
   /**
@@ -556,6 +563,7 @@ export class PanelManager {
       this.glassRenderer.markPositionsDirty();
     }
     this.scrollTracker.forceUpdate();
+    this.markLayoutDirty();
   }
 
   private getPanelElements(state: PanelState): HTMLElement[] {
@@ -667,6 +675,7 @@ export class PanelManager {
     this.portfolioContainer.classList.add('webgl-ready');
     this.resumeContainer.classList.add('webgl-ready');
     this.navbar.classList.add('webgl-ready');
+    this.markLayoutDirty();
   }
 
   /**
@@ -675,6 +684,7 @@ export class PanelManager {
   public setTextRenderer(textRenderer: TextRenderer | null): void {
     this.textRenderer = textRenderer;
     this.scrollTracker.setTextRenderer(textRenderer);
+    this.markLayoutDirty();
   }
 
   /**
@@ -687,6 +697,13 @@ export class PanelManager {
     if (this.glassRenderer) {
       this.glassRenderer.markPositionsDirty();
     }
+    this.markLayoutDirty();
+  }
+
+  public setLayoutTracker(layoutTracker: PanelLayoutTracker | null): void {
+    this.layoutTracker = layoutTracker;
+    this.scrollTracker.setLayoutTracker(layoutTracker);
+    this.markLayoutDirty();
   }
 
   public dispose(): void {
@@ -722,6 +739,10 @@ export class PanelManager {
     this.pendingEnterCount = 0;
 
     this.scrollTracker.dispose();
+  }
+
+  private markLayoutDirty(): void {
+    this.layoutTracker?.markDirty();
   }
 
 }

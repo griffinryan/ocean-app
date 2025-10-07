@@ -12,11 +12,13 @@ import { WakeRenderer } from './WakeRenderer';
 import { QualityManager, QualitySettings } from '../config/QualityPresets';
 import { PerformanceMonitor } from '../utils/PerformanceMonitor';
 import { FrameBudgetManager } from '../utils/FrameBudget';
+import type { PanelLayoutTracker } from '../utils/PanelLayoutTracker';
 
 export interface RenderConfig {
   canvas: HTMLCanvasElement;
   antialias?: boolean;
   alpha?: boolean;
+  layoutTracker?: PanelLayoutTracker | null;
 }
 
 export class OceanRenderer {
@@ -71,6 +73,7 @@ export class OceanRenderer {
   private performanceMonitor: PerformanceMonitor;
   private frameBudget: FrameBudgetManager;
   private currentQuality: QualitySettings;
+  private layoutTracker: PanelLayoutTracker | null;
 
   // Upscaling system
   private upscaleFramebuffer: WebGLFramebuffer | null = null;
@@ -111,6 +114,7 @@ export class OceanRenderer {
     this.startTime = performance.now();
     this.projectionMatrix = new Mat4();
     this.viewMatrix = new Mat4();
+    this.layoutTracker = config.layoutTracker ?? null;
 
     // Initialize WebGL2 context
     const gl = this.canvas.getContext('webgl2', {
@@ -389,6 +393,8 @@ export class OceanRenderer {
    * Handle canvas resize with device pixel ratio consideration
    */
   private resize(): void {
+    this.layoutTracker?.markDirty();
+
     const displayWidth = this.canvas.clientWidth;
     const displayHeight = this.canvas.clientHeight;
     const devicePixelRatio = window.devicePixelRatio || 1;
@@ -756,6 +762,19 @@ export class OceanRenderer {
       gl.viewport(0, 0, this.displayWidth, this.displayHeight);
     }
 
+    // Update shared panel layout snapshot once per frame
+    if (this.layoutTracker) {
+      const snapshot = this.layoutTracker.getSnapshot(this.canvas);
+      if (snapshot) {
+        if (this.glassRenderer) {
+          this.glassRenderer.applyPanelLayouts(snapshot);
+        }
+        if (this.textRenderer) {
+          this.textRenderer.applyPanelLayouts(snapshot);
+        }
+      }
+    }
+
     // Render ocean once to shared buffer for reuse by downstream passes
     this.captureOceanToSharedBuffer(elapsedTime);
 
@@ -764,47 +783,40 @@ export class OceanRenderer {
       this.glassRenderer.setTextPresence(textPresence);
     }
 
-    let capturedSceneTexture: WebGLTexture | null = null;
-
-    if (this.textEnabled && this.textRenderer) {
-      this.textRenderer.captureScene(() => {
-        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-        this.compositeTexture(this.sharedOceanTexture);
-        if (this.glassEnabled && this.glassRenderer) {
-          this.glassRenderer.render();
-        }
-      });
-
-      if (!this.frameBudget.shouldSkipOptionalWork()) {
-        const blurMapTexture = this.textRenderer.getBlurMapTexture();
-        if (this.glassRenderer) {
-          this.glassRenderer.setBlurMapTexture(blurMapTexture);
-        }
-      }
-
-      capturedSceneTexture = this.textRenderer.getSceneTexture();
-    } else if (this.glassRenderer) {
-      this.glassRenderer.setBlurMapTexture(null);
-    }
-
+    // Compose ocean + glass into upscale framebuffer
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.upscaleFramebuffer);
+    gl.viewport(0, 0, this.renderWidth, this.renderHeight);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-    const useSceneCapture = this.textRenderer?.isSceneTextureReady() && !!capturedSceneTexture;
-    if (useSceneCapture && capturedSceneTexture) {
-      this.compositeTexture(capturedSceneTexture);
+    this.compositeTexture(this.sharedOceanTexture);
+    if (this.glassEnabled && this.glassRenderer) {
+      this.glassRenderer.render();
+    }
+
+    if (this.textEnabled && this.textRenderer) {
+      this.textRenderer.setSceneTexture(this.upscaleTexture);
+    }
+
+    // Prepare to draw to screen
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, this.displayWidth, this.displayHeight);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    if (needsUpscale) {
+      this.applyUpscaling();
     } else {
-      this.compositeTexture(this.sharedOceanTexture);
-      if (this.glassEnabled && this.glassRenderer) {
-        this.glassRenderer.render();
-      }
+      this.compositeTexture(this.upscaleTexture);
     }
 
     if (this.textEnabled && this.textRenderer) {
       this.textRenderer.render(wakeTexture, this.wakesEnabled);
-    }
 
-    if (needsUpscale) {
-      this.applyUpscaling();
+      if (!this.frameBudget.shouldSkipOptionalWork() && this.glassRenderer) {
+        const blurMapTexture = this.textRenderer.getBlurMapTexture();
+        this.glassRenderer.setBlurMapTexture(blurMapTexture);
+      }
+    } else if (this.glassRenderer) {
+      this.glassRenderer.setBlurMapTexture(null);
     }
   }
 
