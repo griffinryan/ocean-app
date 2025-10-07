@@ -44,6 +44,12 @@ export class PanelManager {
   private pendingTimeouts: Set<number> = new Set();
   private transitionTimeout: number | null = null;
 
+  // Event handler references for proper cleanup
+  private paperBtnClickHandler: ((e: Event) => void) | null = null;
+  private appBtnClickHandler: ((e: Event) => void) | null = null;
+  private hashChangeHandler: (() => void) | null = null;
+  private keyDownHandler: ((e: KeyboardEvent) => void) | null = null;
+
   constructor() {
     this.landingPanel = this.getElement('landing-panel');
     this.appBioPanel = this.getElement('app-bio-panel');
@@ -91,26 +97,30 @@ export class PanelManager {
   }
 
   private setupEventListeners(): void {
-    // Button click handlers
-    this.paperBtn.addEventListener('click', (e) => {
+    // Button click handlers - store references for cleanup
+    this.paperBtnClickHandler = (e) => {
       e.preventDefault();
       this.transitionTo('paper');
-    });
+    };
+    this.paperBtn.addEventListener('click', this.paperBtnClickHandler);
 
-    this.appBtn.addEventListener('click', (e) => {
+    this.appBtnClickHandler = (e) => {
       e.preventDefault();
       this.transitionTo('app');
-    });
+    };
+    this.appBtn.addEventListener('click', this.appBtnClickHandler);
 
-    // Hash change for browser navigation
-    window.addEventListener('hashchange', () => {
+    // Hash change for browser navigation - store reference for cleanup
+    this.hashChangeHandler = () => {
       this.handleHashChange();
-    });
+    };
+    window.addEventListener('hashchange', this.hashChangeHandler);
 
-    // Keyboard shortcuts
-    document.addEventListener('keydown', (e) => {
+    // Keyboard shortcuts - store reference for cleanup
+    this.keyDownHandler = (e) => {
       this.handleKeyPress(e);
-    });
+    };
+    document.addEventListener('keydown', this.keyDownHandler);
   }
 
   /**
@@ -578,10 +588,38 @@ export class PanelManager {
   }
 
   public dispose(): void {
-    // Clean up event listeners
-    this.paperBtn.removeEventListener('click', () => {});
-    this.appBtn.removeEventListener('click', () => {});
-    window.removeEventListener('hashchange', () => {});
-    document.removeEventListener('keydown', () => {});
+    // Clean up event listeners using stored references
+    if (this.paperBtnClickHandler) {
+      this.paperBtn.removeEventListener('click', this.paperBtnClickHandler);
+      this.paperBtnClickHandler = null;
+    }
+
+    if (this.appBtnClickHandler) {
+      this.appBtn.removeEventListener('click', this.appBtnClickHandler);
+      this.appBtnClickHandler = null;
+    }
+
+    if (this.hashChangeHandler) {
+      window.removeEventListener('hashchange', this.hashChangeHandler);
+      this.hashChangeHandler = null;
+    }
+
+    if (this.keyDownHandler) {
+      document.removeEventListener('keydown', this.keyDownHandler);
+      this.keyDownHandler = null;
+    }
+
+    // Clear any pending timeouts
+    this.pendingTimeouts.forEach(timeoutId => clearTimeout(timeoutId));
+    this.pendingTimeouts.clear();
+
+    if (this.transitionTimeout !== null) {
+      clearTimeout(this.transitionTimeout);
+      this.transitionTimeout = null;
+    }
+
+    // Clear transition/animation tracking
+    this.activeTransitions.clear();
+    this.activeAnimations.clear();
   }
 }

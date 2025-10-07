@@ -26,6 +26,7 @@ export class GlassRenderer {
   // Framebuffer for ocean texture
   private oceanFramebuffer: WebGLFramebuffer | null = null;
   private oceanTexture: WebGLTexture | null = null;
+  private oceanTextureOwned: boolean = true; // Track if we own the texture for cleanup
   private depthBuffer: WebGLRenderbuffer | null = null;
 
   // Matrix uniforms
@@ -732,7 +733,14 @@ export class GlassRenderer {
    */
   public setOceanTexture(texture: WebGLTexture | null): void {
     if (texture) {
+      // Delete old texture if we own it (not shared)
+      if (this.oceanTextureOwned && this.oceanTexture) {
+        this.gl.deleteTexture(this.oceanTexture);
+      }
+
+      // Set new texture (shared, not owned by us)
       this.oceanTexture = texture;
+      this.oceanTextureOwned = false;
     }
   }
 
@@ -800,10 +808,12 @@ export class GlassRenderer {
       this.oceanFramebuffer = null;
     }
 
-    if (this.oceanTexture) {
+    // Only delete texture if we own it (not shared from OceanRenderer)
+    if (this.oceanTexture && this.oceanTextureOwned) {
       gl.deleteTexture(this.oceanTexture);
-      this.oceanTexture = null;
     }
+    this.oceanTexture = null;
+    this.oceanTextureOwned = true;
 
     if (this.depthBuffer) {
       gl.deleteRenderbuffer(this.depthBuffer);

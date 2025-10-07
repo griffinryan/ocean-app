@@ -213,6 +213,19 @@ export class ShaderManager {
   }
 
   /**
+   * Remove a single shader program by name
+   */
+  removeProgram(name: string): boolean {
+    const program = this.programs.get(name);
+    if (program) {
+      this.gl.deleteProgram(program.program);
+      this.programs.delete(name);
+      return true;
+    }
+    return false;
+  }
+
+  /**
    * Clean up all shader programs
    */
   dispose(): void {

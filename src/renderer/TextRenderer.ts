@@ -74,6 +74,9 @@ export class TextRenderer {
   // Resize observer for responsive text positioning
   private resizeObserver: ResizeObserver | null = null;
 
+  // Mutation observer for content changes
+  private mutationObserver: MutationObserver | null = null;
+
   // Font loading state
   private fontsLoaded: boolean = false;
 
@@ -86,6 +89,8 @@ export class TextRenderer {
   private isProcessingBatches: boolean = false;
   private readonly BATCH_SIZE = 15; // Elements per frame
   private batchRenderCallback: (() => void) | null = null;
+  private batchTimeoutId: number | null = null;
+  private readonly BATCH_TIMEOUT_MS = 1000; // Force completion after 1 second
 
   // Text intro animation state
   private textIntroStartTime: number = 0;
@@ -784,6 +789,9 @@ export class TextRenderer {
    * Called when transitioning ends to avoid frame spike
    */
   private startAmortizedTextUpdate(callback?: () => void): void {
+    // Cancel any existing update first
+    this.cancelAmortizedUpdate();
+
     // Store callback to execute after all batches complete
     this.batchRenderCallback = callback || null;
 
@@ -803,7 +811,68 @@ export class TextRenderer {
     // Clear canvas immediately
     this.textContext.clearRect(0, 0, this.textCanvas.width, this.textCanvas.height);
 
+    // SAFETY: Set timeout to force completion if batches don't finish
+    this.batchTimeoutId = window.setTimeout(() => {
+      console.warn('TextRenderer: Batch processing timeout, forcing completion');
+      this.forceCompleteBatching();
+    }, this.BATCH_TIMEOUT_MS);
+
     console.debug(`TextRenderer: Starting amortized update, ${this.textUpdateBatches.length} batches, ${visibleElements.length} elements`);
+  }
+
+  /**
+   * SAFETY: Cancel ongoing amortized update
+   */
+  private cancelAmortizedUpdate(): void {
+    if (this.batchTimeoutId !== null) {
+      clearTimeout(this.batchTimeoutId);
+      this.batchTimeoutId = null;
+    }
+
+    this.isProcessingBatches = false;
+    this.textUpdateBatches = [];
+    this.currentBatchIndex = 0;
+    this.batchRenderCallback = null;
+  }
+
+  /**
+   * SAFETY: Force complete batching (timeout fallback)
+   */
+  private forceCompleteBatching(): void {
+    if (!this.isProcessingBatches) return;
+
+    // Process all remaining batches immediately
+    while (this.currentBatchIndex < this.textUpdateBatches.length) {
+      const batch = this.textUpdateBatches[this.currentBatchIndex];
+      batch.forEach(id => {
+        const config = this.textElements.get(id);
+        if (config) {
+          const element = document.querySelector(config.selector) as HTMLElement;
+          if (element) {
+            this.renderTextToCanvas(element, config);
+          }
+        }
+      });
+      this.currentBatchIndex++;
+    }
+
+    // Complete batching
+    this.uploadTextTexture();
+    this.isProcessingBatches = false;
+    this.textUpdateBatches = [];
+    this.needsTextureUpdate = false;
+
+    // Execute callback if provided
+    if (this.batchRenderCallback) {
+      this.batchRenderCallback();
+      this.batchRenderCallback = null;
+    }
+
+    // Clear timeout
+    if (this.batchTimeoutId !== null) {
+      clearTimeout(this.batchTimeoutId);
+      this.batchTimeoutId = null;
+    }
   }
 
   /**
@@ -837,6 +906,12 @@ export class TextRenderer {
       this.isProcessingBatches = false;
       this.textUpdateBatches = [];
       this.needsTextureUpdate = false;
+
+      // Clear timeout since we completed successfully
+      if (this.batchTimeoutId !== null) {
+        clearTimeout(this.batchTimeoutId);
+        this.batchTimeoutId = null;
+      }
 
       console.debug('TextRenderer: Amortized update complete');
 
@@ -1264,8 +1339,12 @@ export class TextRenderer {
   public setTransitioning(transitioning: boolean): void {
     this.isTransitioningFlag = transitioning;
 
+    // SAFETY: When transition starts, cancel any ongoing batching
+    if (transitioning) {
+      this.cancelAmortizedUpdate();
+    }
     // If transitioning just ended, use amortized update to avoid frame spike
-    if (!transitioning) {
+    else {
       this.needsBlurMapUpdate = true;
       this.markSceneDirty();
 
@@ -1502,7 +1581,8 @@ export class TextRenderer {
    * Observes all 16 panels for DOM mutations
    */
   private setupMutationObserver(): void {
-    const observer = new MutationObserver(() => {
+    // Create and store mutation observer reference for cleanup
+    this.mutationObserver = new MutationObserver(() => {
       this.needsTextureUpdate = true;
     });
 
@@ -1529,7 +1609,7 @@ export class TextRenderer {
     observeTargets.forEach(selector => {
       const element = document.querySelector(selector);
       if (element) {
-        observer.observe(element, {
+        this.mutationObserver!.observe(element, {
           childList: true,
           subtree: true,
           characterData: true
@@ -1819,6 +1899,15 @@ export class TextRenderer {
       this.resizeObserver.disconnect();
       this.resizeObserver = null;
     }
+
+    // Clean up mutation observer
+    if (this.mutationObserver) {
+      this.mutationObserver.disconnect();
+      this.mutationObserver = null;
+    }
+
+    // Clean up batch processing
+    this.cancelAmortizedUpdate();
 
     // Clean up geometry
     this.bufferManager.dispose();
