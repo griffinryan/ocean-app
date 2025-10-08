@@ -5,6 +5,7 @@ precision highp float;
 in vec2 v_uv;
 in vec2 v_screenPos;
 in float v_time;
+in vec2 v_panelSize;
 
 uniform float u_aspectRatio;
 uniform vec2 u_resolution;
@@ -13,6 +14,7 @@ uniform vec2 u_panelPosition;     // Panel position in screen space
 uniform vec2 u_panelSize;         // Panel size in screen space
 uniform float u_distortionStrength; // How strong the distortion is
 uniform float u_refractionIndex;    // Index of refraction for glass
+uniform float u_borderRadius;       // Border radius in pixels for rounded corners
 
 // Blur map uniforms for frosted glass effect around text
 uniform sampler2D u_blurMapTexture;
@@ -51,6 +53,16 @@ float noise(vec2 p) {
     vec2 u = f * f * (3.0 - 2.0 * f);
 
     return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
+}
+
+// Signed Distance Field for rounded rectangle
+// Returns distance to rounded box boundary (negative = inside, positive = outside)
+// p: point to test (relative to box center)
+// size: half-size of the box (from center to edge)
+// radius: corner radius
+float sdRoundedBox(vec2 p, vec2 size, float radius) {
+    vec2 d = abs(p) - size + radius;
+    return min(max(d.x, d.y), 0.0) + length(max(d, 0.0)) - radius;
 }
 
 // PERFORMANCE: Calculate pixel-density LOD for adaptive detail
@@ -199,18 +211,25 @@ void main() {
     vec2 deltaFromCenter = screenUV - panelCenter;
     vec2 panelUV = deltaFromCenter / panelHalfSize + 0.5; // Direct mapping to [0,1] range
 
-    // Strict boundary enforcement - only render within exact panel bounds
-    if (panelUV.x < 0.0 || panelUV.x > 1.0 || panelUV.y < 0.0 || panelUV.y > 1.0) {
+    // Convert panel size from normalized coordinates to pixels for accurate radius calculation
+    vec2 panelSizePixels = v_panelSize * u_resolution;
+    vec2 panelPosPixels = (panelUV - 0.5) * panelSizePixels;
+    vec2 panelSizeHalf = panelSizePixels * 0.5;
+
+    // Use inner border radius (CSS: calc(var(--panel-radius) - 2px))
+    // This matches the ::after element's inner border
+    float innerRadius = u_borderRadius - 2.0;
+
+    // Calculate distance to rounded rectangle boundary
+    float dist = sdRoundedBox(panelPosPixels, panelSizeHalf, innerRadius);
+
+    // Discard pixels outside rounded rectangle
+    if (dist > 0.0) {
         discard;
     }
 
-    // Add soft edge fade for smoother transitions at boundaries
-    float edgeFade = 1.0;
-    float fadeWidth = 0.02; // 2% fade at edges
-    edgeFade *= smoothstep(0.0, fadeWidth, panelUV.x);
-    edgeFade *= smoothstep(0.0, fadeWidth, panelUV.y);
-    edgeFade *= smoothstep(0.0, fadeWidth, 1.0 - panelUV.x);
-    edgeFade *= smoothstep(0.0, fadeWidth, 1.0 - panelUV.y);
+    // Distance-based edge fade for smooth antialiasing (2px fade at boundary)
+    float edgeFade = smoothstep(2.0, -2.0, dist);
 
     // PERFORMANCE: Calculate pixel-density LOD for adaptive detail
     float lod = calculateGlassLOD(panelUV);
@@ -301,11 +320,10 @@ void main() {
     float flowHighlight = sin(panelUV.x * 8.0 + v_time * 3.0) * cos(panelUV.y * 6.0 + v_time * 2.0);
     reflection += vec3(0.9, 0.95, 1.0) * flowHighlight * 0.03;
 
-    // Enhanced edge glow with liquid-like variation
-    float edgeGlow = 1.0 - smoothstep(0.0, 0.08, min(
-        min(panelUV.x, 1.0 - panelUV.x),
-        min(panelUV.y, 1.0 - panelUV.y)
-    ));
+    // Enhanced edge glow with liquid-like variation (distance-based for rounded corners)
+    // Distance to edge: negative dist means we're inside, closer to 0 means closer to edge
+    float distanceToEdge = abs(dist);
+    float edgeGlow = exp(-distanceToEdge * 0.15);  // Exponential falloff from edge
 
     // Add pulsing edge effect
     float edgePulse = 0.5 + 0.5 * sin(v_time * 4.0);
