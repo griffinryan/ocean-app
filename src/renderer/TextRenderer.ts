@@ -1930,6 +1930,9 @@ export class TextRenderer {
   public updateTextPositions(): void {
     // Mark texture as needing update when positions change
     this.needsTextureUpdate = true;
+    // CRITICAL FIX: Also regenerate blur map when positions change
+    // Without this, blur map uses stale data until first scroll (causes snap/misalignment)
+    this.needsBlurMapUpdate = true;
   }
 
   /**

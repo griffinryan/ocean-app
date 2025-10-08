@@ -12,6 +12,7 @@ export interface GlassPanelConfig {
   size: [number, number];     // Size in normalized coordinates
   distortionStrength: number; // Strength of the distortion effect
   refractionIndex: number;    // Index of refraction for the glass
+  borderInset?: number;       // Optional border inset in pixels (default 0) - shrinks rendering bounds to stay within CSS borders
 }
 
 export class GlassRenderer {
@@ -558,18 +559,21 @@ export class GlassRenderer {
     });
 
     // Download resume buttons (minimal distortion for clarity)
+    // Small panels need precise border inset to stay within CSS borders
     this.addPanel('download-resume-btn-portfolio', {
       position: [0.0, 0.0],
       size: [0.25, 0.1],
       distortionStrength: 0.25,
-      refractionIndex: 1.45
+      refractionIndex: 1.45,
+      borderInset: 4  // 4px inset (2px outer border + 2px ::after inner border)
     });
 
     this.addPanel('download-resume-btn-resume', {
       position: [0.0, 0.0],
       size: [0.25, 0.1],
       distortionStrength: 0.25,
-      refractionIndex: 1.45
+      refractionIndex: 1.45,
+      borderInset: 4  // 4px inset (2px outer border + 2px ::after inner border)
     });
 
     // Update positions immediately and mark dirty for first render
@@ -720,7 +724,7 @@ export class GlassRenderer {
     }
 
     // Dynamically update all registered panels
-    this.panels.forEach((_config, id) => {
+    this.panels.forEach((config, id) => {
       // Construct element ID: navbar and download buttons stay as-is, everything else gets -panel suffix
       const elementId = (id === 'navbar' || id.startsWith('download-resume-btn-')) ? id : `${id}-panel`;
 
@@ -730,7 +734,8 @@ export class GlassRenderer {
 
         // Only update if element is visible and has valid dimensions
         if (rect.width > 0 && rect.height > 0) {
-          const normalizedPos = this.htmlRectToNormalized(rect, canvasRect);
+          // Pass borderInset from config (defaults to 0 if not specified)
+          const normalizedPos = this.htmlRectToNormalized(rect, canvasRect, config.borderInset || 0);
           this.updatePanel(id, {
             position: normalizedPos.position,
             size: normalizedPos.size
@@ -742,25 +747,35 @@ export class GlassRenderer {
 
   /**
    * Convert HTML element rect to normalized WebGL coordinates
+   * Supports optional border inset to shrink rendering bounds
    */
-  private htmlRectToNormalized(elementRect: DOMRect, canvasRect: DOMRect): { position: [number, number], size: [number, number] } {
+  private htmlRectToNormalized(elementRect: DOMRect, canvasRect: DOMRect, borderInset: number = 0): { position: [number, number], size: [number, number] } {
     // Ensure we have valid rectangles
     if (elementRect.width === 0 || elementRect.height === 0 || canvasRect.width === 0 || canvasRect.height === 0) {
       console.warn('GlassRenderer: Invalid rectangle dimensions detected');
       return { position: [0, 0], size: [0, 0] };
     }
 
-    // Calculate center position in normalized coordinates (0 to 1)
-    const centerX = ((elementRect.left + elementRect.width / 2) - canvasRect.left) / canvasRect.width;
-    const centerY = ((elementRect.top + elementRect.height / 2) - canvasRect.top) / canvasRect.height;
+    // Apply border inset to shrink bounds (keeps glass shader within CSS borders)
+    // Inset is applied symmetrically on all sides
+    const insetRect = {
+      left: elementRect.left + borderInset,
+      top: elementRect.top + borderInset,
+      width: elementRect.width - (borderInset * 2),
+      height: elementRect.height - (borderInset * 2)
+    };
+
+    // Calculate center position in normalized coordinates (0 to 1) using inset rect
+    const centerX = ((insetRect.left + insetRect.width / 2) - canvasRect.left) / canvasRect.width;
+    const centerY = ((insetRect.top + insetRect.height / 2) - canvasRect.top) / canvasRect.height;
 
     // Convert to WebGL coordinates (-1 to 1, with Y flipped)
     const glX = centerX * 2.0 - 1.0;
     const glY = (1.0 - centerY) * 2.0 - 1.0; // Flip Y and convert to [-1,1]
 
-    // Calculate size in normalized coordinates (as fraction of screen size * 2 for [-1,1] range)
-    const width = (elementRect.width / canvasRect.width) * 2.0;
-    const height = (elementRect.height / canvasRect.height) * 2.0;
+    // Calculate size in normalized coordinates using inset rect
+    const width = (insetRect.width / canvasRect.width) * 2.0;
+    const height = (insetRect.height / canvasRect.height) * 2.0;
 
     return {
       position: [glX, glY],
