@@ -673,6 +673,12 @@ export class PanelManager {
     this.portfolioContainer.classList.add('webgl-enhanced');
     this.resumeContainer.classList.add('webgl-enhanced');
     this.navbar.classList.add('webgl-enhanced');
+
+    // Enable WebGL for download resume buttons
+    const downloadBtnPortfolio = document.getElementById('download-resume-btn-portfolio');
+    const downloadBtnResume = document.getElementById('download-resume-btn-resume');
+    if (downloadBtnPortfolio) downloadBtnPortfolio.classList.add('webgl-enhanced');
+    if (downloadBtnResume) downloadBtnResume.classList.add('webgl-enhanced');
   }
 
   public disableWebGLDistortion(): void {
@@ -684,6 +690,12 @@ export class PanelManager {
     this.portfolioContainer.classList.remove('webgl-enhanced');
     this.resumeContainer.classList.remove('webgl-enhanced');
     this.navbar.classList.remove('webgl-enhanced');
+
+    // Disable WebGL for download resume buttons
+    const downloadBtnPortfolio = document.getElementById('download-resume-btn-portfolio');
+    const downloadBtnResume = document.getElementById('download-resume-btn-resume');
+    if (downloadBtnPortfolio) downloadBtnPortfolio.classList.remove('webgl-enhanced');
+    if (downloadBtnResume) downloadBtnResume.classList.remove('webgl-enhanced');
   }
 
   /**
@@ -699,6 +711,12 @@ export class PanelManager {
     this.portfolioContainer.classList.add('webgl-ready');
     this.resumeContainer.classList.add('webgl-ready');
     this.navbar.classList.add('webgl-ready');
+
+    // Enable WebGL ready for download resume buttons
+    const downloadBtnPortfolio = document.getElementById('download-resume-btn-portfolio');
+    const downloadBtnResume = document.getElementById('download-resume-btn-resume');
+    if (downloadBtnPortfolio) downloadBtnPortfolio.classList.add('webgl-ready');
+    if (downloadBtnResume) downloadBtnResume.classList.add('webgl-ready');
   }
 
   /**

@@ -839,6 +839,28 @@ body {
   color: rgba(0, 122, 255, 0.6);
 }
 
+/* ===== DOWNLOAD BUTTON PANEL ===== */
+
+.download-button-panel {
+  /* Compact sizing for button-only panel */
+  width: 200px !important;
+  max-width: 200px;
+  height: auto;
+  max-height: 80px;
+  margin: 0 auto 2rem auto; /* Centered with spacing below */
+  padding: 0.5rem !important; /* Minimal padding */
+
+  /* Flexbox for button centering */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.download-resume-btn {
+  margin: 0; /* Remove default button margin */
+  width: 100%; /* Fill panel width */
+}
+
 /* ===== RESUME CARD PANEL STYLING ===== */
 
 .resume-card-panel {

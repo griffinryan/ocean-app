@@ -1058,6 +1058,9 @@ export class TextRenderer {
       'app-bio-panel',
       'navbar',
       'social-icons-container',
+      // Download resume buttons
+      'download-resume-btn-portfolio',
+      'download-resume-btn-resume',
       // Portfolio panels
       'portfolio-lakehouse-panel',
       'portfolio-encryption-panel',
@@ -1180,7 +1183,7 @@ export class TextRenderer {
 
   /**
    * Get panel information for shader uniforms
-   * Returns positions and sizes for all 15 panels
+   * Returns positions and sizes for all panels (including download buttons)
    */
   private getPanelInfo(): { positions: Float32Array, sizes: Float32Array, count: number } {
     const canvas = this.gl.canvas as HTMLCanvasElement;
@@ -1192,6 +1195,9 @@ export class TextRenderer {
       'app-bio-panel',
       'navbar',
       'social-icons-container',
+      // Download resume buttons
+      'download-resume-btn-portfolio',
+      'download-resume-btn-resume',
       // Portfolio panels
       'portfolio-lakehouse-panel',
       'portfolio-encryption-panel',
@@ -1205,7 +1211,7 @@ export class TextRenderer {
       'resume-uwtutor-panel',
       'resume-uwedu-panel'
     ];
-    const positions = new Float32Array(32); // 16 panels * 2 components (x,y)
+    const positions = new Float32Array(32); // Up to 16 panels * 2 components (x,y)
     const sizes = new Float32Array(32);
     let validPanelCount = 0;
 
@@ -1615,7 +1621,11 @@ export class TextRenderer {
 
       // Social Media Icons
       { selector: '#github-icon .icon-svg', id: 'social-github-icon', panelId: 'social-icons-container' },
-      { selector: '#linkedin-icon .icon-svg', id: 'social-linkedin-icon', panelId: 'social-icons-container' }
+      { selector: '#linkedin-icon .icon-svg', id: 'social-linkedin-icon', panelId: 'social-icons-container' },
+
+      // Download Resume Buttons
+      { selector: '#download-resume-link-portfolio', id: 'download-resume-btn-portfolio-text', panelId: 'download-resume-btn-portfolio' },
+      { selector: '#download-resume-link-resume', id: 'download-resume-btn-resume-text', panelId: 'download-resume-btn-resume' }
     ];
 
     // Setup each text element
@@ -1725,7 +1735,7 @@ export class TextRenderer {
 
   /**
    * Set up mutation observer to track content changes
-   * Observes all 16 panels for DOM mutations
+   * Observes all panels for DOM mutations
    */
   private setupMutationObserver(): void {
     // Create and store mutation observer reference for cleanup
@@ -1739,6 +1749,9 @@ export class TextRenderer {
       '#app-panel',
       '#app-bio-panel',
       '#navbar',
+      // Download resume buttons
+      '#download-resume-btn-portfolio',
+      '#download-resume-btn-resume',
       // Portfolio panels
       '#portfolio-lakehouse-panel',
       '#portfolio-encryption-panel',
@@ -1869,7 +1882,7 @@ export class TextRenderer {
 
   /**
    * Set up resize observer for responsive text positioning
-   * Observes all 15 panels for size changes
+   * Observes all panels for size changes
    */
   private setupResizeObserver(): void {
     this.resizeObserver = new ResizeObserver(() => {
@@ -1885,6 +1898,9 @@ export class TextRenderer {
       '#app-panel',
       '#app-bio-panel',
       '#navbar',
+      // Download resume buttons
+      '#download-resume-btn-portfolio',
+      '#download-resume-btn-resume',
       // Portfolio panels
       '#portfolio-lakehouse-panel',
       '#portfolio-encryption-panel',

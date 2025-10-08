@@ -421,8 +421,8 @@ export class GlassRenderer {
 
     // Render each visible panel
     this.panels.forEach((config, id) => {
-      // Dynamically construct element ID: navbar stays as-is, everything else gets -panel suffix
-      const elementId = (id === 'navbar') ? 'navbar' : `${id}-panel`;
+      // Dynamically construct element ID: navbar and download buttons stay as-is, everything else gets -panel suffix
+      const elementId = (id === 'navbar' || id.startsWith('download-resume-btn-')) ? id : `${id}-panel`;
 
       const element = document.getElementById(elementId);
       if (element && !element.classList.contains('hidden')) {
@@ -557,6 +557,21 @@ export class GlassRenderer {
       refractionIndex: 1.45
     });
 
+    // Download resume buttons (minimal distortion for clarity)
+    this.addPanel('download-resume-btn-portfolio', {
+      position: [0.0, 0.0],
+      size: [0.25, 0.1],
+      distortionStrength: 0.25,
+      refractionIndex: 1.45
+    });
+
+    this.addPanel('download-resume-btn-resume', {
+      position: [0.0, 0.0],
+      size: [0.25, 0.1],
+      distortionStrength: 0.25,
+      refractionIndex: 1.45
+    });
+
     // Update positions immediately and mark dirty for first render
     this.positionsDirty = true;
 
@@ -593,6 +608,8 @@ export class GlassRenderer {
       'landing',
       'app-bio',
       'navbar',
+      'download-resume-btn-portfolio',
+      'download-resume-btn-resume',
       'portfolio-lakehouse',
       'portfolio-encryption',
       'portfolio-dotereditor',
@@ -606,8 +623,8 @@ export class GlassRenderer {
     ];
 
     panelIds.forEach(id => {
-      // Construct element ID (navbar stays as-is, others get -panel suffix)
-      const elementId = (id === 'navbar') ? 'navbar' : `${id}-panel`;
+      // Construct element ID (navbar and download buttons stay as-is, others get -panel suffix)
+      const elementId = (id === 'navbar' || id.startsWith('download-resume-btn-')) ? id : `${id}-panel`;
       const element = document.getElementById(elementId);
 
       if (element) {
@@ -704,8 +721,8 @@ export class GlassRenderer {
 
     // Dynamically update all registered panels
     this.panels.forEach((_config, id) => {
-      // Construct element ID: navbar stays as-is, everything else gets -panel suffix
-      const elementId = (id === 'navbar') ? 'navbar' : `${id}-panel`;
+      // Construct element ID: navbar and download buttons stay as-is, everything else gets -panel suffix
+      const elementId = (id === 'navbar' || id.startsWith('download-resume-btn-')) ? id : `${id}-panel`;
 
       const element = document.getElementById(elementId);
       if (element && !element.classList.contains('hidden')) {
