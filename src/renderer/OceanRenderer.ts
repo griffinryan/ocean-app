@@ -9,10 +9,16 @@ import { VesselSystem, VesselConfig } from './VesselSystem';
 import { GlassRenderer } from './GlassRenderer';
 import { TextRenderer } from './TextRenderer';
 import { WakeRenderer } from './WakeRenderer';
-import { QualityManager, QualitySettings } from '../config/QualityPresets';
 import { PerformanceMonitor } from '../utils/PerformanceMonitor';
 import { FrameBudgetManager, WorkPriority } from '../utils/FrameBudget';
 import { PipelineManager } from './PipelineManager';
+
+const FINAL_PASS_BASE_SCALE = 1.0;
+const OCEAN_CAPTURE_SCALE = 1.0;
+const GLASS_CAPTURE_SCALE = 1.0;
+const TEXT_CAPTURE_SCALE = 1.0;
+const UPSCALE_SHARPNESS = 0.0;
+const UPSCALE_METHOD_BILINEAR = 0;
 
 export interface RenderConfig {
   canvas: HTMLCanvasElement;
@@ -67,12 +73,11 @@ export class OceanRenderer {
   private textRenderer: TextRenderer | null = null;
   private textEnabled: boolean = false;
 
-  // Quality and performance management
-  private qualityManager: QualityManager;
+  // Performance management
   private performanceMonitor: PerformanceMonitor;
   private frameBudget: FrameBudgetManager;
   private pipelineManager: PipelineManager;
-  private currentQuality: QualitySettings;
+  private renderScale: number = FINAL_PASS_BASE_SCALE;
 
   // Upscaling system
   private upscaleFramebuffer: WebGLFramebuffer | null = null;
@@ -81,12 +86,16 @@ export class OceanRenderer {
   private upscaleProgram: ShaderProgram | null = null;
   private upscaleGeometry: GeometryData;
   private upscaleBufferManager: BufferManager;
+  private upscaleWidth: number = 1;
+  private upscaleHeight: number = 1;
 
   // PERFORMANCE: Shared ocean buffer - render ocean once, sample multiple times
   // This eliminates redundant ocean draws (3x per frame → 1x per frame)
   private sharedOceanFramebuffer: WebGLFramebuffer | null = null;
   private sharedOceanTexture: WebGLTexture | null = null;
   private sharedOceanDepthBuffer: WebGLRenderbuffer | null = null;
+  private sharedOceanWidth: number = 1;
+  private sharedOceanHeight: number = 1;
 
   // Resolution scaling
   private displayWidth: number = 0;
@@ -99,6 +108,9 @@ export class OceanRenderer {
     fpsElement: null as HTMLElement | null,
     elementsInitialized: false
   };
+
+  // Fallback logging guard
+  private loggedUpscaleFallback: boolean = false;
 
   // Uniform update cache to reduce redundant WebGL calls
   private uniformCache = {
@@ -130,18 +142,10 @@ export class OceanRenderer {
     this.gl = gl;
     this.shaderManager = new ShaderManager(gl);
 
-    // Initialize quality and performance systems
-    this.qualityManager = new QualityManager();
-    this.performanceMonitor = new PerformanceMonitor(this.qualityManager);
+    // Initialize performance systems
+    this.performanceMonitor = new PerformanceMonitor();
     this.frameBudget = new FrameBudgetManager();
     this.pipelineManager = new PipelineManager();
-    this.currentQuality = this.qualityManager.getSettings();
-
-    // Listen for quality changes
-    this.qualityManager.onChange((settings) => {
-      this.currentQuality = settings;
-      this.onQualityChanged(settings);
-    });
 
     // Create full-screen quad geometry for screen-space rendering
     this.geometry = GeometryBuilder.createFullScreenQuad();
@@ -181,7 +185,6 @@ export class OceanRenderer {
     // Initialize GPU timing for performance monitoring
     this.performanceMonitor.initializeGPUTiming(gl);
 
-    console.log(`OceanRenderer: Initialized with quality preset "${this.qualityManager.getPreset()}"`);
   }
 
   /**
@@ -293,12 +296,22 @@ export class OceanRenderer {
       return;
     }
 
+    const safeWidth = Math.max(1, width);
+    const safeHeight = Math.max(1, height);
+
+    if (safeWidth !== width || safeHeight !== height) {
+      console.warn(`OceanRenderer: Clamping shared ocean buffer from ${width}×${height} to ${safeWidth}×${safeHeight}`);
+    }
+
+    this.sharedOceanWidth = safeWidth;
+    this.sharedOceanHeight = safeHeight;
+
     // Bind framebuffer
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.sharedOceanFramebuffer);
 
     // Setup color texture
     gl.bindTexture(gl.TEXTURE_2D, this.sharedOceanTexture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, safeWidth, safeHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -309,7 +322,7 @@ export class OceanRenderer {
 
     // Setup depth buffer
     gl.bindRenderbuffer(gl.RENDERBUFFER, this.sharedOceanDepthBuffer);
-    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, width, height);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, safeWidth, safeHeight);
     gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, this.sharedOceanDepthBuffer);
 
     // Check framebuffer completeness
@@ -334,12 +347,22 @@ export class OceanRenderer {
       return;
     }
 
+    const safeWidth = Math.max(1, width);
+    const safeHeight = Math.max(1, height);
+
+    if (safeWidth !== width || safeHeight !== height) {
+      console.warn(`OceanRenderer: Clamping upscale framebuffer from ${width}×${height} to ${safeWidth}×${safeHeight}`);
+    }
+
+    this.upscaleWidth = safeWidth;
+    this.upscaleHeight = safeHeight;
+
     // Bind framebuffer
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.upscaleFramebuffer);
 
     // Setup color texture
     gl.bindTexture(gl.TEXTURE_2D, this.upscaleTexture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, safeWidth, safeHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -350,7 +373,7 @@ export class OceanRenderer {
 
     // Setup depth buffer
     gl.bindRenderbuffer(gl.RENDERBUFFER, this.upscaleDepthBuffer);
-    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, width, height);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, safeWidth, safeHeight);
     gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, this.upscaleDepthBuffer);
 
     // Check framebuffer completeness
@@ -366,29 +389,6 @@ export class OceanRenderer {
   }
 
   /**
-   * Handle quality settings change
-   */
-  private onQualityChanged(settings: QualitySettings): void {
-    console.log(`OceanRenderer: Quality changed, updating resolution scaling`);
-
-    // Trigger resize to update render resolutions
-    this.resize();
-
-    // Update sub-renderers
-    if (this.wakeRenderer) {
-      this.wakeRenderer.updateQualitySettings(settings);
-    }
-
-    if (this.glassRenderer) {
-      this.glassRenderer.updateQualitySettings(settings);
-    }
-
-    if (this.textRenderer) {
-      this.textRenderer.updateQualitySettings(settings);
-    }
-  }
-
-  /**
    * Handle canvas resize with device pixel ratio consideration
    */
   private resize(): void {
@@ -397,11 +397,11 @@ export class OceanRenderer {
     const devicePixelRatio = window.devicePixelRatio || 1;
 
     // Store display resolution
-    this.displayWidth = Math.round(displayWidth * devicePixelRatio);
-    this.displayHeight = Math.round(displayHeight * devicePixelRatio);
+    this.displayWidth = Math.max(1, Math.round(displayWidth * devicePixelRatio));
+    this.displayHeight = Math.max(1, Math.round(displayHeight * devicePixelRatio));
 
-    // Calculate render resolution based on quality settings
-    let finalPassScale = this.currentQuality.finalPassResolution;
+    // Calculate render resolution based on global settings
+    let finalPassScale = FINAL_PASS_BASE_SCALE;
 
     // PERFORMANCE: Additional resolution scaling for 4K+ displays
     // At high DPI, rendering at lower resolution is imperceptible due to bilinear upscaling
@@ -417,8 +417,9 @@ export class OceanRenderer {
       finalPassScale = Math.min(finalPassScale, 0.66);
     }
 
-    this.renderWidth = Math.round(this.displayWidth * finalPassScale);
-    this.renderHeight = Math.round(this.displayHeight * finalPassScale);
+    this.renderWidth = Math.max(1, Math.round(this.displayWidth * finalPassScale));
+    this.renderHeight = Math.max(1, Math.round(this.displayHeight * finalPassScale));
+    this.renderScale = finalPassScale;
 
     // Update canvas to display resolution (for final upscale target)
     if (this.canvas.width !== this.displayWidth || this.canvas.height !== this.displayHeight) {
@@ -438,9 +439,9 @@ export class OceanRenderer {
     this.resizeUpscaleFramebuffer(this.renderWidth, this.renderHeight);
 
     // PERFORMANCE: Resize shared ocean buffer with ocean capture resolution
-    const oceanCaptureScale = this.currentQuality.oceanCaptureResolution;
-    const oceanCaptureWidth = Math.round(this.renderWidth * oceanCaptureScale);
-    const oceanCaptureHeight = Math.round(this.renderHeight * oceanCaptureScale);
+    const oceanCaptureScale = OCEAN_CAPTURE_SCALE;
+    const oceanCaptureWidth = Math.max(1, Math.round(this.renderWidth * oceanCaptureScale));
+    const oceanCaptureHeight = Math.max(1, Math.round(this.renderHeight * oceanCaptureScale));
     this.resizeSharedOceanBuffer(oceanCaptureWidth, oceanCaptureHeight);
 
     // Resize wake renderer framebuffer
@@ -450,17 +451,17 @@ export class OceanRenderer {
 
     // Resize glass renderer framebuffer with scaled resolution
     if (this.glassRenderer) {
-      const glassScale = this.currentQuality.glassResolution;
-      const glassWidth = Math.round(this.renderWidth * glassScale);
-      const glassHeight = Math.round(this.renderHeight * glassScale);
+      const glassScale = GLASS_CAPTURE_SCALE;
+      const glassWidth = Math.max(1, Math.round(this.renderWidth * glassScale));
+      const glassHeight = Math.max(1, Math.round(this.renderHeight * glassScale));
       this.glassRenderer.resizeFramebuffer(glassWidth, glassHeight);
     }
 
     // Resize text renderer framebuffer with scaled resolution
     if (this.textRenderer) {
-      const textScale = this.currentQuality.oceanCaptureResolution; // Scene capture resolution
-      const textWidth = Math.round(this.renderWidth * textScale);
-      const textHeight = Math.round(this.renderHeight * textScale);
+      const textScale = TEXT_CAPTURE_SCALE; // Scene capture resolution
+      const textWidth = Math.max(1, Math.round(this.renderWidth * textScale));
+      const textHeight = Math.max(1, Math.round(this.renderHeight * textScale));
       this.textRenderer.resizeFramebuffer(textWidth, textHeight);
     }
   }
@@ -709,10 +710,7 @@ export class OceanRenderer {
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.sharedOceanFramebuffer);
 
     // Set viewport to match shared ocean buffer size
-    const oceanCaptureScale = this.currentQuality.oceanCaptureResolution;
-    const oceanCaptureWidth = Math.round(this.renderWidth * oceanCaptureScale);
-    const oceanCaptureHeight = Math.round(this.renderHeight * oceanCaptureScale);
-    gl.viewport(0, 0, oceanCaptureWidth, oceanCaptureHeight);
+    gl.viewport(0, 0, this.sharedOceanWidth, this.sharedOceanHeight);
 
     // Clear framebuffer
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
@@ -750,12 +748,12 @@ export class OceanRenderer {
     const textPresence = this.textRenderer ? this.textRenderer.getIntroVisibility() : 0.0;
 
     // Determine if we need upscaling
-    const needsUpscale = this.currentQuality.finalPassResolution < 1.0 && this.upscaleProgram;
+    const needsUpscale = this.renderScale < 1.0 && this.upscaleProgram;
 
     // Bind upscale framebuffer if upscaling is needed
     if (needsUpscale) {
       gl.bindFramebuffer(gl.FRAMEBUFFER, this.upscaleFramebuffer);
-      gl.viewport(0, 0, this.renderWidth, this.renderHeight);
+      gl.viewport(0, 0, this.upscaleWidth, this.upscaleHeight);
     } else {
       // Ensure viewport is restored to full display size (critical after wake rendering)
       gl.viewport(0, 0, this.displayWidth, this.displayHeight);
@@ -769,11 +767,11 @@ export class OceanRenderer {
       if (this.glassEnabled && this.glassRenderer) {
         // Render ocean once to shared buffer and composite with glass
         this.captureOceanToSharedBuffer(elapsedTime);
-        this.glassRenderer.setOceanTexture(this.sharedOceanTexture);
+        this.glassRenderer.setOceanTexture(this.sharedOceanTexture, this.sharedOceanWidth, this.sharedOceanHeight);
         this.glassRenderer.setTextPresence(textPresence);
 
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-        this.compositeTexture(this.sharedOceanTexture);
+        this.compositeTexture(this.sharedOceanTexture, elapsedTime);
         this.glassRenderer.render();
       } else {
         // Fall back to simple ocean render (no glass configured)
@@ -799,7 +797,7 @@ export class OceanRenderer {
         this.captureOceanToSharedBuffer(elapsedTime);
 
         // 2. Glass uses shared ocean texture (no capture needed)
-        this.glassRenderer.setOceanTexture(this.sharedOceanTexture);
+        this.glassRenderer.setOceanTexture(this.sharedOceanTexture, this.sharedOceanWidth, this.sharedOceanHeight);
         this.glassRenderer.setTextPresence(textPresence);
 
         // 3. Text captures glass overlay (MEDIUM priority - skip if tight on budget)
@@ -807,20 +805,18 @@ export class OceanRenderer {
         if (canAffordTextCapture) {
           this.textRenderer.captureScene(() => {
             gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-            this.compositeTexture(this.sharedOceanTexture); // Composite instead of re-render
+            this.compositeTexture(this.sharedOceanTexture, elapsedTime); // Composite instead of re-render
             this.glassRenderer!.render();
           });
         }
 
-        // 4. Pass blur map from TextRenderer to GlassRenderer (OPTIONAL - skip if tight)
-        if (!this.frameBudget.shouldSkipOptionalWork()) {
-          const blurMapTexture = this.textRenderer.getBlurMapTexture();
-          this.glassRenderer.setBlurMapTexture(blurMapTexture);
-        }
+        // 4. Pass blur map from TextRenderer to GlassRenderer so buttons retain WebGL clarity
+        const blurMapTexture = this.textRenderer.getBlurMapTexture();
+        this.glassRenderer.setBlurMapTexture(blurMapTexture);
 
         // 5. Final render: Ocean (composited from shared buffer, NO re-render!) + Glass + Text (CRITICAL - always do)
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-        this.compositeTexture(this.sharedOceanTexture); // Composite instead of re-render
+        this.compositeTexture(this.sharedOceanTexture, elapsedTime); // Composite instead of re-render
         this.glassRenderer.render();
         this.textRenderer.render(wakeTexture, this.wakesEnabled);
       } else {
@@ -834,13 +830,13 @@ export class OceanRenderer {
         if (canAffordTextCapture) {
           this.textRenderer.captureScene(() => {
             gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-            this.compositeTexture(this.sharedOceanTexture); // Composite instead of re-render
+            this.compositeTexture(this.sharedOceanTexture, elapsedTime); // Composite instead of re-render
           });
         }
 
         // 3. Final render: Ocean (composited from shared buffer, NO re-render!) + Text (CRITICAL - always do)
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-        this.compositeTexture(this.sharedOceanTexture); // Composite instead of re-render
+        this.compositeTexture(this.sharedOceanTexture, elapsedTime); // Composite instead of re-render
         this.textRenderer.render(wakeTexture, this.wakesEnabled);
       }
     } else if (this.glassEnabled && this.glassRenderer) {
@@ -850,12 +846,12 @@ export class OceanRenderer {
       this.captureOceanToSharedBuffer(elapsedTime);
 
       // 2. Glass uses shared ocean texture (no capture needed)
-      this.glassRenderer.setOceanTexture(this.sharedOceanTexture);
+      this.glassRenderer.setOceanTexture(this.sharedOceanTexture, this.sharedOceanWidth, this.sharedOceanHeight);
       this.glassRenderer.setTextPresence(textPresence);
 
       // 3. Final render: Ocean (composited from shared buffer, CONSISTENT!) + Glass (HIGH priority - always do unless desperate)
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-      this.compositeTexture(this.sharedOceanTexture); // Use shared buffer (not drawOcean)
+      this.compositeTexture(this.sharedOceanTexture, elapsedTime); // Use shared buffer (not drawOcean)
       if (this.frameBudget.canAfford(1.5, WorkPriority.HIGH)) {
         this.glassRenderer.render();
       }
@@ -893,40 +889,16 @@ export class OceanRenderer {
     gl.bindTexture(gl.TEXTURE_2D, this.upscaleTexture);
     this.shaderManager.setUniform1i(program, 'u_sourceTexture', 0);
 
+    const sourceWidth = Math.max(1, this.upscaleWidth);
+    const sourceHeight = Math.max(1, this.upscaleHeight);
+
     // Set resolutions
-    this.shaderManager.setUniform2f(program, 'u_sourceResolution', this.renderWidth, this.renderHeight);
+    this.shaderManager.setUniform2f(program, 'u_sourceResolution', sourceWidth, sourceHeight);
     this.shaderManager.setUniform2f(program, 'u_targetResolution', this.displayWidth, this.displayHeight);
 
-    // Set upscaling parameters from quality settings
-    this.shaderManager.setUniform1f(program, 'u_sharpness', this.currentQuality.upscaleSharpness);
-
-    // PERFORMANCE: Adaptive upscale method based on target resolution
-    // FSR is excellent for large upscales (1080p→4K) but wasteful for small upscales at high res
-    // Resolution-aware selection provides massive performance gains at 4K
-    const targetPixels = this.displayWidth * this.displayHeight;
-    let upscaleMethod: number;
-
-    if (targetPixels > 6000000) {
-      // 4K+ (>6M pixels): Use bilinear
-      // At high DPI, bilinear vs FSR is imperceptible but 16× faster
-      upscaleMethod = 0; // bilinear
-    } else if (targetPixels > 2000000) {
-      // 1440p-4K (2M-6M pixels): Use bicubic
-      // Good quality/performance balance, 4× faster than FSR
-      upscaleMethod = 1; // bicubic
-    } else {
-      // <1440p (<2M pixels): Use quality setting
-      // FSR excels at small target resolutions
-      const methodMap: Record<string, number> = {
-        'bilinear': 0,
-        'bicubic': 1,
-        'fsr': 2,
-        'lanczos': 3
-      };
-      upscaleMethod = methodMap[this.currentQuality.upscaleMethod] || 0;
-    }
-
-    this.shaderManager.setUniform1i(program, 'u_upscaleMethod', upscaleMethod);
+    // Set upscaling parameters for the single-pass bilinear upscale
+    this.shaderManager.setUniform1f(program, 'u_sharpness', UPSCALE_SHARPNESS);
+    this.shaderManager.setUniform1i(program, 'u_upscaleMethod', UPSCALE_METHOD_BILINEAR);
 
     // Disable depth test for upscaling
     gl.disable(gl.DEPTH_TEST);
@@ -944,8 +916,18 @@ export class OceanRenderer {
    * PERFORMANCE: Reuses upscale shader for simple 1:1 texture blitting
    * This eliminates redundant ocean renders by compositing from shared buffer
    */
-  private compositeTexture(texture: WebGLTexture | null): void {
-    if (!texture || !this.upscaleProgram) {
+  private compositeTexture(texture: WebGLTexture | null, elapsedTime: number): void {
+    if (!texture) {
+      this.drawOcean(elapsedTime);
+      return;
+    }
+
+    if (!this.upscaleProgram) {
+      if (!this.loggedUpscaleFallback) {
+        console.warn('OceanRenderer: Upscale shader unavailable, falling back to direct ocean rendering');
+        this.loggedUpscaleFallback = true;
+      }
+      this.drawOcean(elapsedTime);
       return;
     }
 
@@ -1292,13 +1274,6 @@ export class OceanRenderer {
   }
 
   /**
-   * Get quality manager instance
-   */
-  getQualityManager(): QualityManager {
-    return this.qualityManager;
-  }
-
-  /**
    * Get performance monitor instance
    */
   getPerformanceMonitor(): PerformanceMonitor {
@@ -1338,34 +1313,6 @@ export class OceanRenderer {
    */
   getPipelineReport(): string {
     return this.pipelineManager.generateReport();
-  }
-
-  /**
-   * Get current quality settings
-   */
-  getQualitySettings(): QualitySettings {
-    return this.currentQuality;
-  }
-
-  /**
-   * Set quality preset
-   */
-  setQualityPreset(preset: 'ultra' | 'high' | 'medium' | 'low' | 'potato' | 'custom'): void {
-    this.qualityManager.setPreset(preset);
-  }
-
-  /**
-   * Enable/disable dynamic quality scaling
-   */
-  setDynamicQuality(enabled: boolean): void {
-    this.performanceMonitor.setDynamicQuality(enabled);
-  }
-
-  /**
-   * Get performance report
-   */
-  getPerformanceReport(): string {
-    return this.performanceMonitor.generateReport();
   }
 
   /**

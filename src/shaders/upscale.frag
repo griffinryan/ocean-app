@@ -77,13 +77,13 @@ vec3 lanczosUpscale(vec2 uv) {
     vec3 color = vec3(0.0);
     float weightSum = 0.0;
 
-    for (float y = -2.0; y <= 2.0; y += 1.0) {
-        for (float x = -2.0; x <= 2.0; x += 1.0) {
-            vec2 offset = vec2(x, y);
+    for (int j = -2; j <= 2; ++j) {
+        for (int i = -2; i <= 2; ++i) {
+            vec2 offset = vec2(float(i), float(j));
             vec2 sampleUV = (coord + offset + 0.5) * texelSize;
 
-            float wx = lanczosWeight(f.x - x, a);
-            float wy = lanczosWeight(f.y - y, a);
+            float wx = lanczosWeight(f.x - float(i), a);
+            float wy = lanczosWeight(f.y - float(j), a);
             float weight = wx * wy;
 
             color += texture(u_sourceTexture, sampleUV).rgb * weight;
@@ -91,7 +91,7 @@ vec3 lanczosUpscale(vec2 uv) {
         }
     }
 
-    return color / weightSum;
+    return color / max(weightSum, 1e-5);
 }
 
 /**

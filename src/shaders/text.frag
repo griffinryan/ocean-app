@@ -16,8 +16,8 @@ uniform float u_textIntroProgress;  // Text intro animation progress (0.0 = star
 out vec4 fragColor;
 
 // Panel positions and sizes for boundary checking (matching GlassRenderer approach)
-uniform vec2 u_panelPositions[5];  // Panel center positions in screen space [-1,1]
-uniform vec2 u_panelSizes[5];      // Panel sizes in screen space
+uniform vec2 u_panelPositions[16];  // Panel center positions in screen space [-1,1]
+uniform vec2 u_panelSizes[16];      // Panel sizes in screen space
 uniform int u_panelCount;
 
 // Wake texture uniform (rendered by WakeRenderer)
@@ -148,7 +148,7 @@ float sampleWakeTexture(vec2 oceanPos) {
 
 // Check if current fragment is within any panel boundary (from GlassRenderer)
 bool isWithinPanel(vec2 screenPos, out vec2 panelUV) {
-    for (int i = 0; i < u_panelCount && i < 5; i++) {
+    for (int i = 0; i < u_panelCount && i < 16; i++) {
         // Convert screen position to panel-relative coordinates
         vec2 panelCenter = (u_panelPositions[i] + 1.0) * 0.5; // Convert from [-1,1] to [0,1]
         vec2 panelHalfSize = u_panelSizes[i] * 0.5;

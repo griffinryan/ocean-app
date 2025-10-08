@@ -502,6 +502,10 @@ body {
 .webgl-text-enabled a,
 .webgl-text-enabled span,
 .webgl-text-enabled li,
+.webgl-text-enabled svg,
+.webgl-text-enabled svg *,
+.webgl-text-enabled .icon-svg,
+.webgl-text-enabled .icon-svg *,
 .webgl-text-enabled .subtitle,
 .webgl-text-enabled .glass-button,
 .webgl-text-enabled .brand-text,
@@ -525,6 +529,9 @@ body {
   background: none !important;
   -webkit-background-clip: unset !important;
   background-clip: unset !important;
+  /* Hide SVG fill and stroke for icons (WebGL shader will render with adaptive color) */
+  fill: transparent !important;
+  stroke: transparent !important;
 }
 
 .fade-in {
@@ -1364,6 +1371,17 @@ body {
   -webkit-backdrop-filter: none;
 }
 
+/* Buttons rely on WebGL-rendered text once ready; strip CSS blur to avoid double blur */
+.glass-panel.webgl-ready .glass-button {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.08) 0%,
+    rgba(255, 255, 255, 0.03) 100%
+  );
+}
+
 /* ===== ADAPTIVE TEXT COLOR SYSTEM (WebGL Per-Pixel Rendering) ===== */
 
 /* Hide HTML text visually - WebGL renders the visible version with per-pixel adaptive colors */
@@ -1547,5 +1565,70 @@ body {
 
   .bio-text {
     font-size: 0.9rem;
+  }
+}
+
+/* ===== SOCIAL MEDIA ICONS ===== */
+
+.social-icons-container {
+  position: fixed;
+  top: 100px; /* Below navbar, matching profile picture vertical alignment */
+  right: 80px; /* Tasteful margin from edge */
+  display: flex;
+  gap: 24px; /* Apple-spec spacing between icons */
+  z-index: 250; /* Above profile picture (200), ensures WebGL text can render over it */
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.social-icons-container.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.social-icon {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  text-decoration: none;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform;
+}
+
+.social-icon:hover {
+  transform: scale(1.1);
+}
+
+.social-icon:active {
+  transform: scale(0.95);
+}
+
+.social-icon .icon-svg {
+  width: 32px;
+  height: 32px;
+  fill: white; /* Base color - TextRenderer shader will adapt this */
+  display: block;
+}
+
+/* Responsive adjustments for social icons */
+@media (max-width: 768px) {
+  .social-icons-container {
+    top: 90px; /* Below smaller navbar on mobile */
+    right: 40px; /* Less margin on mobile */
+    gap: 20px; /* Tighter spacing on mobile */
+  }
+
+  .social-icon {
+    width: 35px; /* 25% larger than icon for wave motion margin */
+    height: 35px;
+  }
+
+  .social-icon .icon-svg {
+    width: 28px; /* Actual icon size on mobile */
+    height: 28px;
   }
 }

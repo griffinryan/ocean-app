@@ -26,6 +26,8 @@ export class TextRenderer {
   private sceneFramebuffer: WebGLFramebuffer | null = null;
   private sceneTexture: WebGLTexture | null = null;
   private sceneDepthBuffer: WebGLRenderbuffer | null = null;
+  private sceneWidth: number = 1;
+  private sceneHeight: number = 1;
 
   // Canvas for text generation (RESTORED)
   private textCanvas!: HTMLCanvasElement;
@@ -104,6 +106,10 @@ export class TextRenderer {
   // Intro visibility tracking for glass/text coordination
   private introVisibility: number = 0.0;
 
+  // SVG image cache for rendering icons with shapes (not rectangles)
+  // Maps selector -> cached Image for performant synchronous drawing
+  private svgImageCache: Map<string, HTMLImageElement> = new Map();
+
   constructor(gl: WebGL2RenderingContext, _shaderManager: ShaderManager) {
     this.gl = gl;
     this.shaderManager = _shaderManager;
@@ -181,6 +187,58 @@ export class TextRenderer {
   }
 
   /**
+   * Pre-load SVG icons during initialization for synchronous rendering
+   * PERFORMANCE: All async work happens here, render loop only does synchronous drawing
+   */
+  public async preloadSVGIcons(): Promise<void> {
+    const iconSelectors = [
+      '#github-icon .icon-svg',
+      '#linkedin-icon .icon-svg'
+    ];
+
+    const loadPromises = iconSelectors.map(selector => {
+      return new Promise<void>((resolve) => {
+        const element = document.querySelector(selector);
+        if (!element || !(element instanceof SVGElement)) {
+          console.warn(`TextRenderer: Icon not found or not SVG: ${selector}`);
+          resolve(); // Don't fail initialization for missing icons
+          return;
+        }
+
+        // Serialize SVG to string
+        const serializer = new XMLSerializer();
+        let svgString = serializer.serializeToString(element);
+
+        // Make all fills white for adaptive coloring (replace any existing fill colors)
+        svgString = svgString.replace(/fill="[^"]*"/g, 'fill="white"');
+        svgString = svgString.replace(/fill:[^;"]*/g, 'fill:white');
+
+        // Create Image from SVG data URL
+        const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+        const url = URL.createObjectURL(svgBlob);
+
+        const img = new Image();
+        img.onload = () => {
+          // Clean up blob URL
+          URL.revokeObjectURL(url);
+          // Cache image for synchronous drawing during render
+          this.svgImageCache.set(selector, img);
+          resolve();
+        };
+        img.onerror = () => {
+          console.warn(`TextRenderer: Failed to load icon: ${selector}`);
+          URL.revokeObjectURL(url);
+          resolve(); // Don't fail initialization for broken icons
+        };
+        img.src = url;
+      });
+    });
+
+    await Promise.all(loadPromises);
+    console.log(`TextRenderer: Pre-loaded ${this.svgImageCache.size} SVG icons`);
+  }
+
+  /**
    * Initialize framebuffer for scene texture capture
    */
   private initializeFramebuffer(): void {
@@ -252,6 +310,9 @@ export class TextRenderer {
       return;
     }
 
+    const safeWidth = Math.max(1, Math.floor(width));
+    const safeHeight = Math.max(1, Math.floor(height));
+
     // Cap blur map resolution at 1920×1080 (Full HD)
     // Higher cap eliminates jagged edges from distance field upscaling
     // Blur maps are single-channel R16F (~4MB at 1080p, negligible memory cost)
@@ -259,18 +320,22 @@ export class TextRenderer {
     const MAX_BLUR_WIDTH = 1920;
     const MAX_BLUR_HEIGHT = 1080;
 
-    const aspectRatio = width / height;
-    let blurWidth = width;
-    let blurHeight = height;
+    if (safeWidth !== width || safeHeight !== height) {
+      console.warn(`TextRenderer: Clamping blur map framebuffer from ${width}×${height} to ${safeWidth}×${safeHeight}`);
+    }
+
+    const aspectRatio = safeWidth / safeHeight;
+    let blurWidth = safeWidth;
+    let blurHeight = safeHeight;
 
     if (blurWidth > MAX_BLUR_WIDTH) {
       blurWidth = MAX_BLUR_WIDTH;
-      blurHeight = Math.round(blurWidth / aspectRatio);
+      blurHeight = Math.max(1, Math.round(blurWidth / aspectRatio));
     }
 
     if (blurHeight > MAX_BLUR_HEIGHT) {
       blurHeight = MAX_BLUR_HEIGHT;
-      blurWidth = Math.round(blurHeight * aspectRatio);
+      blurWidth = Math.max(1, Math.round(blurHeight * aspectRatio));
     }
 
     // Store blur map dimensions for use in generateBlurMap
@@ -423,19 +488,28 @@ export class TextRenderer {
     const MAX_TEXT_WIDTH = 1920;
     const MAX_TEXT_HEIGHT = 1080;
 
-    // Maintain aspect ratio while capping resolution
-    const aspectRatio = width / height;
-    let textWidth = width;
-    let textHeight = height;
+    const safeWidth = Math.max(1, Math.floor(width));
+    const safeHeight = Math.max(1, Math.floor(height));
+
+    if (safeWidth !== width || safeHeight !== height) {
+      console.warn(`TextRenderer: Clamping scene framebuffer from ${width}×${height} to ${safeWidth}×${safeHeight}`);
+    }
+
+    this.sceneWidth = safeWidth;
+    this.sceneHeight = safeHeight;
+
+    const aspectRatio = safeWidth / safeHeight;
+    let textWidth = safeWidth;
+    let textHeight = safeHeight;
 
     if (textWidth > MAX_TEXT_WIDTH) {
       textWidth = MAX_TEXT_WIDTH;
-      textHeight = Math.round(textWidth / aspectRatio);
+      textHeight = Math.max(1, Math.round(textWidth / aspectRatio));
     }
 
     if (textHeight > MAX_TEXT_HEIGHT) {
       textHeight = MAX_TEXT_HEIGHT;
-      textWidth = Math.round(textHeight * aspectRatio);
+      textWidth = Math.max(1, Math.round(textHeight * aspectRatio));
     }
 
     // Resize text canvas with capped resolution
@@ -452,7 +526,7 @@ export class TextRenderer {
 
     // Setup color texture
     gl.bindTexture(gl.TEXTURE_2D, this.sceneTexture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, safeWidth, safeHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -463,7 +537,7 @@ export class TextRenderer {
 
     // Setup depth buffer
     gl.bindRenderbuffer(gl.RENDERBUFFER, this.sceneDepthBuffer);
-    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, width, height);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, safeWidth, safeHeight);
     gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, this.sceneDepthBuffer);
 
     // Check framebuffer completeness
@@ -478,7 +552,7 @@ export class TextRenderer {
     gl.bindRenderbuffer(gl.RENDERBUFFER, null);
 
     // Resize blur map framebuffer
-    this.resizeBlurMapFramebuffer(width, height);
+    this.resizeBlurMapFramebuffer(safeWidth, safeHeight);
 
     // Mark scene as dirty after resize
     this.markSceneDirty();
@@ -508,7 +582,7 @@ export class TextRenderer {
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFramebuffer);
 
     // Set viewport to match framebuffer size
-    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+    gl.viewport(0, 0, this.sceneWidth, this.sceneHeight);
 
     // Clear framebuffer
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
@@ -544,7 +618,14 @@ export class TextRenderer {
 
     // CRITICAL: Force layout recalculation before getBoundingClientRect()
     // This ensures CSS transitions are complete and layout is settled
-    void element.offsetHeight; // Force reflow
+    // For elements in scroll containers, also force layout on container hierarchy
+    const elementParent = element.parentElement;
+    const elementGrandparent = elementParent?.parentElement;
+    if (elementGrandparent && elementGrandparent.classList.contains('content-scroll-container')) {
+      void elementGrandparent.offsetHeight; // Force scroll container layout
+      void elementParent.offsetHeight; // Force scroll content wrapper layout
+    }
+    void element.offsetHeight; // Force element reflow
     void glCanvas.offsetHeight; // Force canvas reflow
 
     const canvasRect = glCanvas.getBoundingClientRect();
@@ -553,6 +634,41 @@ export class TextRenderer {
     // Skip if element or canvas has no size
     if (elementRect.width === 0 || elementRect.height === 0 || canvasRect.width === 0 || canvasRect.height === 0) {
       return;
+    }
+
+    // SPECIAL CASE: SVG elements (social icons)
+    // Render actual SVG shape (not rectangle) for shader to apply adaptive color + wiggle
+    if (element.tagName === 'svg' || element instanceof SVGElement) {
+      // Scale to canvas texture coordinates
+      const scaleX = this.textCanvas.width / canvasRect.width;
+      const scaleY = this.textCanvas.height / canvasRect.height;
+
+      // Element position in screen space
+      const screenX = elementRect.left - canvasRect.left;
+      const screenY = elementRect.top - canvasRect.top;
+
+      // Convert to canvas texture coordinates
+      const textureX = screenX * scaleX;
+      const textureY = screenY * scaleY;
+      const scaledWidth = elementRect.width * scaleX;
+      const scaledHeight = elementRect.height * scaleY;
+
+      // PERFORMANCE: Draw from pre-loaded cache (synchronous, zero overhead)
+      // Icons are pre-loaded during initialization via preloadSVGIcons()
+      const cacheKey = _config.selector;
+      const cachedImage = this.svgImageCache.get(cacheKey);
+
+      if (cachedImage) {
+        ctx.save();
+        ctx.globalAlpha = 1.0;
+        ctx.drawImage(cachedImage, textureX, textureY, scaledWidth, scaledHeight);
+        ctx.restore();
+      } else {
+        // Icon not pre-loaded (shouldn't happen if preloadSVGIcons was called)
+        console.warn(`TextRenderer: Icon not in cache: ${cacheKey}`);
+      }
+
+      return; // Exit early - SVG rendering complete
     }
 
     // Get computed styles from HTML element for pixel-perfect matching
@@ -941,6 +1057,7 @@ export class TextRenderer {
       'app-panel',
       'app-bio-panel',
       'navbar',
+      'social-icons-container',
       // Portfolio panels
       'portfolio-lakehouse-panel',
       'portfolio-encryption-panel',
@@ -1074,6 +1191,7 @@ export class TextRenderer {
       'app-panel',
       'app-bio-panel',
       'navbar',
+      'social-icons-container',
       // Portfolio panels
       'portfolio-lakehouse-panel',
       'portfolio-encryption-panel',
@@ -1493,7 +1611,11 @@ export class TextRenderer {
       { selector: '#resume-uwedu-panel .resume-subsection', id: 'resume-uwedu-subsection', panelId: 'resume-uwedu-panel' },
 
       // Navigation
-      { selector: '.brand-text', id: 'nav-brand', panelId: 'navbar' }
+      { selector: '.brand-text', id: 'nav-brand', panelId: 'navbar' },
+
+      // Social Media Icons
+      { selector: '#github-icon .icon-svg', id: 'social-github-icon', panelId: 'social-icons-container' },
+      { selector: '#linkedin-icon .icon-svg', id: 'social-linkedin-icon', panelId: 'social-icons-container' }
     ];
 
     // Setup each text element
@@ -1802,32 +1924,6 @@ export class TextRenderer {
   }
 
   /**
-   * Update quality settings
-   */
-  public updateQualitySettings(settings: any): void {
-    // Update text canvas resolution based on quality settings
-    if (settings.textCanvasResolution) {
-      const newWidth = settings.textCanvasResolution;
-      const newHeight = Math.round(newWidth * (this.gl.canvas.height / this.gl.canvas.width));
-
-      if (this.textCanvas.width !== newWidth || this.textCanvas.height !== newHeight) {
-        this.textCanvas.width = newWidth;
-        this.textCanvas.height = newHeight;
-
-        // Re-apply text rendering settings after resize
-        this.textContext.textBaseline = 'top';
-        this.textContext.fillStyle = 'white';
-        this.textContext.imageSmoothingEnabled = true;
-
-        this.needsTextureUpdate = true;
-        this.needsBlurMapUpdate = true;
-
-        console.log(`TextRenderer: Canvas resolution updated to ${newWidth}×${newHeight}`);
-      }
-    }
-  }
-
-  /**
    * Get blur map texture for external use (e.g., GlassRenderer)
    */
   public getBlurMapTexture(): WebGLTexture | null {
@@ -1943,6 +2039,9 @@ export class TextRenderer {
 
     // Clean up batch processing
     this.cancelAmortizedUpdate();
+
+    // Clean up SVG image cache
+    this.svgImageCache.clear();
 
     // Clean up geometry
     this.bufferManager.dispose();

@@ -26,6 +26,7 @@ export class PanelManager {
   private paperBtn: HTMLElement;
   private appBtn: HTMLElement;
   private navbar: HTMLElement;
+  private socialIconsContainer: HTMLElement;
 
   // Optional TextRenderer reference for triggering updates
   private textRenderer: TextRenderer | null = null;
@@ -85,6 +86,7 @@ export class PanelManager {
     this.paperBtn = this.getElement('paper-btn');
     this.appBtn = this.getElement('app-btn');
     this.navbar = this.getElement('navbar');
+    this.socialIconsContainer = this.getElement('social-icons-container');
 
     // Initialize scroll tracker
     this.scrollTracker = new ScrollTracker();
@@ -108,7 +110,7 @@ export class PanelManager {
     // Button click handlers - store references for cleanup
     this.paperBtnClickHandler = (e) => {
       e.preventDefault();
-      this.transitionTo('paper');
+      this.transitionTo('resume');
     };
     this.paperBtn.addEventListener('click', this.paperBtnClickHandler);
 
@@ -142,7 +144,8 @@ export class PanelManager {
       this.appProfilePicture,
       this.portfolioContainer,
       this.resumeContainer,
-      this.navbar
+      this.navbar,
+      this.socialIconsContainer
     ];
 
     panels.forEach(panel => {
@@ -166,7 +169,8 @@ export class PanelManager {
       this.appProfilePicture,
       this.portfolioContainer,
       this.resumeContainer,
-      this.navbar
+      this.navbar,
+      this.socialIconsContainer
     ];
 
     panels.forEach(panel => {
@@ -248,7 +252,10 @@ export class PanelManager {
 
       if (this.shouldActivatePanel(panel, this.currentState)) {
         panel.classList.add('active');
-        this.activeTransitions.add(panel);
+        // PERFORMANCE: Only track if panel has transform transitions
+        if (this.shouldTrackTransform(panel)) {
+          this.activeTransitions.add(panel);
+        }
       }
 
       if (this.pendingEnterCount > 0) {
@@ -335,7 +342,8 @@ export class PanelManager {
         this.transitionTo('resume');
         break;
       case 'paper':
-        this.transitionTo('paper');
+        // Redirect to resume for backwards compatibility
+        this.transitionTo('resume');
         break;
       case '':
         this.transitionTo('landing');
@@ -478,19 +486,36 @@ export class PanelManager {
   }
 
   /**
+   * Determine whether a panel should be tracked in activeTransitions
+   * PERFORMANCE: Only track panels with transform/spatial transitions
+   * Opacity-only transitions don't affect text positioning and shouldn't block TextRenderer
+   */
+  private shouldTrackTransform(panel: HTMLElement): boolean {
+    // Only track panels that have actual transform/spatial transitions in CSS
+    // - appBioPanel: Has transform translateY transition (slides in)
+    // - navbar: May have transform transitions in animations
+    // DON'T track:
+    // - appProfilePicture: Only opacity transition (static transform for centering)
+    // - socialIconsContainer: Only opacity transition
+    // - portfolioContainer/resumeContainer: No transitions (instant show/hide)
+    return panel === this.appBioPanel ||
+           panel === this.navbar;
+  }
+
+  /**
    * Determine whether a panel needs the active class (triggers transform transition)
    */
   private shouldActivatePanel(panel: HTMLElement, state: PanelState): boolean {
     if (state === 'app') {
-      return panel === this.appBioPanel || panel === this.appProfilePicture;
+      return panel === this.appBioPanel || panel === this.appProfilePicture || panel === this.socialIconsContainer;
     }
 
     if (state === 'portfolio') {
-      return panel === this.portfolioContainer;
+      return panel === this.portfolioContainer || panel === this.socialIconsContainer;
     }
 
     if (state === 'resume') {
-      return panel === this.resumeContainer;
+      return panel === this.resumeContainer || panel === this.socialIconsContainer;
     }
 
     return false;
@@ -503,6 +528,8 @@ export class PanelManager {
     this.appBioPanel.classList.remove('active');
     this.appProfilePicture.classList.add('hidden');
     this.appProfilePicture.classList.remove('active');
+    this.socialIconsContainer.classList.add('hidden');
+    this.socialIconsContainer.classList.remove('active');
     this.portfolioContainer.classList.add('hidden');
     this.resumeContainer.classList.add('hidden');
 
@@ -512,12 +539,15 @@ export class PanelManager {
     } else if (this.currentState === 'app') {
       this.appBioPanel.classList.remove('hidden');
       this.appProfilePicture.classList.remove('hidden');
+      this.socialIconsContainer.classList.remove('hidden');
     } else if (this.currentState === 'portfolio') {
       this.portfolioContainer.classList.remove('hidden');
+      this.socialIconsContainer.classList.remove('hidden');
       // Reset scroll position
       this.portfolioContainer.scrollTop = 0;
     } else if (this.currentState === 'resume') {
       this.resumeContainer.classList.remove('hidden');
+      this.socialIconsContainer.classList.remove('hidden');
       // Reset scroll position
       this.resumeContainer.scrollTop = 0;
     }
@@ -532,8 +562,10 @@ export class PanelManager {
       this.textRenderer.setTransitioning(true);
 
       // Track these panels as transitioning
+      // PERFORMANCE: Only track panels with transform transitions
+      // Opacity-only transitions don't affect text positioning
       currentPanels.forEach(panel => {
-        if (panel) {
+        if (panel && this.shouldTrackTransform(panel)) {
           this.activeTransitions.add(panel);
         }
       });
@@ -563,11 +595,11 @@ export class PanelManager {
       case 'landing':
         return [this.landingPanel];
       case 'app':
-        return [this.appBioPanel, this.appProfilePicture];
+        return [this.appBioPanel, this.appProfilePicture, this.socialIconsContainer];
       case 'portfolio':
-        return [this.portfolioContainer];
+        return [this.portfolioContainer, this.socialIconsContainer];
       case 'resume':
-        return [this.resumeContainer];
+        return [this.resumeContainer, this.socialIconsContainer];
       default:
         return [];
     }
