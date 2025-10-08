@@ -745,13 +745,6 @@ export class GlassRenderer {
     const width = (elementRect.width / canvasRect.width) * 2.0;
     const height = (elementRect.height / canvasRect.height) * 2.0;
 
-    // Debug logging (can be removed in production)
-    console.debug(`GlassRenderer Panel Mapping:
-      Element: ${elementRect.width}x${elementRect.height} at (${elementRect.left}, ${elementRect.top})
-      Canvas: ${canvasRect.width}x${canvasRect.height}
-      WebGL Center: (${glX.toFixed(3)}, ${glY.toFixed(3)})
-      WebGL Size: (${width.toFixed(3)}, ${height.toFixed(3)})`);
-
     return {
       position: [glX, glY],
       size: [width, height]
@@ -771,14 +764,6 @@ export class GlassRenderer {
    */
   public getOceanTexture(): WebGLTexture | null {
     return this.oceanTexture;
-  }
-
-  /**
-   * Update quality settings (stub for future quality-based optimizations)
-   */
-  public updateQualitySettings(_settings: any): void {
-    // Future: Adjust glass distortion quality based on settings
-    // For now, resolution scaling is handled by OceanRenderer
   }
 
   /**

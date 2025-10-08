@@ -5,8 +5,6 @@
 
 import { ShaderManager, ShaderProgram } from './ShaderManager';
 import { GeometryBuilder, BufferManager, GeometryData } from './Geometry';
-import { QualitySettings } from '../config/QualityPresets';
-
 export class WakeRenderer {
   private gl: WebGL2RenderingContext;
   private shaderManager: ShaderManager;
@@ -24,7 +22,7 @@ export class WakeRenderer {
   // Resolution management
   private wakeWidth: number = 0;
   private wakeHeight: number = 0;
-  private wakeResolutionScale: number = 0.5; // Default to 0.5x for performance
+  private wakeResolutionScale: number = 0.75; // Tuned for ultra-quality baseline
 
   // Animation
   private enabled: boolean = true;
@@ -188,16 +186,6 @@ export class WakeRenderer {
     gl.bindRenderbuffer(gl.RENDERBUFFER, null);
 
     console.log(`WakeRenderer: Framebuffer resized to ${this.wakeWidth}×${this.wakeHeight} (${(this.wakeResolutionScale * 100).toFixed(0)}% scale)`);
-  }
-
-  /**
-   * Update quality settings
-   */
-  updateQualitySettings(settings: QualitySettings): void {
-    // Use wake resolution from quality settings
-    this.wakeResolutionScale = settings.wakeResolution;
-
-    console.log(`WakeRenderer: Wake resolution set to ${(this.wakeResolutionScale * 100).toFixed(0)}%`);
   }
 
   /**
