@@ -10,6 +10,8 @@ lerna-debug.log*
 CLAUDE.md
 AGENTS.md
 
+DEPLOYMENT.md
+
 yarn.lock
 package-lock.json
 node_modules
