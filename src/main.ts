@@ -94,6 +94,14 @@ class OceanApp {
         upscaleFragmentShader
       );
 
+      // Pre-load SVG icons for adaptive coloring (before rendering starts)
+      // PERFORMANCE: All async SVG→Image conversion happens here (one-time ~5-10ms)
+      // Render loop only does synchronous canvas drawing (zero overhead)
+      const textRenderer = this.renderer.getTextRenderer();
+      if (textRenderer) {
+        await textRenderer.preloadSVGIcons();
+      }
+
       // Connect UI to glass renderer BEFORE starting render loop
       // This ensures consistent multi-pass pipeline from frame 0
       // Prevents visual "jump" when switching from simple→complex pipeline

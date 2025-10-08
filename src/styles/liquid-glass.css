@@ -502,6 +502,10 @@ body {
 .webgl-text-enabled a,
 .webgl-text-enabled span,
 .webgl-text-enabled li,
+.webgl-text-enabled svg,
+.webgl-text-enabled svg *,
+.webgl-text-enabled .icon-svg,
+.webgl-text-enabled .icon-svg *,
 .webgl-text-enabled .subtitle,
 .webgl-text-enabled .glass-button,
 .webgl-text-enabled .brand-text,
@@ -525,6 +529,9 @@ body {
   background: none !important;
   -webkit-background-clip: unset !important;
   background-clip: unset !important;
+  /* Hide SVG fill and stroke for icons (WebGL shader will render with adaptive color) */
+  fill: transparent !important;
+  stroke: transparent !important;
 }
 
 .fade-in {

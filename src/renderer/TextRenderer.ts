@@ -104,6 +104,10 @@ export class TextRenderer {
   // Intro visibility tracking for glass/text coordination
   private introVisibility: number = 0.0;
 
+  // SVG image cache for rendering icons with shapes (not rectangles)
+  // Maps selector -> cached Image for performant synchronous drawing
+  private svgImageCache: Map<string, HTMLImageElement> = new Map();
+
   constructor(gl: WebGL2RenderingContext, _shaderManager: ShaderManager) {
     this.gl = gl;
     this.shaderManager = _shaderManager;
@@ -178,6 +182,58 @@ export class TextRenderer {
       console.warn('TextRenderer: Font loading check failed:', error);
       this.fontsLoaded = true; // Continue anyway
     }
+  }
+
+  /**
+   * Pre-load SVG icons during initialization for synchronous rendering
+   * PERFORMANCE: All async work happens here, render loop only does synchronous drawing
+   */
+  public async preloadSVGIcons(): Promise<void> {
+    const iconSelectors = [
+      '#github-icon .icon-svg',
+      '#linkedin-icon .icon-svg'
+    ];
+
+    const loadPromises = iconSelectors.map(selector => {
+      return new Promise<void>((resolve) => {
+        const element = document.querySelector(selector);
+        if (!element || !(element instanceof SVGElement)) {
+          console.warn(`TextRenderer: Icon not found or not SVG: ${selector}`);
+          resolve(); // Don't fail initialization for missing icons
+          return;
+        }
+
+        // Serialize SVG to string
+        const serializer = new XMLSerializer();
+        let svgString = serializer.serializeToString(element);
+
+        // Make all fills white for adaptive coloring (replace any existing fill colors)
+        svgString = svgString.replace(/fill="[^"]*"/g, 'fill="white"');
+        svgString = svgString.replace(/fill:[^;"]*/g, 'fill:white');
+
+        // Create Image from SVG data URL
+        const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+        const url = URL.createObjectURL(svgBlob);
+
+        const img = new Image();
+        img.onload = () => {
+          // Clean up blob URL
+          URL.revokeObjectURL(url);
+          // Cache image for synchronous drawing during render
+          this.svgImageCache.set(selector, img);
+          resolve();
+        };
+        img.onerror = () => {
+          console.warn(`TextRenderer: Failed to load icon: ${selector}`);
+          URL.revokeObjectURL(url);
+          resolve(); // Don't fail initialization for broken icons
+        };
+        img.src = url;
+      });
+    });
+
+    await Promise.all(loadPromises);
+    console.log(`TextRenderer: Pre-loaded ${this.svgImageCache.size} SVG icons`);
   }
 
   /**
@@ -556,7 +612,7 @@ export class TextRenderer {
     }
 
     // SPECIAL CASE: SVG elements (social icons)
-    // Render as white filled shape for shader to apply adaptive color + wiggle
+    // Render actual SVG shape (not rectangle) for shader to apply adaptive color + wiggle
     if (element.tagName === 'svg' || element instanceof SVGElement) {
       // Scale to canvas texture coordinates
       const scaleX = this.textCanvas.width / canvasRect.width;
@@ -572,15 +628,21 @@ export class TextRenderer {
       const scaledWidth = elementRect.width * scaleX;
       const scaledHeight = elementRect.height * scaleY;
 
-      // Render white filled circle/rect for icons
-      ctx.save();
-      ctx.fillStyle = 'white';
-      ctx.globalAlpha = 1.0;
+      // PERFORMANCE: Draw from pre-loaded cache (synchronous, zero overhead)
+      // Icons are pre-loaded during initialization via preloadSVGIcons()
+      const cacheKey = _config.selector;
+      const cachedImage = this.svgImageCache.get(cacheKey);
 
-      // Draw filled rectangle (simpler and more reliable than path rendering)
-      ctx.fillRect(textureX, textureY, scaledWidth, scaledHeight);
+      if (cachedImage) {
+        ctx.save();
+        ctx.globalAlpha = 1.0;
+        ctx.drawImage(cachedImage, textureX, textureY, scaledWidth, scaledHeight);
+        ctx.restore();
+      } else {
+        // Icon not pre-loaded (shouldn't happen if preloadSVGIcons was called)
+        console.warn(`TextRenderer: Icon not in cache: ${cacheKey}`);
+      }
 
-      ctx.restore();
       return; // Exit early - SVG rendering complete
     }
 
@@ -970,6 +1032,7 @@ export class TextRenderer {
       'app-panel',
       'app-bio-panel',
       'navbar',
+      'social-icons-container',
       // Portfolio panels
       'portfolio-lakehouse-panel',
       'portfolio-encryption-panel',
@@ -1525,8 +1588,8 @@ export class TextRenderer {
       { selector: '.brand-text', id: 'nav-brand', panelId: 'navbar' },
 
       // Social Media Icons
-      { selector: '#github-icon .icon-svg', id: 'social-github-icon', panelId: 'navbar' },
-      { selector: '#linkedin-icon .icon-svg', id: 'social-linkedin-icon', panelId: 'navbar' }
+      { selector: '#github-icon .icon-svg', id: 'social-github-icon', panelId: 'social-icons-container' },
+      { selector: '#linkedin-icon .icon-svg', id: 'social-linkedin-icon', panelId: 'social-icons-container' }
     ];
 
     // Setup each text element
@@ -1976,6 +2039,9 @@ export class TextRenderer {
 
     // Clean up batch processing
     this.cancelAmortizedUpdate();
+
+    // Clean up SVG image cache
+    this.svgImageCache.clear();
 
     // Clean up geometry
     this.bufferManager.dispose();
