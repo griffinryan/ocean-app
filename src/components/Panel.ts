@@ -39,8 +39,8 @@ export class PanelManager {
 
   // Default transition settings
   private defaultTransition: PanelTransition = {
-    duration: 600,
-    easing: 'cubic-bezier(0.4, 0, 0.2, 1)'
+    duration: 450,
+    easing: 'cubic-bezier(0.32, 0.08, 0.24, 1)'
   };
 
   // Transition tracking for proper text update timing
@@ -53,7 +53,6 @@ export class PanelManager {
   // Event handler references for proper cleanup
   private paperBtnClickHandler: ((e: Event) => void) | null = null;
   private appBtnClickHandler: ((e: Event) => void) | null = null;
-  private hashChangeHandler: (() => void) | null = null;
   private keyDownHandler: ((e: KeyboardEvent) => void) | null = null;
 
   constructor() {
@@ -119,12 +118,6 @@ export class PanelManager {
       this.transitionTo('app');
     };
     this.appBtn.addEventListener('click', this.appBtnClickHandler);
-
-    // Hash change for browser navigation - store reference for cleanup
-    this.hashChangeHandler = () => {
-      this.handleHashChange();
-    };
-    window.addEventListener('hashchange', this.hashChangeHandler);
 
     // Keyboard shortcuts - store reference for cleanup
     this.keyDownHandler = (e) => {
@@ -229,9 +222,11 @@ export class PanelManager {
   private handleAnimationEnd(panel: HTMLElement, event: AnimationEvent): void {
     const animationName = event.animationName;
 
-    if (animationName === 'slideExitLeft') {
+    if (animationName === 'slideExitLeft' ||
+        animationName === 'slideExitLeftCentered' ||
+        animationName === 'slideExitLeftLanding') {
       panel.classList.add('hidden');
-      panel.classList.remove('slide-exit-left');
+      panel.classList.remove('slide-exit-left', 'slide-exit-left-centered', 'slide-exit-left-landing');
       panel.style.transform = '';
 
       if (this.pendingExitCount > 0) {
@@ -247,8 +242,8 @@ export class PanelManager {
       return;
     }
 
-    if (animationName === 'slideEnterRight') {
-      panel.classList.remove('slide-enter-right');
+    if (animationName === 'slideEnterRight' || animationName === 'slideEnterRightCentered') {
+      panel.classList.remove('slide-enter-right', 'slide-enter-right-centered');
 
       if (this.shouldActivatePanel(panel, this.currentState)) {
         panel.classList.add('active');
@@ -328,30 +323,6 @@ export class PanelManager {
     });
   }
 
-  private handleHashChange(): void {
-    const hash = window.location.hash.slice(1); // Remove #
-
-    switch (hash) {
-      case 'app':
-        this.transitionTo('app');
-        break;
-      case 'portfolio':
-        this.transitionTo('portfolio');
-        break;
-      case 'resume':
-        this.transitionTo('resume');
-        break;
-      case 'paper':
-        // Redirect to resume for backwards compatibility
-        this.transitionTo('resume');
-        break;
-      case '':
-        this.transitionTo('landing');
-        break;
-      default:
-        this.transitionTo('not-found');
-    }
-  }
 
   private handleKeyPress(event: KeyboardEvent): void {
     // Only handle keys when not typing in input elements
@@ -364,7 +335,7 @@ export class PanelManager {
         // Return to landing
         if (this.currentState !== 'landing') {
           event.preventDefault();
-          window.location.hash = '';
+          window.history.pushState(null, '', '/');
           this.transitionTo('landing');
         }
         break;
@@ -373,14 +344,9 @@ export class PanelManager {
   }
 
   private initializeState(): void {
-    // Check initial hash and set state accordingly
-    const hash = window.location.hash.slice(1);
-    if (hash) {
-      this.handleHashChange();
-    } else {
-      this.currentState = 'landing';
-      this.updatePanelVisibility();
-    }
+    // Initial state will be set by Router, just initialize to landing
+    this.currentState = 'landing';
+    this.updatePanelVisibility();
   }
 
   public transitionTo(newState: PanelState): void {
@@ -439,8 +405,16 @@ export class PanelManager {
     }
 
     elements.forEach(element => {
-      element.classList.remove('slide-enter-right');
-      element.classList.add('slide-exit-left');
+      element.classList.remove('slide-enter-right', 'slide-enter-right-centered');
+      // Landing panel uses dual-axis centered exit to preserve translate(-50%, -50%)
+      // Bio panel uses horizontal-only centered exit to preserve translateX(-50%)
+      let slideClass = 'slide-exit-left';
+      if (element === this.landingPanel) {
+        slideClass = 'slide-exit-left-landing';
+      } else if (element === this.appBioPanel) {
+        slideClass = 'slide-exit-left-centered';
+      }
+      element.classList.add(slideClass);
     });
 
     if (this.glassRenderer) {
@@ -475,9 +449,11 @@ export class PanelManager {
     }
 
     elements.forEach(element => {
-      element.classList.remove('slide-exit-left');
+      element.classList.remove('slide-exit-left', 'slide-exit-left-centered');
       element.classList.remove('hidden');
-      element.classList.add('slide-enter-right');
+      // Bio panel uses centered slide animation to preserve transform-based centering
+      const slideClass = element === this.appBioPanel ? 'slide-enter-right-centered' : 'slide-enter-right';
+      element.classList.add(slideClass);
     });
 
     if (this.glassRenderer) {
@@ -581,7 +557,7 @@ export class PanelManager {
         this.pendingExitCount = 0;
         this.pendingEnterCount = 0;
         this.onAllTransitionsComplete();
-      }, this.defaultTransition.duration + 100); // 100ms safety margin
+      }, this.defaultTransition.duration + 150); // 150ms safety margin
     }
 
     if (this.glassRenderer) {
@@ -749,11 +725,6 @@ export class PanelManager {
     if (this.appBtnClickHandler) {
       this.appBtn.removeEventListener('click', this.appBtnClickHandler);
       this.appBtnClickHandler = null;
-    }
-
-    if (this.hashChangeHandler) {
-      window.removeEventListener('hashchange', this.hashChangeHandler);
-      this.hashChangeHandler = null;
     }
 
     if (this.keyDownHandler) {

@@ -1165,15 +1165,18 @@ body {
 
 /* Slide exit to left */
 .slide-exit-left {
-  animation: slideExitLeft 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation: slideExitLeft 0.45s cubic-bezier(0.32, 0.08, 0.24, 1) forwards;
 }
 
 @keyframes slideExitLeft {
-  from {
+  0% {
     transform: translateX(0);
     opacity: 1;
   }
-  to {
+  80% {
+    opacity: 0.15;
+  }
+  100% {
     transform: translateX(-100%);
     opacity: 0;
   }
@@ -1181,15 +1184,18 @@ body {
 
 /* Slide enter from right */
 .slide-enter-right {
-  animation: slideEnterRight 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation: slideEnterRight 0.45s cubic-bezier(0.32, 0.08, 0.24, 1) forwards;
 }
 
 @keyframes slideEnterRight {
-  from {
+  0% {
     transform: translateX(100%);
     opacity: 0;
   }
-  to {
+  20% {
+    opacity: 0.2;
+  }
+  100% {
     transform: translateX(0);
     opacity: 1;
   }
@@ -1197,15 +1203,18 @@ body {
 
 /* Slide enter from left (for reverse navigation) */
 .slide-enter-left {
-  animation: slideEnterLeft 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation: slideEnterLeft 0.45s cubic-bezier(0.32, 0.08, 0.24, 1) forwards;
 }
 
 @keyframes slideEnterLeft {
-  from {
+  0% {
     transform: translateX(-100%);
     opacity: 0;
   }
-  to {
+  20% {
+    opacity: 0.2;
+  }
+  100% {
     transform: translateX(0);
     opacity: 1;
   }
@@ -1213,16 +1222,79 @@ body {
 
 /* Slide exit to right (for reverse navigation) */
 .slide-exit-right {
-  animation: slideExitRight 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation: slideExitRight 0.45s cubic-bezier(0.32, 0.08, 0.24, 1) forwards;
 }
 
 @keyframes slideExitRight {
-  from {
+  0% {
     transform: translateX(0);
     opacity: 1;
   }
-  to {
+  80% {
+    opacity: 0.15;
+  }
+  100% {
     transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+/* ===== CENTERED SLIDE TRANSITIONS ===== */
+/* For elements using transform-based centering (left: 50% + translateX(-50%)) */
+
+/* Centered slide enter from right */
+.slide-enter-right-centered {
+  animation: slideEnterRightCentered 0.45s cubic-bezier(0.32, 0.08, 0.24, 1) forwards;
+}
+
+@keyframes slideEnterRightCentered {
+  0% {
+    transform: translateX(100%) translateY(-100px);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.2;
+  }
+  100% {
+    transform: translateX(-50%) translateY(-100px);
+    opacity: 1;
+  }
+}
+
+/* Centered slide exit to left */
+.slide-exit-left-centered {
+  animation: slideExitLeftCentered 0.45s cubic-bezier(0.32, 0.08, 0.24, 1) forwards;
+}
+
+@keyframes slideExitLeftCentered {
+  0% {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+  }
+  80% {
+    opacity: 0.15;
+  }
+  100% {
+    transform: translateX(-100%) translateY(0);
+    opacity: 0;
+  }
+}
+
+/* Landing panel centered exit (preserves dual-axis centering) */
+.slide-exit-left-landing {
+  animation: slideExitLeftLanding 0.45s cubic-bezier(0.32, 0.08, 0.24, 1) forwards;
+}
+
+@keyframes slideExitLeftLanding {
+  0% {
+    transform: translate(-50%, -50%);
+    opacity: 1;
+  }
+  80% {
+    opacity: 0.15;
+  }
+  100% {
+    transform: translate(-150%, -50%);
     opacity: 0;
   }
 }

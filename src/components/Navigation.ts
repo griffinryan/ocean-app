@@ -86,7 +86,7 @@ export class NavigationManager {
     });
 
     // Listen for route changes to update active state
-    window.addEventListener('hashchange', () => {
+    window.addEventListener('popstate', () => {
       this.updateActiveState();
     });
 
@@ -242,7 +242,7 @@ export class NavigationManager {
     this.brandElement.parentNode?.replaceChild(clonedBrand, this.brandElement);
 
     window.removeEventListener('scroll', () => {});
-    window.removeEventListener('hashchange', () => {});
+    window.removeEventListener('popstate', () => {});
     document.removeEventListener('keydown', () => {});
   }
 }

@@ -63,8 +63,8 @@ export class Router {
   }
 
   private setupRouting(): void {
-    // Listen for hash changes
-    window.addEventListener('hashchange', () => {
+    // Listen for browser navigation (back/forward buttons)
+    window.addEventListener('popstate', () => {
       this.handleNavigation();
     });
 
@@ -73,14 +73,14 @@ export class Router {
   }
 
   private handleNavigation(): void {
-    const hash = window.location.hash.slice(1); // Remove #
-    const route = this.routes.get(hash);
+    const path = window.location.pathname.slice(1); // Remove leading /
+    const route = this.routes.get(path);
 
     if (route) {
       this.navigateToRoute(route);
     } else {
       // Handle unknown routes
-      this.navigateToNotFound(hash);
+      this.navigateToNotFound(path);
     }
   }
 
@@ -126,7 +126,9 @@ export class Router {
 
   // Public API methods
   public navigate(path: string): void {
-    window.location.hash = path;
+    const url = path ? `/${path}` : '/';
+    window.history.pushState(null, '', url);
+    this.handleNavigation();
   }
 
   public getCurrentRoute(): Route | null {
@@ -171,6 +173,6 @@ export class Router {
   }
 
   public dispose(): void {
-    window.removeEventListener('hashchange', () => {});
+    window.removeEventListener('popstate', () => {});
   }
 }
