@@ -110,7 +110,7 @@ export class PanelManager {
     // Button click handlers - store references for cleanup
     this.paperBtnClickHandler = (e) => {
       e.preventDefault();
-      this.transitionTo('paper');
+      this.transitionTo('resume');
     };
     this.paperBtn.addEventListener('click', this.paperBtnClickHandler);
 
@@ -342,7 +342,8 @@ export class PanelManager {
         this.transitionTo('resume');
         break;
       case 'paper':
-        this.transitionTo('paper');
+        // Redirect to resume for backwards compatibility
+        this.transitionTo('resume');
         break;
       case '':
         this.transitionTo('landing');
