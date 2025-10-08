@@ -26,6 +26,7 @@ export class PanelManager {
   private paperBtn: HTMLElement;
   private appBtn: HTMLElement;
   private navbar: HTMLElement;
+  private socialIconsContainer: HTMLElement;
 
   // Optional TextRenderer reference for triggering updates
   private textRenderer: TextRenderer | null = null;
@@ -85,6 +86,7 @@ export class PanelManager {
     this.paperBtn = this.getElement('paper-btn');
     this.appBtn = this.getElement('app-btn');
     this.navbar = this.getElement('navbar');
+    this.socialIconsContainer = this.getElement('social-icons-container');
 
     // Initialize scroll tracker
     this.scrollTracker = new ScrollTracker();
@@ -482,15 +484,15 @@ export class PanelManager {
    */
   private shouldActivatePanel(panel: HTMLElement, state: PanelState): boolean {
     if (state === 'app') {
-      return panel === this.appBioPanel || panel === this.appProfilePicture;
+      return panel === this.appBioPanel || panel === this.appProfilePicture || panel === this.socialIconsContainer;
     }
 
     if (state === 'portfolio') {
-      return panel === this.portfolioContainer;
+      return panel === this.portfolioContainer || panel === this.socialIconsContainer;
     }
 
     if (state === 'resume') {
-      return panel === this.resumeContainer;
+      return panel === this.resumeContainer || panel === this.socialIconsContainer;
     }
 
     return false;
@@ -503,6 +505,8 @@ export class PanelManager {
     this.appBioPanel.classList.remove('active');
     this.appProfilePicture.classList.add('hidden');
     this.appProfilePicture.classList.remove('active');
+    this.socialIconsContainer.classList.add('hidden');
+    this.socialIconsContainer.classList.remove('active');
     this.portfolioContainer.classList.add('hidden');
     this.resumeContainer.classList.add('hidden');
 
@@ -512,12 +516,15 @@ export class PanelManager {
     } else if (this.currentState === 'app') {
       this.appBioPanel.classList.remove('hidden');
       this.appProfilePicture.classList.remove('hidden');
+      this.socialIconsContainer.classList.remove('hidden');
     } else if (this.currentState === 'portfolio') {
       this.portfolioContainer.classList.remove('hidden');
+      this.socialIconsContainer.classList.remove('hidden');
       // Reset scroll position
       this.portfolioContainer.scrollTop = 0;
     } else if (this.currentState === 'resume') {
       this.resumeContainer.classList.remove('hidden');
+      this.socialIconsContainer.classList.remove('hidden');
       // Reset scroll position
       this.resumeContainer.scrollTop = 0;
     }
@@ -563,11 +570,11 @@ export class PanelManager {
       case 'landing':
         return [this.landingPanel];
       case 'app':
-        return [this.appBioPanel, this.appProfilePicture];
+        return [this.appBioPanel, this.appProfilePicture, this.socialIconsContainer];
       case 'portfolio':
-        return [this.portfolioContainer];
+        return [this.portfolioContainer, this.socialIconsContainer];
       case 'resume':
-        return [this.resumeContainer];
+        return [this.resumeContainer, this.socialIconsContainer];
       default:
         return [];
     }

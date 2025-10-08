@@ -555,6 +555,35 @@ export class TextRenderer {
       return;
     }
 
+    // SPECIAL CASE: SVG elements (social icons)
+    // Render as white filled shape for shader to apply adaptive color + wiggle
+    if (element.tagName === 'svg' || element instanceof SVGElement) {
+      // Scale to canvas texture coordinates
+      const scaleX = this.textCanvas.width / canvasRect.width;
+      const scaleY = this.textCanvas.height / canvasRect.height;
+
+      // Element position in screen space
+      const screenX = elementRect.left - canvasRect.left;
+      const screenY = elementRect.top - canvasRect.top;
+
+      // Convert to canvas texture coordinates
+      const textureX = screenX * scaleX;
+      const textureY = screenY * scaleY;
+      const scaledWidth = elementRect.width * scaleX;
+      const scaledHeight = elementRect.height * scaleY;
+
+      // Render white filled circle/rect for icons
+      ctx.save();
+      ctx.fillStyle = 'white';
+      ctx.globalAlpha = 1.0;
+
+      // Draw filled rectangle (simpler and more reliable than path rendering)
+      ctx.fillRect(textureX, textureY, scaledWidth, scaledHeight);
+
+      ctx.restore();
+      return; // Exit early - SVG rendering complete
+    }
+
     // Get computed styles from HTML element for pixel-perfect matching
     const styles = getComputedStyle(element);
     const fontSize = parseFloat(styles.fontSize);
@@ -1493,7 +1522,11 @@ export class TextRenderer {
       { selector: '#resume-uwedu-panel .resume-subsection', id: 'resume-uwedu-subsection', panelId: 'resume-uwedu-panel' },
 
       // Navigation
-      { selector: '.brand-text', id: 'nav-brand', panelId: 'navbar' }
+      { selector: '.brand-text', id: 'nav-brand', panelId: 'navbar' },
+
+      // Social Media Icons
+      { selector: '#github-icon .icon-svg', id: 'social-github-icon', panelId: 'navbar' },
+      { selector: '#linkedin-icon .icon-svg', id: 'social-linkedin-icon', panelId: 'navbar' }
     ];
 
     // Setup each text element
