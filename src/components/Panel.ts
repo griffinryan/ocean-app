@@ -39,8 +39,8 @@ export class PanelManager {
 
   // Default transition settings
   private defaultTransition: PanelTransition = {
-    duration: 600,
-    easing: 'cubic-bezier(0.4, 0, 0.2, 1)'
+    duration: 450,
+    easing: 'cubic-bezier(0.32, 0.08, 0.24, 1)'
   };
 
   // Transition tracking for proper text update timing
@@ -545,7 +545,7 @@ export class PanelManager {
         this.pendingExitCount = 0;
         this.pendingEnterCount = 0;
         this.onAllTransitionsComplete();
-      }, this.defaultTransition.duration + 100); // 100ms safety margin
+      }, this.defaultTransition.duration + 150); // 150ms safety margin
     }
 
     if (this.glassRenderer) {

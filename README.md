@@ -64,28 +64,6 @@ The application uses a **6-pass multi-stage pipeline** with independent resoluti
    [Display]
 ```
 
-### Shared Ocean Buffer Optimization
-
-**Problem:** Original pipeline rendered the ocean 3× per frame (glass capture, text capture, final composite).
-
-**Solution:** Render ocean **once** to a shared framebuffer, then sample it multiple times:
-- Glass pass reads from shared buffer (no re-render)
-- Text pass reads from shared buffer (no re-render)
-- Final composite reads from shared buffer (no re-render)
-
-**Result:** ~30-40% performance improvement from eliminating redundant ocean draws.
-
-### Frame Budget System
-
-All render passes are assigned work priorities to maintain 60 FPS (16.67ms budget):
-
-| Priority | Work | Budget Impact | Skip Condition |
-|----------|------|---------------|----------------|
-| **CRITICAL** | Ocean render, vessel updates | Always runs | Never |
-| **HIGH** | Glass distortion | 1.5ms | Skip if <1.5ms remaining |
-| **MEDIUM** | Text scene capture | 2.0ms | Skip if <2.0ms remaining |
-| **OPTIONAL** | Debug overlays | 0.5ms | Skip if <0.5ms remaining |
-
 ---
 
 ## Mathematical Foundations
@@ -574,7 +552,7 @@ float lanczosWeight(float x, float a) {
   - GPU FFT implementation complexity
   - Difficult to integrate with interactive UI elements
 
-**Used in:** *Sea of Thieves*, *Uncharted 4*, *PUBG* (large-scale ocean scenes)
+**Used in:** *Sea of Thieves*, *Uncharted 4*, *etc* (large-scale ocean scenes)
 
 ### This Project's Approach (Procedural Synthesis)
 
@@ -658,10 +636,7 @@ Press **`O`** to toggle debug overlay.
 | **G** | Toggle glass panel rendering |
 | **T** | Toggle text rendering |
 | **B** | Toggle blur map (frosted glass effect) |
-| **N** / **M** | Decrease/increase blur radius |
-| **,** / **.** | Decrease/increase blur falloff power |
 | **F** | Toggle fullscreen |
-| **Escape** | Exit fullscreen |
 
 ### Debug Visualizations
 

@@ -1165,15 +1165,18 @@ body {
 
 /* Slide exit to left */
 .slide-exit-left {
-  animation: slideExitLeft 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation: slideExitLeft 0.45s cubic-bezier(0.32, 0.08, 0.24, 1) forwards;
 }
 
 @keyframes slideExitLeft {
-  from {
+  0% {
     transform: translateX(0);
     opacity: 1;
   }
-  to {
+  80% {
+    opacity: 0.15;
+  }
+  100% {
     transform: translateX(-100%);
     opacity: 0;
   }
@@ -1181,15 +1184,18 @@ body {
 
 /* Slide enter from right */
 .slide-enter-right {
-  animation: slideEnterRight 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation: slideEnterRight 0.45s cubic-bezier(0.32, 0.08, 0.24, 1) forwards;
 }
 
 @keyframes slideEnterRight {
-  from {
+  0% {
     transform: translateX(100%);
     opacity: 0;
   }
-  to {
+  20% {
+    opacity: 0.2;
+  }
+  100% {
     transform: translateX(0);
     opacity: 1;
   }
@@ -1197,15 +1203,18 @@ body {
 
 /* Slide enter from left (for reverse navigation) */
 .slide-enter-left {
-  animation: slideEnterLeft 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation: slideEnterLeft 0.45s cubic-bezier(0.32, 0.08, 0.24, 1) forwards;
 }
 
 @keyframes slideEnterLeft {
-  from {
+  0% {
     transform: translateX(-100%);
     opacity: 0;
   }
-  to {
+  20% {
+    opacity: 0.2;
+  }
+  100% {
     transform: translateX(0);
     opacity: 1;
   }
@@ -1213,15 +1222,18 @@ body {
 
 /* Slide exit to right (for reverse navigation) */
 .slide-exit-right {
-  animation: slideExitRight 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation: slideExitRight 0.45s cubic-bezier(0.32, 0.08, 0.24, 1) forwards;
 }
 
 @keyframes slideExitRight {
-  from {
+  0% {
     transform: translateX(0);
     opacity: 1;
   }
-  to {
+  80% {
+    opacity: 0.15;
+  }
+  100% {
     transform: translateX(100%);
     opacity: 0;
   }
