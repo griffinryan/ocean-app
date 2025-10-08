@@ -28,6 +28,8 @@ export class GlassRenderer {
   private oceanTexture: WebGLTexture | null = null;
   private oceanTextureOwned: boolean = true; // Track if we own the texture for cleanup
   private depthBuffer: WebGLRenderbuffer | null = null;
+  private framebufferWidth: number = 1;
+  private framebufferHeight: number = 1;
 
   // Matrix uniforms
   private projectionMatrix: Mat4;
@@ -190,12 +192,27 @@ export class GlassRenderer {
       return;
     }
 
+    const safeWidth = Math.max(1, Math.floor(width));
+    const safeHeight = Math.max(1, Math.floor(height));
+
+    if (safeWidth !== width || safeHeight !== height) {
+      console.warn(`GlassRenderer: Clamping framebuffer from ${width}×${height} to ${safeWidth}×${safeHeight}`);
+    }
+
+    this.framebufferWidth = safeWidth;
+    this.framebufferHeight = safeHeight;
+
+    if (!this.oceanTextureOwned) {
+      // Shared texture managed by OceanRenderer; skip reallocation to avoid mismatched attachments
+      return;
+    }
+
     // Bind framebuffer
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.oceanFramebuffer);
 
     // Setup color texture
     gl.bindTexture(gl.TEXTURE_2D, this.oceanTexture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, safeWidth, safeHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -206,7 +223,7 @@ export class GlassRenderer {
 
     // Setup depth buffer
     gl.bindRenderbuffer(gl.RENDERBUFFER, this.depthBuffer);
-    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, width, height);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, safeWidth, safeHeight);
     gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, this.depthBuffer);
 
     // Check framebuffer completeness
@@ -253,7 +270,7 @@ export class GlassRenderer {
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.oceanFramebuffer);
 
     // Set viewport to match framebuffer size
-    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+    gl.viewport(0, 0, this.framebufferWidth, this.framebufferHeight);
 
     // Clear framebuffer
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
@@ -768,7 +785,7 @@ export class GlassRenderer {
    * Set ocean texture from shared buffer
    * PERFORMANCE: Allows glass to use pre-rendered ocean instead of capturing
    */
-  public setOceanTexture(texture: WebGLTexture | null): void {
+  public setOceanTexture(texture: WebGLTexture | null, width?: number, height?: number): void {
     if (texture) {
       // Delete old texture if we own it (not shared)
       if (this.oceanTextureOwned && this.oceanTexture) {
@@ -778,6 +795,14 @@ export class GlassRenderer {
       // Set new texture (shared, not owned by us)
       this.oceanTexture = texture;
       this.oceanTextureOwned = false;
+
+      if (width !== undefined && height !== undefined) {
+        this.framebufferWidth = Math.max(1, Math.floor(width));
+        this.framebufferHeight = Math.max(1, Math.floor(height));
+      }
+    } else {
+      this.oceanTexture = null;
+      this.oceanTextureOwned = true;
     }
   }
 

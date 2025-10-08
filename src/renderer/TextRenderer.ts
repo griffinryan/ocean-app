@@ -26,6 +26,8 @@ export class TextRenderer {
   private sceneFramebuffer: WebGLFramebuffer | null = null;
   private sceneTexture: WebGLTexture | null = null;
   private sceneDepthBuffer: WebGLRenderbuffer | null = null;
+  private sceneWidth: number = 1;
+  private sceneHeight: number = 1;
 
   // Canvas for text generation (RESTORED)
   private textCanvas!: HTMLCanvasElement;
@@ -308,6 +310,9 @@ export class TextRenderer {
       return;
     }
 
+    const safeWidth = Math.max(1, Math.floor(width));
+    const safeHeight = Math.max(1, Math.floor(height));
+
     // Cap blur map resolution at 1920×1080 (Full HD)
     // Higher cap eliminates jagged edges from distance field upscaling
     // Blur maps are single-channel R16F (~4MB at 1080p, negligible memory cost)
@@ -315,18 +320,22 @@ export class TextRenderer {
     const MAX_BLUR_WIDTH = 1920;
     const MAX_BLUR_HEIGHT = 1080;
 
-    const aspectRatio = width / height;
-    let blurWidth = width;
-    let blurHeight = height;
+    if (safeWidth !== width || safeHeight !== height) {
+      console.warn(`TextRenderer: Clamping blur map framebuffer from ${width}×${height} to ${safeWidth}×${safeHeight}`);
+    }
+
+    const aspectRatio = safeWidth / safeHeight;
+    let blurWidth = safeWidth;
+    let blurHeight = safeHeight;
 
     if (blurWidth > MAX_BLUR_WIDTH) {
       blurWidth = MAX_BLUR_WIDTH;
-      blurHeight = Math.round(blurWidth / aspectRatio);
+      blurHeight = Math.max(1, Math.round(blurWidth / aspectRatio));
     }
 
     if (blurHeight > MAX_BLUR_HEIGHT) {
       blurHeight = MAX_BLUR_HEIGHT;
-      blurWidth = Math.round(blurHeight * aspectRatio);
+      blurWidth = Math.max(1, Math.round(blurHeight * aspectRatio));
     }
 
     // Store blur map dimensions for use in generateBlurMap
@@ -479,19 +488,28 @@ export class TextRenderer {
     const MAX_TEXT_WIDTH = 1920;
     const MAX_TEXT_HEIGHT = 1080;
 
-    // Maintain aspect ratio while capping resolution
-    const aspectRatio = width / height;
-    let textWidth = width;
-    let textHeight = height;
+    const safeWidth = Math.max(1, Math.floor(width));
+    const safeHeight = Math.max(1, Math.floor(height));
+
+    if (safeWidth !== width || safeHeight !== height) {
+      console.warn(`TextRenderer: Clamping scene framebuffer from ${width}×${height} to ${safeWidth}×${safeHeight}`);
+    }
+
+    this.sceneWidth = safeWidth;
+    this.sceneHeight = safeHeight;
+
+    const aspectRatio = safeWidth / safeHeight;
+    let textWidth = safeWidth;
+    let textHeight = safeHeight;
 
     if (textWidth > MAX_TEXT_WIDTH) {
       textWidth = MAX_TEXT_WIDTH;
-      textHeight = Math.round(textWidth / aspectRatio);
+      textHeight = Math.max(1, Math.round(textWidth / aspectRatio));
     }
 
     if (textHeight > MAX_TEXT_HEIGHT) {
       textHeight = MAX_TEXT_HEIGHT;
-      textWidth = Math.round(textHeight * aspectRatio);
+      textWidth = Math.max(1, Math.round(textHeight * aspectRatio));
     }
 
     // Resize text canvas with capped resolution
@@ -508,7 +526,7 @@ export class TextRenderer {
 
     // Setup color texture
     gl.bindTexture(gl.TEXTURE_2D, this.sceneTexture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, safeWidth, safeHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -519,7 +537,7 @@ export class TextRenderer {
 
     // Setup depth buffer
     gl.bindRenderbuffer(gl.RENDERBUFFER, this.sceneDepthBuffer);
-    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, width, height);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, safeWidth, safeHeight);
     gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, this.sceneDepthBuffer);
 
     // Check framebuffer completeness
@@ -534,7 +552,7 @@ export class TextRenderer {
     gl.bindRenderbuffer(gl.RENDERBUFFER, null);
 
     // Resize blur map framebuffer
-    this.resizeBlurMapFramebuffer(width, height);
+    this.resizeBlurMapFramebuffer(safeWidth, safeHeight);
 
     // Mark scene as dirty after resize
     this.markSceneDirty();
@@ -564,7 +582,7 @@ export class TextRenderer {
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFramebuffer);
 
     // Set viewport to match framebuffer size
-    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+    gl.viewport(0, 0, this.sceneWidth, this.sceneHeight);
 
     // Clear framebuffer
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
