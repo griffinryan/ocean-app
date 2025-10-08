@@ -1554,7 +1554,7 @@ body {
 
 .social-icons-container {
   position: fixed;
-  top: 32px; /* Vertically centered with navbar (20px + (60px-32px)/2) */
+  top: 100px; /* Below navbar, matching profile picture vertical alignment */
   right: 80px; /* Tasteful margin from edge */
   display: flex;
   gap: 24px; /* Apple-spec spacing between icons */
@@ -1599,7 +1599,7 @@ body {
 /* Responsive adjustments for social icons */
 @media (max-width: 768px) {
   .social-icons-container {
-    top: 22px; /* Adjust for smaller navbar */
+    top: 90px; /* Below smaller navbar on mobile */
     right: 40px; /* Less margin on mobile */
     gap: 20px; /* Tighter spacing on mobile */
   }

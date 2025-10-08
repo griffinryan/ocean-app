@@ -144,7 +144,8 @@ export class PanelManager {
       this.appProfilePicture,
       this.portfolioContainer,
       this.resumeContainer,
-      this.navbar
+      this.navbar,
+      this.socialIconsContainer
     ];
 
     panels.forEach(panel => {
@@ -168,7 +169,8 @@ export class PanelManager {
       this.appProfilePicture,
       this.portfolioContainer,
       this.resumeContainer,
-      this.navbar
+      this.navbar,
+      this.socialIconsContainer
     ];
 
     panels.forEach(panel => {
@@ -250,7 +252,10 @@ export class PanelManager {
 
       if (this.shouldActivatePanel(panel, this.currentState)) {
         panel.classList.add('active');
-        this.activeTransitions.add(panel);
+        // PERFORMANCE: Only track if panel has transform transitions
+        if (this.shouldTrackTransform(panel)) {
+          this.activeTransitions.add(panel);
+        }
       }
 
       if (this.pendingEnterCount > 0) {
@@ -480,6 +485,23 @@ export class PanelManager {
   }
 
   /**
+   * Determine whether a panel should be tracked in activeTransitions
+   * PERFORMANCE: Only track panels with transform/spatial transitions
+   * Opacity-only transitions don't affect text positioning and shouldn't block TextRenderer
+   */
+  private shouldTrackTransform(panel: HTMLElement): boolean {
+    // Only track panels that have actual transform/spatial transitions in CSS
+    // - appBioPanel: Has transform translateY transition (slides in)
+    // - navbar: May have transform transitions in animations
+    // DON'T track:
+    // - appProfilePicture: Only opacity transition (static transform for centering)
+    // - socialIconsContainer: Only opacity transition
+    // - portfolioContainer/resumeContainer: No transitions (instant show/hide)
+    return panel === this.appBioPanel ||
+           panel === this.navbar;
+  }
+
+  /**
    * Determine whether a panel needs the active class (triggers transform transition)
    */
   private shouldActivatePanel(panel: HTMLElement, state: PanelState): boolean {
@@ -539,8 +561,10 @@ export class PanelManager {
       this.textRenderer.setTransitioning(true);
 
       // Track these panels as transitioning
+      // PERFORMANCE: Only track panels with transform transitions
+      // Opacity-only transitions don't affect text positioning
       currentPanels.forEach(panel => {
-        if (panel) {
+        if (panel && this.shouldTrackTransform(panel)) {
           this.activeTransitions.add(panel);
         }
       });
