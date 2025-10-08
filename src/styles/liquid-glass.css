@@ -1577,8 +1577,8 @@ body {
 }
 
 .social-icon {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1597,8 +1597,8 @@ body {
 }
 
 .social-icon .icon-svg {
-  width: 100%;
-  height: 100%;
+  width: 32px;
+  height: 32px;
   fill: white; /* Base color - TextRenderer shader will adapt this */
   display: block;
 }
@@ -1612,7 +1612,12 @@ body {
   }
 
   .social-icon {
-    width: 28px; /* Slightly smaller on mobile */
+    width: 35px; /* 25% larger than icon for wave motion margin */
+    height: 35px;
+  }
+
+  .social-icon .icon-svg {
+    width: 28px; /* Actual icon size on mobile */
     height: 28px;
   }
 }
