@@ -1280,6 +1280,25 @@ body {
   }
 }
 
+/* Landing panel centered exit (preserves dual-axis centering) */
+.slide-exit-left-landing {
+  animation: slideExitLeftLanding 0.45s cubic-bezier(0.32, 0.08, 0.24, 1) forwards;
+}
+
+@keyframes slideExitLeftLanding {
+  0% {
+    transform: translate(-50%, -50%);
+    opacity: 1;
+  }
+  80% {
+    opacity: 0.15;
+  }
+  100% {
+    transform: translate(-150%, -50%);
+    opacity: 0;
+  }
+}
+
 /* ===== RESPONSIVE DESIGN ===== */
 
 @media (max-width: 768px) {

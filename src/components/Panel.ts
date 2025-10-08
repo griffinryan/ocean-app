@@ -222,9 +222,11 @@ export class PanelManager {
   private handleAnimationEnd(panel: HTMLElement, event: AnimationEvent): void {
     const animationName = event.animationName;
 
-    if (animationName === 'slideExitLeft' || animationName === 'slideExitLeftCentered') {
+    if (animationName === 'slideExitLeft' ||
+        animationName === 'slideExitLeftCentered' ||
+        animationName === 'slideExitLeftLanding') {
       panel.classList.add('hidden');
-      panel.classList.remove('slide-exit-left', 'slide-exit-left-centered');
+      panel.classList.remove('slide-exit-left', 'slide-exit-left-centered', 'slide-exit-left-landing');
       panel.style.transform = '';
 
       if (this.pendingExitCount > 0) {
@@ -404,8 +406,14 @@ export class PanelManager {
 
     elements.forEach(element => {
       element.classList.remove('slide-enter-right', 'slide-enter-right-centered');
-      // Bio panel uses centered slide animation to preserve transform-based centering
-      const slideClass = element === this.appBioPanel ? 'slide-exit-left-centered' : 'slide-exit-left';
+      // Landing panel uses dual-axis centered exit to preserve translate(-50%, -50%)
+      // Bio panel uses horizontal-only centered exit to preserve translateX(-50%)
+      let slideClass = 'slide-exit-left';
+      if (element === this.landingPanel) {
+        slideClass = 'slide-exit-left-landing';
+      } else if (element === this.appBioPanel) {
+        slideClass = 'slide-exit-left-centered';
+      }
       element.classList.add(slideClass);
     });
 
