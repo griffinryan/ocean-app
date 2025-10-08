@@ -1166,6 +1166,7 @@ export class TextRenderer {
       'app-panel',
       'app-bio-panel',
       'navbar',
+      'social-icons-container',
       // Portfolio panels
       'portfolio-lakehouse-panel',
       'portfolio-encryption-panel',
