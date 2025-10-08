@@ -284,6 +284,50 @@ export class PanelManager {
   }
 
   /**
+   * Check if scroll container children have settled layout
+   * Returns true if all visible child panels have non-zero dimensions
+   */
+  private isScrollContainerReady(): boolean {
+    const containers = [
+      { element: this.portfolioContainer, state: 'portfolio' },
+      { element: this.resumeContainer, state: 'resume' }
+    ];
+
+    for (const { element, state } of containers) {
+      // Only check the active scroll container
+      if (this.currentState !== state || element.classList.contains('hidden')) {
+        continue;
+      }
+
+      // Get all child panels
+      const childPanels = element.querySelectorAll('.glass-panel');
+      if (childPanels.length === 0) {
+        console.warn(`PanelManager: No child panels found in ${state} container`);
+        return false;
+      }
+
+      // Check first and last panel have non-zero dimensions (ensures container is laid out)
+      const firstPanel = childPanels[0] as HTMLElement;
+      const lastPanel = childPanels[childPanels.length - 1] as HTMLElement;
+
+      const firstRect = firstPanel.getBoundingClientRect();
+      const lastRect = lastPanel.getBoundingClientRect();
+
+      if (firstRect.width === 0 || firstRect.height === 0 || lastRect.width === 0 || lastRect.height === 0) {
+        console.warn(`PanelManager: Scroll container ${state} not ready - panels have zero dimensions`, {
+          first: { width: firstRect.width, height: firstRect.height },
+          last: { width: lastRect.width, height: lastRect.height }
+        });
+        return false;
+      }
+
+      console.log(`PanelManager: Scroll container ${state} ready - all panels have dimensions`);
+    }
+
+    return true;
+  }
+
+  /**
    * Called when all CSS transitions are complete
    */
   private onAllTransitionsComplete(): void {
@@ -300,32 +344,54 @@ export class PanelManager {
       this.transitionTimeout = null;
     }
 
-    // CRITICAL: Wait 2 frames for browser to fully render final state
+    // CRITICAL: Wait 4 frames for browser to fully render final state
+    // Scroll containers need extra time for children layout to settle
     // Frame 1: Browser computes final styles after transitionend
-    // Frame 2: Browser renders final painted state
-    // Frame 3: We can safely capture positions
+    // Frame 2: Scroll container layout starts
+    // Frame 3: Child panel positions settle
+    // Frame 4: All elements have final dimensions
+    // Frame 5: We can safely capture positions
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        // CRITICAL: Stop continuous glass position updates
-        if (this.glassRenderer) {
-          this.glassRenderer.endTransitionMode();
-          this.glassRenderer.endScrollMode(); // End scroll mode used for slide tracking
-          console.debug('PanelManager: Ended glass scroll mode for slide transition');
-        }
-
-        // Notify scroll tracker that transition ended (resumes independent scroll tracking)
-        this.scrollTracker.notifyTransitionEnd();
-        this.scrollTracker.forceUpdate();
-
-        if (this.textRenderer) {
-          console.debug('PanelManager: Render settled, enabling text');
-          this.textRenderer.setTransitioning(false);
-          // Force immediate update
-          this.textRenderer.forceTextureUpdate();
-          this.textRenderer.markSceneDirty();
-        }
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            // Verify scroll container is ready before enabling text
+            if (!this.isScrollContainerReady()) {
+              console.warn('PanelManager: Scroll container not ready, waiting one more frame...');
+              requestAnimationFrame(() => {
+                this.finishTransition();
+              });
+            } else {
+              this.finishTransition();
+            }
+          });
+        });
       });
     });
+  }
+
+  /**
+   * Complete transition and enable text rendering
+   */
+  private finishTransition(): void {
+    // CRITICAL: Stop continuous glass position updates
+    if (this.glassRenderer) {
+      this.glassRenderer.endTransitionMode();
+      this.glassRenderer.endScrollMode(); // End scroll mode used for slide tracking
+      console.debug('PanelManager: Ended glass scroll mode for slide transition');
+    }
+
+    // Notify scroll tracker that transition ended (resumes independent scroll tracking)
+    this.scrollTracker.notifyTransitionEnd();
+    this.scrollTracker.forceUpdate();
+
+    if (this.textRenderer) {
+      console.log('PanelManager: Scroll container ready, enabling text rendering');
+      this.textRenderer.setTransitioning(false);
+      // Force immediate update
+      this.textRenderer.forceTextureUpdate();
+      this.textRenderer.markSceneDirty();
+    }
   }
 
   private handleHashChange(): void {
