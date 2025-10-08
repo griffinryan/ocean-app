@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import glsl from 'vite-plugin-glsl'
 
 export default defineConfig({
+  base: '/',
   plugins: [
     glsl({
       include: [
@@ -24,6 +25,7 @@ export default defineConfig({
     open: true
   },
   build: {
-    target: 'esnext'
+    target: 'esnext',
+    sourcemap: true
   }
 })

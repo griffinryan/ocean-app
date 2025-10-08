@@ -53,7 +53,6 @@ export class PanelManager {
   // Event handler references for proper cleanup
   private paperBtnClickHandler: ((e: Event) => void) | null = null;
   private appBtnClickHandler: ((e: Event) => void) | null = null;
-  private hashChangeHandler: (() => void) | null = null;
   private keyDownHandler: ((e: KeyboardEvent) => void) | null = null;
 
   constructor() {
@@ -119,12 +118,6 @@ export class PanelManager {
       this.transitionTo('app');
     };
     this.appBtn.addEventListener('click', this.appBtnClickHandler);
-
-    // Hash change for browser navigation - store reference for cleanup
-    this.hashChangeHandler = () => {
-      this.handleHashChange();
-    };
-    window.addEventListener('hashchange', this.hashChangeHandler);
 
     // Keyboard shortcuts - store reference for cleanup
     this.keyDownHandler = (e) => {
@@ -328,30 +321,6 @@ export class PanelManager {
     });
   }
 
-  private handleHashChange(): void {
-    const hash = window.location.hash.slice(1); // Remove #
-
-    switch (hash) {
-      case 'app':
-        this.transitionTo('app');
-        break;
-      case 'portfolio':
-        this.transitionTo('portfolio');
-        break;
-      case 'resume':
-        this.transitionTo('resume');
-        break;
-      case 'paper':
-        // Redirect to resume for backwards compatibility
-        this.transitionTo('resume');
-        break;
-      case '':
-        this.transitionTo('landing');
-        break;
-      default:
-        this.transitionTo('not-found');
-    }
-  }
 
   private handleKeyPress(event: KeyboardEvent): void {
     // Only handle keys when not typing in input elements
@@ -364,7 +333,7 @@ export class PanelManager {
         // Return to landing
         if (this.currentState !== 'landing') {
           event.preventDefault();
-          window.location.hash = '';
+          window.history.pushState(null, '', '/');
           this.transitionTo('landing');
         }
         break;
@@ -373,14 +342,9 @@ export class PanelManager {
   }
 
   private initializeState(): void {
-    // Check initial hash and set state accordingly
-    const hash = window.location.hash.slice(1);
-    if (hash) {
-      this.handleHashChange();
-    } else {
-      this.currentState = 'landing';
-      this.updatePanelVisibility();
-    }
+    // Initial state will be set by Router, just initialize to landing
+    this.currentState = 'landing';
+    this.updatePanelVisibility();
   }
 
   public transitionTo(newState: PanelState): void {
@@ -749,11 +713,6 @@ export class PanelManager {
     if (this.appBtnClickHandler) {
       this.appBtn.removeEventListener('click', this.appBtnClickHandler);
       this.appBtnClickHandler = null;
-    }
-
-    if (this.hashChangeHandler) {
-      window.removeEventListener('hashchange', this.hashChangeHandler);
-      this.hashChangeHandler = null;
     }
 
     if (this.keyDownHandler) {
