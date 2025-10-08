@@ -81,6 +81,16 @@ export class VesselSystem {
   private idCounter: number = 0;
   private initialized: boolean = false;
   private wakeDecayFunction: (distance: number, maxDistance: number, weight: number) => number;
+  private updateCallCount: number = 0; // DEBUG: Track update calls
+
+  // PERFORMANCE: Object pooling for shader data to avoid allocations every frame
+  private readonly MAX_VESSELS_FOR_SHADER = 5;
+  private pooledPositions: Float32Array;
+  private pooledVelocities: Float32Array;
+  private pooledWeights: Float32Array;
+  private pooledClasses: Float32Array;
+  private pooledHullLengths: Float32Array;
+  private pooledStates: Float32Array;
 
   // Vessel class configurations
   private static readonly VESSEL_CLASS_CONFIGS: Record<VesselClass, VesselClassConfig> = {
@@ -119,21 +129,43 @@ export class VesselSystem {
       config.splineControlPoints,
       config.waveletSigma
     );
+
+    // Initialize pooled arrays for shader data (avoid allocations every frame)
+    this.pooledPositions = new Float32Array(this.MAX_VESSELS_FOR_SHADER * 3);
+    this.pooledVelocities = new Float32Array(this.MAX_VESSELS_FOR_SHADER * 3);
+    this.pooledWeights = new Float32Array(this.MAX_VESSELS_FOR_SHADER);
+    this.pooledClasses = new Float32Array(this.MAX_VESSELS_FOR_SHADER);
+    this.pooledHullLengths = new Float32Array(this.MAX_VESSELS_FOR_SHADER);
+    this.pooledStates = new Float32Array(this.MAX_VESSELS_FOR_SHADER);
+
+    console.log('[DEBUG] VesselSystem constructor called - system initialized');
   }
 
   /**
    * Update vessel system
    */
   update(currentTime: number, deltaTime: number): void {
+    // DEBUG: Log only first 3 update calls to avoid spam
+    if (this.updateCallCount < 3) {
+      console.log('[DEBUG] VesselSystem.update() called, initialized:', this.initialized, 'vessels.size:', this.vessels.size);
+      this.updateCallCount++;
+    }
+
     // Initialize system on first update with correct timing
     if (!this.initialized) {
+      console.log('[DEBUG] VesselSystem: First update, spawning initial vessel...');
       this.initialized = true;
       this.lastSpawnTime = currentTime;
 
       // Spawn initial vessel immediately with correct timing
-      const initialVessel = this.createRandomVessel(currentTime);
-      this.vessels.set(initialVessel.id, initialVessel);
-      console.log(`[VesselSystem] Initial vessel spawned: ${initialVessel.id} at position (${initialVessel.position.x}, ${initialVessel.position.z}) with speed ${initialVessel.speed}`);
+      try {
+        const initialVessel = this.createRandomVessel(currentTime);
+        this.vessels.set(initialVessel.id, initialVessel);
+        console.log(`[VesselSystem] ✓ Initial vessel spawned: ${initialVessel.id} at position (${initialVessel.position.x.toFixed(1)}, ${initialVessel.position.z.toFixed(1)}) with speed ${initialVessel.speed.toFixed(2)}`);
+        console.log('[DEBUG] VesselSystem: After spawning, vessels.size:', this.vessels.size);
+      } catch (error) {
+        console.error('[DEBUG] VesselSystem: ✗ ERROR spawning initial vessel:', error);
+      }
     }
 
     // Spawn new vessels if needed
@@ -452,6 +484,7 @@ export class VesselSystem {
 
   /**
    * Get vessel data for shader uniforms (up to maxCount vessels)
+   * PERFORMANCE: Reuses pooled arrays to avoid allocations every frame
    */
   getVesselDataForShader(maxCount: number = 5, currentTime: number = performance.now()): {
     positions: Float32Array;
@@ -462,32 +495,44 @@ export class VesselSystem {
     states: Float32Array;
     count: number;
   } {
-    const allVessels = Array.from(this.vessels.values()).slice(0, maxCount);
-    const positions = new Float32Array(maxCount * 3);
-    const velocities = new Float32Array(maxCount * 3);
-    const weights = new Float32Array(maxCount);
-    const classes = new Float32Array(maxCount);
-    const hullLengths = new Float32Array(maxCount);
-    const states = new Float32Array(maxCount);
+    // Clamp maxCount to our pool size
+    const count = Math.min(maxCount, this.MAX_VESSELS_FOR_SHADER);
+    const allVessels = Array.from(this.vessels.values()).slice(0, count);
+
+    // Clear pooled arrays (faster than allocation)
+    this.pooledPositions.fill(0);
+    this.pooledVelocities.fill(0);
+    this.pooledWeights.fill(0);
+    this.pooledClasses.fill(0);
+    this.pooledHullLengths.fill(0);
+    this.pooledStates.fill(0);
 
     allVessels.forEach((vessel, index) => {
       const i = index * 3;
-      positions[i] = vessel.position.x;
-      positions[i + 1] = vessel.position.y;
-      positions[i + 2] = vessel.position.z;
+      this.pooledPositions[i] = vessel.position.x;
+      this.pooledPositions[i + 1] = vessel.position.y;
+      this.pooledPositions[i + 2] = vessel.position.z;
 
-      velocities[i] = vessel.velocity.x;
-      velocities[i + 1] = vessel.velocity.y;
-      velocities[i + 2] = vessel.velocity.z;
+      this.pooledVelocities[i] = vessel.velocity.x;
+      this.pooledVelocities[i + 1] = vessel.velocity.y;
+      this.pooledVelocities[i + 2] = vessel.velocity.z;
 
-      weights[index] = vessel.weight;
-      classes[index] = vessel.vesselClass;
-      hullLengths[index] = vessel.hullLength;
+      this.pooledWeights[index] = vessel.weight;
+      this.pooledClasses[index] = vessel.vesselClass;
+      this.pooledHullLengths[index] = vessel.hullLength;
 
       // Encode vessel state as float for shader
       let stateValue = 0.0; // ACTIVE
       if (vessel.state === VesselState.GHOST) {
-        stateValue = 1.0;
+        // Encode ghost progress: 1.0 = start, 2.0 = end (after 10s)
+        // This allows shader to smoothly transition intensity over first 0.5s
+        const ghostDuration = 10000; // 10 seconds
+        if (vessel.ghostStartTime) {
+          const ghostProgress = Math.min(1.0, (currentTime - vessel.ghostStartTime) / ghostDuration);
+          stateValue = 1.0 + ghostProgress; // Range: 1.0 → 2.0
+        } else {
+          stateValue = 1.0;
+        }
       } else if (vessel.state === VesselState.FADING) {
         // Encode fade progress: 2.0 = start, 3.0 = complete
         const fadeDuration = 5000;
@@ -498,16 +543,16 @@ export class VesselSystem {
           stateValue = 2.0;
         }
       }
-      states[index] = stateValue;
+      this.pooledStates[index] = stateValue;
     });
 
     return {
-      positions,
-      velocities,
-      weights,
-      classes,
-      hullLengths,
-      states,
+      positions: this.pooledPositions,
+      velocities: this.pooledVelocities,
+      weights: this.pooledWeights,
+      classes: this.pooledClasses,
+      hullLengths: this.pooledHullLengths,
+      states: this.pooledStates,
       count: allVessels.length
     };
   }

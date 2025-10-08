@@ -5,17 +5,43 @@
 import { OceanRenderer } from './renderer/OceanRenderer';
 import { PanelManager } from './components/Panel';
 import { Router } from './components/Router';
+import { NavigationManager } from './components/Navigation';
+import { LoadingSequence } from './components/LoadingSequence';
 
 // Import shaders as strings
 import oceanVertexShader from './shaders/ocean.vert';
 import oceanFragmentShader from './shaders/ocean.frag';
+import wakeVertexShader from './shaders/wake.vert';
+import wakeFragmentShader from './shaders/wake.frag';
 import glassVertexShader from './shaders/glass.vert';
 import glassFragmentShader from './shaders/glass.frag';
+import textVertexShader from './shaders/text.vert';
+import textFragmentShader from './shaders/text.frag';
+import blurMapVertexShader from './shaders/blurmap.vert';
+import blurMapFragmentShader from './shaders/blurmap.frag';
+import upscaleVertexShader from './shaders/upscale.vert';
+import upscaleFragmentShader from './shaders/upscale.frag';
 
 class OceanApp {
   public renderer: OceanRenderer | null = null;
   public panelManager: PanelManager | null = null;
   public router: Router | null = null;
+  public navigationManager: NavigationManager | null = null;
+  private loadingSequence: LoadingSequence | null = null;
+  private debugOverlayVisible = false;
+  private debugOverlayFields: {
+    mode: HTMLElement | null;
+    wakes: HTMLElement | null;
+    glass: HTMLElement | null;
+    text: HTMLElement | null;
+    blur: HTMLElement | null;
+  } = {
+    mode: null,
+    wakes: null,
+    glass: null,
+    text: null,
+    blur: null
+  };
 
   async init(): Promise<void> {
     try {
@@ -25,10 +51,18 @@ class OceanApp {
         throw new Error('Canvas element not found');
       }
 
-      console.log('Initializing Ocean Portfolio...');
+      console.log('Initializing Ocean Portfolio with ocean-first loading sequence...');
 
       // Initialize UI components first
       this.initializeUI();
+
+      // Create loading sequence
+      this.loadingSequence = new LoadingSequence({
+        showLoadingIndicator: false, // Disable indicator for cleaner UX
+        glassFadeInDuration: 300,
+        textFadeInDuration: 300,
+        textStaggerDelay: 50
+      });
 
       // Create renderer
       this.renderer = new OceanRenderer({
@@ -37,19 +71,52 @@ class OceanApp {
         alpha: false
       });
 
-      // Initialize shaders (ocean and glass)
+      // Set references for loading sequence
+      this.loadingSequence.setOceanRenderer(this.renderer);
+      if (this.panelManager) {
+        this.loadingSequence.setPanelManager(this.panelManager);
+      }
+
+      // Initialize shaders (ocean, wake, glass, text, blur map, and upscaling)
+      // Phase 2: Background initialization (shaders)
       await this.renderer.initializeShaders(
         oceanVertexShader,
         oceanFragmentShader,
+        wakeVertexShader,
+        wakeFragmentShader,
         glassVertexShader,
-        glassFragmentShader
+        glassFragmentShader,
+        textVertexShader,
+        textFragmentShader,
+        blurMapVertexShader,
+        blurMapFragmentShader,
+        upscaleVertexShader,
+        upscaleFragmentShader
       );
 
-      // Start rendering
+      // Pre-load SVG icons for adaptive coloring (before rendering starts)
+      // PERFORMANCE: All async SVG→Image conversion happens here (one-time ~5-10ms)
+      // Render loop only does synchronous canvas drawing (zero overhead)
+      const textRenderer = this.renderer.getTextRenderer();
+      if (textRenderer) {
+        await textRenderer.preloadSVGIcons();
+      }
+
+      // Connect UI to glass renderer BEFORE starting render loop
+      // This ensures consistent multi-pass pipeline from frame 0
+      // Prevents visual "jump" when switching from simple→complex pipeline
+      this.connectUIToRenderer();
+
+      // Start rendering - this enables Phase 1 (WebGL ocean)
       this.renderer.start();
 
-      // Connect UI to glass renderer
-      this.connectUIToRenderer();
+      // CRITICAL: Wait for landing panel animation before enabling text rendering
+      // Landing panel has `animation: fadeInUp 1.2s` that moves elements
+      // Text positions must NOT be captured during this animation
+      this.waitForInitialAnimation();
+
+      // Start loading sequence (ocean-first progressive enhancement)
+      await this.loadingSequence.start();
 
       console.log('Ocean Portfolio initialized successfully!');
 
@@ -63,7 +130,7 @@ class OceanApp {
   }
 
   /**
-   * Initialize UI components (panels and router)
+   * Initialize UI components (panels, router, and navigation)
    */
   private initializeUI(): void {
     try {
@@ -73,11 +140,36 @@ class OceanApp {
       // Initialize router with panel manager
       this.router = new Router(this.panelManager);
 
+      // Initialize navigation manager with router
+      this.navigationManager = new NavigationManager(this.router);
+
+      // Connect navigation visibility to panel state changes
+      this.setupNavigationIntegration();
+
       console.log('UI components initialized successfully!');
     } catch (error) {
       console.error('Failed to initialize UI components:', error);
       throw error;
     }
+  }
+
+  /**
+   * Setup navigation integration with panel state changes
+   */
+  private setupNavigationIntegration(): void {
+    if (!this.navigationManager || !this.panelManager) {
+      return;
+    }
+
+    // Listen for panel state changes and update navigation visibility
+    const originalTransitionTo = this.panelManager.transitionTo.bind(this.panelManager);
+    this.panelManager.transitionTo = (newState) => {
+      // Call original transition
+      originalTransitionTo(newState);
+
+      // Update navigation visibility based on panel state
+      this.navigationManager!.updateVisibilityForPanelState(newState);
+    };
   }
 
   /**
@@ -96,9 +188,77 @@ class OceanApp {
       // Enable WebGL enhancement on panels
       this.panelManager.enableWebGLDistortion();
 
+      // Connect GlassRenderer to PanelManager for position updates during transitions
+      this.panelManager.setGlassRenderer(glassRenderer);
+
       console.log('UI connected to glass renderer successfully!');
     } else {
       console.warn('Glass renderer not available, falling back to CSS-only effects');
+    }
+
+    // Enable text rendering if available
+    const textRenderer = this.renderer.getTextRenderer();
+    if (textRenderer) {
+      this.renderer.setTextEnabled(true);
+
+      // Connect TextRenderer to PanelManager for visibility updates
+      this.panelManager.setTextRenderer(textRenderer);
+
+      console.log('UI connected to text renderer successfully!');
+    } else {
+      console.warn('Text renderer not available, falling back to CSS-only text');
+    }
+  }
+
+  /**
+   * Wait for initial landing page animation before enabling text rendering
+   * Prevents capturing text positions during CSS animation
+   */
+  private waitForInitialAnimation(): void {
+    if (!this.renderer) {
+      return;
+    }
+
+    const glassRenderer = this.renderer.getGlassRenderer();
+    const textRenderer = this.renderer.getTextRenderer();
+
+    if (textRenderer) {
+      // Block text rendering during initial animation
+      textRenderer.setTransitioning(true);
+    }
+
+    // Keep liquid glass perfectly aligned during landing animation
+    if (glassRenderer) {
+      glassRenderer.startTransitionMode();
+      glassRenderer.markPositionsDirty();
+    }
+
+    console.log('OceanApp: Waiting for landing panel animation to complete...');
+
+    const handleLandingReady = () => {
+      if (textRenderer) {
+        console.log('OceanApp: Landing panel animation complete, enabling text rendering');
+        textRenderer.setTransitioning(false);
+        textRenderer.forceTextureUpdate();
+        textRenderer.markSceneDirty();
+      }
+
+      if (glassRenderer) {
+        glassRenderer.endTransitionMode();
+        glassRenderer.markPositionsDirty();
+      }
+    };
+
+    // Listen for animationend event on landing panel
+    const landingPanel = document.getElementById('landing-panel');
+    if (landingPanel) {
+      landingPanel.addEventListener('animationend', handleLandingReady, { once: true });
+    } else {
+      // Fallback: Enable after timeout if landing panel not found
+      setTimeout(() => {
+        console.warn('OceanApp: Landing panel not found, enabling text after timeout');
+        handleLandingReady();
+      }, 1300); // 1.2s animation + 100ms safety
     }
   }
 
@@ -106,6 +266,8 @@ class OceanApp {
    * Set up keyboard controls for debugging
    */
   private setupControls(): void {
+    this.initializeDebugOverlay();
+
     document.addEventListener('keydown', (event) => {
       switch (event.key) {
         case ' ': // Spacebar
@@ -133,6 +295,8 @@ class OceanApp {
         case 'd':
         case 'D':
           // Cycle through debug modes
+          event.preventDefault();
+          event.stopPropagation();
           if (this.renderer) {
             const currentMode = this.renderer.getDebugMode();
             const nextMode = (currentMode + 1) % 5; // 0-4 debug modes (added wake debug)
@@ -143,6 +307,8 @@ class OceanApp {
         case 'v':
         case 'V':
           // Toggle vessel wake system
+          event.preventDefault();
+          event.stopPropagation();
           if (this.renderer) {
             this.renderer.toggleWakes();
             this.updateVesselInfo();
@@ -151,10 +317,88 @@ class OceanApp {
         case 'g':
         case 'G':
           // Toggle glass panel rendering
+          event.preventDefault();
+          event.stopPropagation();
           if (this.renderer) {
             const isEnabled = this.renderer.getGlassEnabled();
             this.renderer.setGlassEnabled(!isEnabled);
             this.updateGlassInfo(!isEnabled);
+          }
+          break;
+        case 't':
+        case 'T':
+          // Toggle text rendering
+          event.preventDefault();
+          event.stopPropagation();
+          if (this.renderer) {
+            const isEnabled = this.renderer.getTextEnabled();
+            this.renderer.setTextEnabled(!isEnabled);
+            this.updateTextInfo(!isEnabled);
+          }
+          break;
+        case 'b':
+        case 'B':
+          // Toggle blur map effect (frosted glass around text)
+          event.preventDefault();
+          event.stopPropagation();
+          if (this.renderer) {
+            const isEnabled = this.renderer.getBlurMapEnabled();
+            this.renderer.setBlurMapEnabled(!isEnabled);
+            this.updateBlurMapInfo(!isEnabled);
+          }
+          break;
+        case 'n':
+        case 'N':
+          // Decrease blur radius (tighter frost)
+          event.preventDefault();
+          event.stopPropagation();
+          if (this.renderer) {
+            const currentRadius = this.renderer.getBlurRadius();
+            const newRadius = Math.max(20, currentRadius - 10);
+            this.renderer.setBlurRadius(newRadius);
+            console.log(`Blur radius: ${newRadius}px`);
+          }
+          break;
+        case 'm':
+        case 'M':
+          // Increase blur radius (wider frost)
+          event.preventDefault();
+          event.stopPropagation();
+          if (this.renderer) {
+            const currentRadius = this.renderer.getBlurRadius();
+            const newRadius = Math.min(256, currentRadius + 10);
+            this.renderer.setBlurRadius(newRadius);
+            console.log(`Blur radius: ${newRadius}px`);
+          }
+          break;
+        case ',':
+          // Decrease falloff power (softer fade)
+          event.preventDefault();
+          event.stopPropagation();
+          if (this.renderer) {
+            const currentPower = this.renderer.getBlurFalloffPower();
+            const newPower = Math.max(0.5, currentPower - 0.25);
+            this.renderer.setBlurFalloffPower(newPower);
+            console.log(`Blur falloff power: ${newPower.toFixed(2)}`);
+          }
+          break;
+        case '.':
+          // Increase falloff power (sharper fade)
+          event.preventDefault();
+          event.stopPropagation();
+          if (this.renderer) {
+            const currentPower = this.renderer.getBlurFalloffPower();
+            const newPower = Math.min(5.0, currentPower + 0.25);
+            this.renderer.setBlurFalloffPower(newPower);
+            console.log(`Blur falloff power: ${newPower.toFixed(2)}`);
+          }
+          break;
+        case 'o':
+        case 'O':
+          if (!event.ctrlKey && !event.metaKey) {
+            event.preventDefault();
+            event.stopPropagation();
+            this.toggleDebugOverlay();
           }
           break;
         case '1':
@@ -162,65 +406,156 @@ class OceanApp {
         case '3':
         case '4':
         case '0':
-          // Direct debug mode selection
-          if (this.renderer) {
-            const mode = parseInt(event.key);
-            this.renderer.setDebugMode(mode);
-            this.updateDebugInfo(mode);
+          // Direct debug mode selection (without modifier keys)
+          if (!event.ctrlKey && !event.altKey && !event.shiftKey) {
+            event.preventDefault();
+            event.stopPropagation();
+            if (this.renderer) {
+              const mode = parseInt(event.key);
+              this.renderer.setDebugMode(mode);
+              this.updateDebugInfo(mode);
+            }
           }
           break;
       }
     });
 
     // Add some helpful info
-    console.log('Controls:');
+    console.log('=== CONTROLS ===');
+    console.log('General:');
     console.log('  F - Toggle fullscreen');
-    console.log('  Escape - Exit fullscreen');
+    console.log('  Escape - Exit fullscreen / Return to landing');
+    console.log('');
+    console.log('Debug:');
     console.log('  D - Cycle debug modes');
     console.log('  0-4 - Select debug mode directly');
+    console.log('');
+    console.log('Effects:');
     console.log('  V - Toggle vessel wake system');
     console.log('  G - Toggle glass panel rendering');
-    console.log('  Space - Reserved for future controls');
+    console.log('  T - Toggle text rendering');
+    console.log('  B - Toggle blur map (frosted glass)');
+    console.log('  O - Toggle debug overlay');
+    console.log('');
+    console.log('Blur Tuning:');
+    console.log('  N - Decrease blur radius (tighter)');
+    console.log('  M - Increase blur radius (wider)');
+    console.log('  , - Decrease falloff power (softer)');
+    console.log('  . - Increase falloff power (sharper)');
+    console.log('================');
+  }
+
+  /**
+   * Initialize minimal debug overlay without runtime overhead
+   */
+  private initializeDebugOverlay(): void {
+    const existing = document.getElementById('debug-overlay');
+    if (existing && existing.parentElement) {
+      existing.parentElement.removeChild(existing);
+    }
+
+    const overlay = document.createElement('div');
+    overlay.id = 'debug-overlay';
+    overlay.className = 'debug-overlay';
+    overlay.innerHTML = `
+      <div class="debug-overlay-title">Debug Panel</div>
+      <div class="debug-overlay-row">
+        <span class="debug-label">Mode</span>
+        <span class="debug-value" data-debug-field="mode">Normal (0)</span>
+      </div>
+      <div class="debug-overlay-row">
+        <span class="debug-label">Wakes</span>
+        <span class="debug-value" data-debug-field="wakes">ON</span>
+      </div>
+      <div class="debug-overlay-row">
+        <span class="debug-label">Glass</span>
+        <span class="debug-value" data-debug-field="glass">ON</span>
+      </div>
+      <div class="debug-overlay-row">
+        <span class="debug-label">Text</span>
+        <span class="debug-value" data-debug-field="text">ON</span>
+      </div>
+      <div class="debug-overlay-row">
+        <span class="debug-label">Frost</span>
+        <span class="debug-value" data-debug-field="blur">ON</span>
+      </div>
+      <div class="debug-overlay-divider"></div>
+      <div class="debug-overlay-footnote">
+        D: cycle modes · V/G/T/B: toggle systems · N/M,./: blur tuning
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+    this.debugOverlayFields = {
+      mode: overlay.querySelector('[data-debug-field="mode"]'),
+      wakes: overlay.querySelector('[data-debug-field="wakes"]'),
+      glass: overlay.querySelector('[data-debug-field="glass"]'),
+      text: overlay.querySelector('[data-debug-field="text"]'),
+      blur: overlay.querySelector('[data-debug-field="blur"]')
+    };
+
+    this.refreshDebugOverlayState();
+    this.setDebugOverlayVisibility(false);
+  }
+
+  private setDebugOverlayField(field: keyof OceanApp['debugOverlayFields'], value: string): void {
+    const element = this.debugOverlayFields[field];
+    if (element) {
+      element.textContent = value;
+    }
+  }
+
+  private setDebugOverlayVisibility(visible: boolean): void {
+    this.debugOverlayVisible = visible;
+    const overlay = document.getElementById('debug-overlay');
+    if (!overlay) return;
+
+    if (visible) {
+      overlay.classList.add('is-visible');
+    } else {
+      overlay.classList.remove('is-visible');
+    }
+  }
+
+  private toggleDebugOverlay(): void {
+    const newVisibility = !this.debugOverlayVisible;
+    if (newVisibility) {
+      this.refreshDebugOverlayState();
+    }
+    this.setDebugOverlayVisibility(newVisibility);
+  }
+
+  private refreshDebugOverlayState(): void {
+    if (!this.renderer) {
+      this.setDebugOverlayField('wakes', '—');
+      this.setDebugOverlayField('glass', '—');
+      this.setDebugOverlayField('text', '—');
+      this.setDebugOverlayField('blur', '—');
+      return;
+    }
+
+    this.setDebugOverlayField('wakes', this.renderer.getWakesEnabled() ? 'ON' : 'OFF');
+    this.setDebugOverlayField('glass', this.renderer.getGlassEnabled() ? 'ON' : 'OFF');
+    this.setDebugOverlayField('text', this.renderer.getTextEnabled() ? 'ON' : 'OFF');
+    this.setDebugOverlayField('blur', this.renderer.getBlurMapEnabled() ? 'ON' : 'OFF');
   }
 
   /**
    * Update debug info display
    */
   private updateDebugInfo(mode: number): void {
-    const infoElement = document.getElementById('info');
-    if (infoElement) {
-      const modeNames = ['Normal', 'UV Coords', 'Wave Height', 'Normals', 'Wake Map'];
-      const modeName = modeNames[mode] || 'Unknown';
-
-      // Update the existing info or add debug info
-      let debugElement = document.getElementById('debug-mode');
-      if (!debugElement) {
-        debugElement = document.createElement('div');
-        debugElement.id = 'debug-mode';
-        infoElement.appendChild(debugElement);
-      }
-      debugElement.innerHTML = `<br>Debug Mode: ${modeName} (${mode})`;
-    }
+    const modeNames = ['Normal', 'UV Coords', 'Wave Height', 'Normals', 'Wake Map'];
+    const modeName = modeNames[mode] || 'Unknown';
+    this.setDebugOverlayField('mode', `${modeName} (${mode})`);
   }
 
   /**
    * Update vessel system info display
    */
   private updateVesselInfo(): void {
-    const infoElement = document.getElementById('info');
-    if (infoElement && this.renderer) {
+    if (this.renderer) {
       const wakesEnabled = this.renderer.getWakesEnabled();
-      const stats = this.renderer.getVesselStats();
-
-      // Update the existing info or add vessel info
-      let vesselElement = document.getElementById('vessel-info');
-      if (!vesselElement) {
-        vesselElement = document.createElement('div');
-        vesselElement.id = 'vessel-info';
-        infoElement.appendChild(vesselElement);
-      }
-
-      vesselElement.innerHTML = `<br>Vessel Wakes: ${wakesEnabled ? 'ON' : 'OFF'}<br>Active Vessels: ${stats.activeVessels}<br>Wake Points: ${stats.totalWakePoints}`;
+      this.setDebugOverlayField('wakes', wakesEnabled ? 'ON' : 'OFF');
     }
   }
 
@@ -228,18 +563,21 @@ class OceanApp {
    * Update glass system info display
    */
   private updateGlassInfo(enabled: boolean): void {
-    const infoElement = document.getElementById('info');
-    if (infoElement && this.renderer) {
-      // Update the existing info or add glass info
-      let glassElement = document.getElementById('glass-info');
-      if (!glassElement) {
-        glassElement = document.createElement('div');
-        glassElement.id = 'glass-info';
-        infoElement.appendChild(glassElement);
-      }
+    this.setDebugOverlayField('glass', enabled ? 'ON' : 'OFF');
+  }
 
-      glassElement.innerHTML = `<br>Glass Panels: ${enabled ? 'ON' : 'OFF'}`;
-    }
+  /**
+   * Update text rendering info display
+   */
+  private updateTextInfo(enabled: boolean): void {
+    this.setDebugOverlayField('text', enabled ? 'ON' : 'OFF');
+  }
+
+  /**
+   * Update blur map info display
+   */
+  private updateBlurMapInfo(enabled: boolean): void {
+    this.setDebugOverlayField('blur', enabled ? 'ON' : 'OFF');
   }
 
   /**
@@ -281,6 +619,11 @@ class OceanApp {
     if (this.renderer) {
       this.renderer.dispose();
       this.renderer = null;
+    }
+
+    if (this.navigationManager) {
+      this.navigationManager.dispose();
+      this.navigationManager = null;
     }
 
     if (this.panelManager) {

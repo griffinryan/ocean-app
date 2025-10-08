@@ -175,6 +175,13 @@ export class ShaderManager {
     }
   }
 
+  setUniform2fv(program: ShaderProgram, name: string, values: Float32Array): void {
+    const location = program.uniformLocations.get(name);
+    if (location) {
+      this.gl.uniform2fv(location, values);
+    }
+  }
+
   setUniform3fv(program: ShaderProgram, name: string, values: Float32Array): void {
     const location = program.uniformLocations.get(name);
     if (location) {
@@ -203,6 +210,19 @@ export class ShaderManager {
     offset: number = 0
   ): void {
     this.gl.vertexAttribPointer(location, size, type, normalized, stride, offset);
+  }
+
+  /**
+   * Remove a single shader program by name
+   */
+  removeProgram(name: string): boolean {
+    const program = this.programs.get(name);
+    if (program) {
+      this.gl.deleteProgram(program.program);
+      this.programs.delete(name);
+      return true;
+    }
+    return false;
   }
 
   /**

@@ -1,5 +1,14 @@
 /* ===== LIQUID GLASS PANEL SYSTEM ===== */
 
+/* ===== CUSTOM FONTS ===== */
+@font-face {
+  font-family: 'Alagard';
+  src: url('/fonts/alagard.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* CSS Custom Properties for theming */
 :root {
   /* Glass Material Properties */
@@ -16,6 +25,7 @@
 
   /* Typography */
   --font-primary: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+  --font-display: 'Alagard', monospace, sans-serif;
   --font-weight-light: 200;
   --font-weight-normal: 400;
   --font-weight-medium: 500;
@@ -71,9 +81,16 @@ body {
     var(--glass-tint) 0%,
     rgba(255, 255, 255, 0.05) 100%
   );
-  border: 1px solid var(--glass-border);
+  border: 2px solid rgba(255, 255, 255, 0.25);
   border-radius: var(--panel-radius);
-  box-shadow: var(--glass-shadow);
+  box-shadow:
+    var(--glass-shadow),
+    /* Beveled edge effects */
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),          /* Top highlight */
+    inset 1px 0 0 rgba(255, 255, 255, 0.2),          /* Left highlight */
+    inset 0 -1px 0 rgba(0, 0, 0, 0.2),               /* Bottom shadow */
+    inset -1px 0 0 rgba(0, 0, 0, 0.1),               /* Right shadow */
+    inset 0 2px 4px rgba(255, 255, 255, 0.1);
   padding: var(--panel-padding);
   z-index: 100;
 
@@ -94,30 +111,40 @@ body {
   border-radius: var(--panel-radius);
   background: linear-gradient(
     135deg,
-    rgba(255, 255, 255, 0.1) 0%,
-    rgba(255, 255, 255, 0.02) 50%,
-    rgba(255, 255, 255, 0.08) 100%
+    rgba(255, 255, 255, 0.15) 0%,
+    rgba(255, 255, 255, 0.03) 50%,
+    rgba(255, 255, 255, 0.12) 100%
   );
+  box-shadow:
+    /* Enhanced beveled highlights */
+    inset 0 1px 2px rgba(255, 255, 255, 0.3),
+    inset 1px 0 1px rgba(255, 255, 255, 0.2);
   pointer-events: none;
   z-index: -1;
 }
 
-/* Inner glow effect */
+/* Enhanced edge masking and inner glow */
 .glass-panel::after {
   content: '';
   position: absolute;
-  top: 1px;
-  left: 1px;
-  right: 1px;
-  bottom: 1px;
-  border-radius: calc(var(--panel-radius) - 1px);
+  top: 2px;
+  left: 2px;
+  right: 2px;
+  bottom: 2px;
+  border-radius: calc(var(--panel-radius) - 2px);
   background: linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.1) 0%,
+    rgba(255, 255, 255, 0.15) 0%,
     transparent 50%
   );
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  box-shadow:
+    /* Inner rim light */
+    0 0 8px rgba(255, 255, 255, 0.2),
+    /* Outer masking shadow */
+    0 0 0 3px rgba(255, 255, 255, 0.1);
   pointer-events: none;
-  z-index: -1;
+  z-index: 1; /* Above WebGL shader to provide masking */
 }
 
 /* ===== LANDING PANEL ===== */
@@ -132,11 +159,12 @@ body {
 }
 
 .landing-panel h1 {
+  font-family: var(--font-display);
   font-size: 2.5rem;
-  font-weight: var(--font-weight-light);
+  font-weight: normal;
   line-height: 1.2;
   margin-bottom: 0.5rem;
-  letter-spacing: -0.02em;
+  letter-spacing: 0.05em;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 
   /* Fallback color for browsers without background-clip support */
@@ -167,26 +195,188 @@ body {
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
-/* ===== APP PANEL ===== */
+/* ===== NAVIGATION BAR ===== */
 
-.app-panel {
-  top: 2rem;
-  left: 2rem;
-  width: 320px;
-  transform: translateY(-100px);
+.navbar-panel {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  right: 20px;
+  width: calc(100% - 40px);
+  max-width: 1400px;
+  margin: 0 auto;
+  height: 60px;
+  padding: 0;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1);
+  z-index: 200;
+
+  /* Enhanced glass effect for navigation - matches other panels */
+  background: linear-gradient(
+    135deg,
+    var(--glass-tint) 0%,
+    rgba(255, 255, 255, 0.05) 100%
+  );
+
+  /* Transition states */
+  transform: translateY(calc(-100% - 20px));
   opacity: 0;
-  transition: var(--glass-transition);
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.app-panel.active {
+.navbar-panel.navbar-visible {
   transform: translateY(0);
   opacity: 1;
 }
 
-.app-panel h2 {
-  font-size: 1.8rem;
+.navbar-panel.navbar-enter {
+  animation: navbarSlideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.navbar-panel.navbar-exit {
+  animation: navbarSlideOut 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.navbar-panel.scrolled {
+  background: linear-gradient(
+    135deg,
+    var(--glass-tint) 0%,
+    rgba(255, 255, 255, 0.08) 100%
+  );
+  border-bottom-color: rgba(255, 255, 255, 0.25);
+}
+
+.navbar-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 2rem;
+}
+
+.nav-brand {
+  cursor: pointer;
+  transition: var(--hover-transition);
+}
+
+.brand-text {
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  font-weight: normal;
+  color: var(--text-primary);
+  letter-spacing: 0.05em;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.8) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.nav-brand:hover {
+  transform: translateY(-1px);
+}
+
+.nav-items {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 1rem;
+  border-radius: 8px;
+  text-decoration: none;
+  font-size: 0.9rem;
   font-weight: var(--font-weight-medium);
-  margin-bottom: 1rem;
+  color: rgba(255, 255, 255, 0.8);
+  transition: var(--hover-transition);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.nav-item::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.1) 0%,
+    rgba(255, 255, 255, 0.05) 100%
+  );
+  border-radius: 8px;
+  opacity: 0;
+  transition: var(--hover-transition);
+}
+
+.nav-item:hover {
+  color: var(--text-primary);
+  transform: translateY(-1px);
+}
+
+.nav-item:hover::before {
+  opacity: 1;
+}
+
+.nav-item.active {
+  color: var(--text-primary);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.15) 0%,
+    rgba(255, 255, 255, 0.08) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.nav-item.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 20px;
+  height: 2px;
+  background: linear-gradient(90deg,
+    rgba(255, 255, 255, 0.8) 0%,
+    rgba(255, 255, 255, 0.4) 100%
+  );
+  border-radius: 1px;
+}
+
+.contact-item {
+  background: linear-gradient(
+    135deg,
+    rgba(0, 122, 255, 0.25) 0%,
+    rgba(0, 122, 255, 0.15) 100%
+  );
+  border: 1px solid rgba(0, 122, 255, 0.3);
+  color: rgba(255, 255, 255, 0.95);
+  margin-left: 0.5rem;
+}
+
+.contact-item:hover {
+  background: linear-gradient(
+    135deg,
+    rgba(0, 122, 255, 0.35) 0%,
+    rgba(0, 122, 255, 0.25) 100%
+  );
+  border-color: rgba(0, 122, 255, 0.5);
+}
+
+.nav-label {
+  position: relative;
+  z-index: 1;
+  font-family: var(--font-display);
+  font-weight: normal;
+  letter-spacing: 0.05em;
 }
 
 /* ===== GLASS BUTTONS ===== */
@@ -215,11 +405,12 @@ body {
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
 
-  font-family: var(--font-primary);
+  font-family: var(--font-display);
   font-size: 0.95rem;
-  font-weight: var(--font-weight-medium);
+  font-weight: normal;
   color: var(--text-primary);
   text-decoration: none;
+  letter-spacing: 0.05em;
 
   cursor: pointer;
   transition: var(--hover-transition);
@@ -274,8 +465,9 @@ body {
 
 #info {
   position: absolute;
-  top: 10px;
+  top: 50%;
   right: 10px;
+  transform: translateY(-50%);
   color: white;
   font-size: 11px;
   z-index: 150;
@@ -297,6 +489,51 @@ body {
   pointer-events: none;
 }
 
+/* ===== WEBGL TEXT RENDERING ===== */
+
+/* Hide CSS text when WebGL text rendering is active */
+/* Keep HTML elements in DOM for layout, accessibility, and SEO */
+.webgl-text-enabled h1,
+.webgl-text-enabled h2,
+.webgl-text-enabled h3,
+.webgl-text-enabled h4,
+.webgl-text-enabled h5,
+.webgl-text-enabled p,
+.webgl-text-enabled a,
+.webgl-text-enabled span,
+.webgl-text-enabled li,
+.webgl-text-enabled svg,
+.webgl-text-enabled svg *,
+.webgl-text-enabled .icon-svg,
+.webgl-text-enabled .icon-svg *,
+.webgl-text-enabled .subtitle,
+.webgl-text-enabled .glass-button,
+.webgl-text-enabled .brand-text,
+.webgl-text-enabled .nav-label,
+.webgl-text-enabled .skill-tag,
+.webgl-text-enabled .tech-tag,
+.webgl-text-enabled .resume-position,
+.webgl-text-enabled .resume-company,
+.webgl-text-enabled .resume-date,
+.webgl-text-enabled .resume-team,
+.webgl-text-enabled .resume-location,
+.webgl-text-enabled .resume-description,
+.webgl-text-enabled .resume-subsection,
+.webgl-text-enabled .project-title,
+.webgl-text-enabled .project-description,
+.webgl-text-enabled .project-section-title {
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+  text-shadow: none !important;
+  /* Remove gradient backgrounds that might show */
+  background: none !important;
+  -webkit-background-clip: unset !important;
+  background-clip: unset !important;
+  /* Hide SVG fill and stroke for icons (WebGL shader will render with adaptive color) */
+  fill: transparent !important;
+  stroke: transparent !important;
+}
+
 .fade-in {
   animation: fadeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -305,7 +542,603 @@ body {
   animation: fadeOut 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* ===== CONTENT SCROLL CONTAINER SYSTEM ===== */
+
+.content-scroll-container {
+  position: fixed;
+  top: 80px;           /* Below navbar */
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow-y: auto;     /* Enable vertical scrolling */
+  overflow-x: hidden;
+  z-index: 50;          /* Above ocean (1), below navbar (200) */
+
+  /* Performance optimizations */
+  -webkit-overflow-scrolling: touch;
+  will-change: scroll-position;
+
+  /* Smooth scrolling */
+  scroll-behavior: smooth;
+}
+
+/* Custom Scrollbar for Scroll Container (Glass Theme) */
+.content-scroll-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.content-scroll-container::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.3);
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.content-scroll-container::-webkit-scrollbar-thumb {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.4) 0%,
+    rgba(255, 255, 255, 0.2) 100%
+  );
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.content-scroll-container::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.6) 0%,
+    rgba(255, 255, 255, 0.3) 100%
+  );
+}
+
+/* Firefox scrollbar */
+.content-scroll-container {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.3) rgba(0, 0, 0, 0.3);
+}
+
+.scroll-content {
+  min-height: 100vh;  /* Changed from 100% to 100vh for explicit viewport height */
+  padding: 3rem 2rem;
+  /* Layout defined per-container (grid for portfolio, flex for resume) */
+}
+
+/* Complete glass panel styling for scroll containers */
+/* Combines positioning overrides, visual styling, and animation */
+.content-scroll-container .glass-panel {
+  /* Position overrides - change from absolute to relative for scroll layout */
+  position: relative !important;
+  top: auto !important;
+  left: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+  transform: none !important;
+
+  /* Complete glass panel visual styling */
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  background: linear-gradient(
+    135deg,
+    var(--glass-tint) 0%,
+    rgba(255, 255, 255, 0.05) 100%
+  );
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-radius: var(--panel-radius);
+  box-shadow:
+    var(--glass-shadow),
+    /* Beveled edge effects */
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    inset 1px 0 0 rgba(255, 255, 255, 0.2),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.2),
+    inset -1px 0 0 rgba(0, 0, 0, 0.1),
+    inset 0 2px 4px rgba(255, 255, 255, 0.1);
+  padding: var(--panel-padding);
+  z-index: 100;
+
+  /* Performance optimizations */
+  will-change: transform, filter;
+  transform-style: preserve-3d;
+  transition: var(--glass-transition);
+
+  /* Fade-in animation */
+  animation: simpleFadeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+/* Pseudo-element styling for scroll container glass panels */
+/* These create the beveled edge and inner glow effects */
+.content-scroll-container .glass-panel::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: var(--panel-radius);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.15) 0%,
+    rgba(255, 255, 255, 0.03) 50%,
+    rgba(255, 255, 255, 0.12) 100%
+  );
+  box-shadow:
+    /* Enhanced beveled highlights */
+    inset 0 1px 2px rgba(255, 255, 255, 0.3),
+    inset 1px 0 1px rgba(255, 255, 255, 0.2);
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* Enhanced edge masking and inner glow for scroll container panels */
+.content-scroll-container .glass-panel::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  right: 2px;
+  bottom: 2px;
+  border-radius: calc(var(--panel-radius) - 2px);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.15) 0%,
+    transparent 50%
+  );
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  box-shadow:
+    /* Inner rim light */
+    0 0 8px rgba(255, 255, 255, 0.2),
+    /* Outer masking shadow */
+    0 0 0 3px rgba(255, 255, 255, 0.1);
+  pointer-events: none;
+  z-index: 1; /* Above content to provide masking */
+}
+
+/* ===== SCROLLABLE PANEL SYSTEM ===== */
+
+.scrollable-panel {
+  position: relative;   /* Changed from fixed - flows in document */
+  overflow: hidden;     /* Parent panel doesn't scroll */
+  will-change: transform; /* Performance optimization */
+}
+
+.scrollable-content {
+  max-height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 8px; /* Space for scrollbar */
+
+  /* Smooth scrolling */
+  scroll-behavior: smooth;
+
+  /* Optimize scroll performance */
+  -webkit-overflow-scrolling: touch;
+  will-change: scroll-position;
+}
+
+/* Custom Scrollbar Styling (Glass Theme) */
+.scrollable-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.scrollable-content::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+  margin: 4px 0;
+}
+
+.scrollable-content::-webkit-scrollbar-thumb {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.4) 0%,
+    rgba(255, 255, 255, 0.2) 100%
+  );
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.scrollable-content::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.6) 0%,
+    rgba(255, 255, 255, 0.3) 100%
+  );
+}
+
+/* Firefox scrollbar */
+.scrollable-content {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.3) rgba(0, 0, 0, 0.2);
+}
+
+/* ===== PROJECT PANEL STYLING ===== */
+
+.project-panel {
+  /* Layout-only styling - all glass effects come from .content-scroll-container .glass-panel */
+  width: 420px;
+  max-width: 100%;      /* Responsive cap */
+  max-height: 550px;
+  margin: 0 auto;       /* Center horizontally */
+
+  /* Flex layout for content */
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.project-title {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  font-weight: normal;
+  margin: 0;
+  letter-spacing: 0.05em;
+  color: var(--text-primary);
+}
+
+.tech-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.tech-tag {
+  padding: 0.25rem 0.75rem;
+  background: rgba(0, 122, 255, 0.2);
+  border: 1px solid rgba(0, 122, 255, 0.3);
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: var(--font-weight-medium);
+  color: rgba(255, 255, 255, 0.9);
+  letter-spacing: 0.02em;
+}
+
+.project-content {
+  flex: 1;
+  min-height: 0; /* Important for flex scrolling */
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.project-description {
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.project-section-title {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: normal;
+  margin: 0.5rem 0 0.25rem 0;
+  letter-spacing: 0.05em;
+  color: var(--text-primary);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 0.25rem;
+}
+
+.project-features {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.project-features li {
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  padding-left: 1rem;
+  position: relative;
+}
+
+.project-features li::before {
+  content: '→';
+  position: absolute;
+  left: 0;
+  color: rgba(0, 122, 255, 0.6);
+}
+
+/* ===== DOWNLOAD BUTTON PANEL ===== */
+
+.download-button-panel {
+  /* Compact sizing for button-only panel */
+  width: 200px !important;
+  max-width: 200px;
+  height: auto;
+  max-height: 80px;
+  margin: 0 auto 2rem auto; /* Centered with spacing below */
+  padding: 0.5rem !important; /* Minimal padding */
+
+  /* Flexbox for button centering */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.download-resume-btn {
+  margin: 0; /* Remove default button margin */
+  width: 100%; /* Fill panel width */
+}
+
+/* ===== RESUME CARD PANEL STYLING ===== */
+
+.resume-card-panel {
+  /* Layout-only styling - all glass effects come from .content-scroll-container .glass-panel */
+  width: 420px;
+  max-width: 100%;      /* Responsive cap */
+  max-height: 450px;
+  margin: 0 auto;       /* Center horizontally */
+
+  /* Flex layout for content sections */
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.resume-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  padding-bottom: 0.75rem;
+}
+
+.resume-position {
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  font-weight: normal;
+  margin: 0;
+  letter-spacing: 0.05em;
+  color: var(--text-primary);
+}
+
+.resume-company {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: normal;
+  margin: 0;
+  letter-spacing: 0.05em;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.resume-meta {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.resume-date,
+.resume-team,
+.resume-location {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.6);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.05em;
+}
+
+.resume-team::before,
+.resume-location::before {
+  content: '•';
+  margin-right: 0.5rem;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.resume-content {
+  flex: 1;
+  min-height: 0; /* Important for flex scrolling */
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.resume-description {
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  margin: 0;
+  font-style: italic;
+}
+
+.resume-subsection {
+  font-family: var(--font-display);
+  font-size: 0.9rem;
+  font-weight: normal;
+  margin: 0.5rem 0 0.25rem 0;
+  letter-spacing: 0.05em;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.resume-responsibilities {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.resume-responsibilities li {
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  padding-left: 1rem;
+  position: relative;
+}
+
+.resume-responsibilities li::before {
+  content: '▸';
+  position: absolute;
+  left: 0;
+  color: rgba(0, 122, 255, 0.5);
+}
+
+/* ===== PORTFOLIO LAYOUT ===== */
+/* Simple vertical stack for clarity */
+
+#portfolio-container .scroll-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3rem;              /* Generous spacing between panels */
+  padding: 3rem 2rem;
+  max-width: 600px;       /* Constrain width */
+  margin: 0 auto;         /* Center container */
+  height: auto;           /* Explicit height: auto to ensure flex sizing */
+}
+
+/* ===== RESUME LAYOUT ===== */
+/* Simple vertical stack for clarity */
+
+#resume-container .scroll-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3rem;              /* Generous spacing between panels */
+  padding: 3rem 2rem;
+  max-width: 600px;       /* Constrain width */
+  margin: 0 auto;         /* Center container */
+  height: auto;           /* Explicit height: auto to ensure flex sizing */
+}
+
+/* ===== SCROLL PANEL ANIMATIONS ===== */
+
+@keyframes simpleFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Staggered animation delays for portfolio */
+#portfolio-lakehouse-panel { animation-delay: 0s; }
+#portfolio-encryption-panel { animation-delay: 0.1s; }
+#portfolio-dotereditor-panel { animation-delay: 0.2s; }
+#portfolio-dreamrequiem-panel { animation-delay: 0.3s; }
+#portfolio-greenlightgo-panel { animation-delay: 0.4s; }
+
+/* Staggered animation delays for resume */
+#resume-playember-panel { animation-delay: 0s; }
+#resume-meta-panel { animation-delay: 0.1s; }
+#resume-outlier-panel { animation-delay: 0.2s; }
+#resume-uwtutor-panel { animation-delay: 0.3s; }
+#resume-uwedu-panel { animation-delay: 0.4s; }
+
+/* ===== CONTENT PANELS STYLING (Legacy - kept for app panel) ===== */
+
+.portfolio-preview,
+.portfolio-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.project-card,
+.project-detail {
+  padding: 1.5rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: var(--hover-transition);
+}
+
+.project-card:hover,
+.project-detail:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
+  transform: translateY(-2px);
+}
+
+.project-card h3,
+.project-detail h3 {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: normal;
+  margin-bottom: 0.5rem;
+  color: var(--text-primary);
+  letter-spacing: 0.05em;
+}
+
+.project-card p,
+.project-detail p {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.resume-section {
+  margin-bottom: 2rem;
+}
+
+.resume-section h3 {
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  font-weight: normal;
+  margin-bottom: 1rem;
+  color: var(--text-primary);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 0.5rem;
+  letter-spacing: 0.05em;
+}
+
+.experience-item {
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  margin-bottom: 1rem;
+}
+
+.experience-item h4 {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: normal;
+  margin-bottom: 0.5rem;
+  color: var(--text-primary);
+  letter-spacing: 0.05em;
+}
+
+.skills-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.skill-tag {
+  padding: 0.25rem 0.75rem;
+  background: rgba(0, 122, 255, 0.2);
+  border: 1px solid rgba(0, 122, 255, 0.3);
+  border-radius: 16px;
+  font-size: 0.8rem;
+  font-weight: var(--font-weight-medium);
+  color: rgba(255, 255, 255, 0.9);
+}
+
 /* ===== ANIMATIONS ===== */
+
+@keyframes navbarSlideIn {
+  from {
+    transform: translateY(calc(-100% - 20px));
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes navbarSlideOut {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(calc(-100% - 20px));
+    opacity: 0;
+  }
+}
 
 @keyframes fadeInUp {
   from {
@@ -328,9 +1161,196 @@ body {
   to { opacity: 0; }
 }
 
+/* ===== SLIDE TRANSITIONS ===== */
+
+/* Slide exit to left */
+.slide-exit-left {
+  animation: slideExitLeft 0.45s cubic-bezier(0.32, 0.08, 0.24, 1) forwards;
+}
+
+@keyframes slideExitLeft {
+  0% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  80% {
+    opacity: 0.15;
+  }
+  100% {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+}
+
+/* Slide enter from right */
+.slide-enter-right {
+  animation: slideEnterRight 0.45s cubic-bezier(0.32, 0.08, 0.24, 1) forwards;
+}
+
+@keyframes slideEnterRight {
+  0% {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.2;
+  }
+  100% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Slide enter from left (for reverse navigation) */
+.slide-enter-left {
+  animation: slideEnterLeft 0.45s cubic-bezier(0.32, 0.08, 0.24, 1) forwards;
+}
+
+@keyframes slideEnterLeft {
+  0% {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.2;
+  }
+  100% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Slide exit to right (for reverse navigation) */
+.slide-exit-right {
+  animation: slideExitRight 0.45s cubic-bezier(0.32, 0.08, 0.24, 1) forwards;
+}
+
+@keyframes slideExitRight {
+  0% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  80% {
+    opacity: 0.15;
+  }
+  100% {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+/* ===== CENTERED SLIDE TRANSITIONS ===== */
+/* For elements using transform-based centering (left: 50% + translateX(-50%)) */
+
+/* Centered slide enter from right */
+.slide-enter-right-centered {
+  animation: slideEnterRightCentered 0.45s cubic-bezier(0.32, 0.08, 0.24, 1) forwards;
+}
+
+@keyframes slideEnterRightCentered {
+  0% {
+    transform: translateX(100%) translateY(-100px);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.2;
+  }
+  100% {
+    transform: translateX(-50%) translateY(-100px);
+    opacity: 1;
+  }
+}
+
+/* Centered slide exit to left */
+.slide-exit-left-centered {
+  animation: slideExitLeftCentered 0.45s cubic-bezier(0.32, 0.08, 0.24, 1) forwards;
+}
+
+@keyframes slideExitLeftCentered {
+  0% {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+  }
+  80% {
+    opacity: 0.15;
+  }
+  100% {
+    transform: translateX(-100%) translateY(0);
+    opacity: 0;
+  }
+}
+
+/* Landing panel centered exit (preserves dual-axis centering) */
+.slide-exit-left-landing {
+  animation: slideExitLeftLanding 0.45s cubic-bezier(0.32, 0.08, 0.24, 1) forwards;
+}
+
+@keyframes slideExitLeftLanding {
+  0% {
+    transform: translate(-50%, -50%);
+    opacity: 1;
+  }
+  80% {
+    opacity: 0.15;
+  }
+  100% {
+    transform: translate(-150%, -50%);
+    opacity: 0;
+  }
+}
+
 /* ===== RESPONSIVE DESIGN ===== */
 
 @media (max-width: 768px) {
+  .navbar-panel {
+    top: 10px;
+    left: 10px;
+    right: 10px;
+    width: calc(100% - 20px);
+    max-width: none;
+    border-radius: 12px;
+    transform: translateY(calc(-100% - 10px));
+  }
+
+  .navbar-content {
+    padding: 0 1rem;
+  }
+
+  @keyframes navbarSlideIn {
+    from {
+      transform: translateY(calc(-100% - 10px));
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+
+  @keyframes navbarSlideOut {
+    from {
+      transform: translateY(0);
+      opacity: 1;
+    }
+    to {
+      transform: translateY(calc(-100% - 10px));
+      opacity: 0;
+    }
+  }
+
+  .nav-items {
+    gap: 0.25rem;
+  }
+
+  .nav-item {
+    padding: 0 0.75rem;
+    font-size: 0.85rem;
+  }
+
+  .brand-text {
+    font-size: 1.1rem;
+  }
+
   .landing-panel {
     width: 90vw;
     max-width: 350px;
@@ -339,18 +1359,65 @@ body {
 
   .landing-panel h1 {
     font-size: 2rem;
-  }
-
-  .app-panel {
-    top: 1rem;
-    left: 1rem;
-    right: 1rem;
-    width: auto;
+    letter-spacing: 0.05em;
   }
 
   .glass-button {
     width: 100%;
     margin: 0.25rem 0;
+  }
+
+  .portfolio-preview,
+  .portfolio-grid {
+    gap: 0.75rem;
+  }
+
+  .project-card,
+  .project-detail {
+    padding: 1rem;
+  }
+
+  .skills-grid {
+    gap: 0.375rem;
+  }
+
+  .skill-tag {
+    font-size: 0.75rem;
+    padding: 0.2rem 0.6rem;
+  }
+
+  /* Scroll containers - adjust for mobile navbar */
+  .content-scroll-container {
+    top: 70px; /* Smaller navbar on mobile */
+  }
+
+  /* Portfolio and Resume - adjust spacing on mobile */
+  #portfolio-container .scroll-content,
+  #resume-container .scroll-content {
+    padding: 2rem 1rem;
+    gap: 2rem;          /* Reduced spacing on mobile */
+    max-width: 100%;
+  }
+
+  /* Panel sizing on mobile */
+  .project-panel,
+  .resume-card-panel {
+    width: 100%;
+    max-width: 400px;   /* Slightly narrower on mobile */
+    padding: 1.5rem;
+  }
+
+  /* Smaller text on mobile */
+  .project-title {
+    font-size: 1.2rem;
+  }
+
+  .resume-position {
+    font-size: 1.1rem;
+  }
+
+  .resume-company {
+    font-size: 0.95rem;
   }
 }
 
@@ -362,6 +1429,7 @@ body {
   .landing-panel h1 {
     font-size: 2rem;
     margin-bottom: 0.25rem;
+    letter-spacing: 0.05em;
   }
 
   .landing-panel .subtitle {
@@ -373,14 +1441,288 @@ body {
 /* These styles will be enhanced with WebGL distortion effects */
 
 .glass-panel.webgl-enhanced {
-  /* WebGL renderer will add dynamic distortion */
+  /* Ensure proper layering with WebGL canvas */
+  z-index: 150;
+
+  /* Reduce CSS background when WebGL is active */
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.05) 0%,
+    rgba(255, 255, 255, 0.02) 100%
+  );
+
+  /* Add subtle CSS backup effects */
+  box-shadow:
+    var(--glass-shadow),
+    inset 0 1px 1px rgba(255, 255, 255, 0.1);
+}
+
+/* Applied after first WebGL frame renders successfully */
+/* This ensures smooth transition from CSS to WebGL effects */
+.glass-panel.webgl-ready {
+  /* Remove CSS backdrop-filter once WebGL is rendering */
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+}
+
+/* Buttons rely on WebGL-rendered text once ready; strip CSS blur to avoid double blur */
+.glass-panel.webgl-ready .glass-button {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.08) 0%,
+    rgba(255, 255, 255, 0.03) 100%
+  );
+}
+
+/* ===== ADAPTIVE TEXT COLOR SYSTEM (WebGL Per-Pixel Rendering) ===== */
+
+/* Hide HTML text visually - WebGL renders the visible version with per-pixel adaptive colors */
+.glass-panel h1,
+.glass-panel h2,
+.glass-panel h3,
+.glass-panel h4,
+.glass-panel p,
+.glass-panel .subtitle,
+.nav-label,
+.brand-text {
+  /* Hide text visually but keep in DOM for SEO/accessibility */
+  color: transparent !important;
+
+  /* Prevent any text-related visual effects */
+  text-shadow: none !important;
+  -webkit-text-fill-color: transparent !important;
+
+  /* Keep layout and positioning intact */
+  /* Text still occupies space and can be selected/copied */
 }
 
 /* Fallback for browsers without backdrop-filter support */
 @supports not (backdrop-filter: blur(1px)) {
   .glass-panel {
     background: rgba(0, 0, 0, 0.4);
+  }
+}
+
+/* ===== PROFILE PICTURE ===== */
+
+/* ===== DEBUG OVERLAY ===== */
+.debug-overlay {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 260px;
+  padding: 18px 20px;
+  z-index: 300;
+  font-family: 'SF Pro Text', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-size: 0.8rem;
+  letter-spacing: 0.01em;
+  line-height: 1.55;
+  background: rgba(10, 18, 28, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.35);
+  backdrop-filter: none;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(8px);
+  transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s ease;
+}
+
+.debug-overlay.is-visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.debug-overlay-title {
+  font-weight: 600;
+  margin-bottom: 10px;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.75rem;
+}
+
+.debug-overlay-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  gap: 8px;
+}
+
+.debug-overlay-row:last-of-type {
+  margin-bottom: 0;
+}
+
+.debug-label {
+  color: rgba(255, 255, 255, 0.55);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.7rem;
+}
+
+.debug-value {
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+.debug-overlay-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.12);
+  margin: 14px 0;
+}
+
+.debug-overlay-footnote {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+
+.profile-picture-container {
+  position: absolute;
+  top: 100px; /* Below navbar */
+  left: 50%;
+  transform: translateX(-50%);
+  width: 150px;
+  height: 150px;
+  z-index: 200; /* Above canvas, below navbar */
+  opacity: 0;
+  transition: var(--glass-transition);
+}
+
+.profile-picture-container.active {
+  opacity: 1;
+}
+
+.profile-picture {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid rgba(255, 255, 255, 0.4);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  /* Subtle glow effect */
+  filter: drop-shadow(0 0 20px rgba(255, 255, 255, 0.1));
+}
+
+/* ===== BIO PANEL ===== */
+
+.bio-panel {
+  top: 280px; /* Below profile picture (100 + 150 + 30 margin) */
+  left: 50%;
+  transform: translateX(-50%) translateY(-100px);
+  width: 600px;
+  max-width: 85vw; /* Responsive */
+  opacity: 0;
+  transition: var(--glass-transition);
+  padding: 2rem;
+}
+
+.bio-panel.active {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+}
+
+.bio-text {
+  font-size: 0.95rem;
+  line-height: 1.7;
+  color: var(--text-secondary);
+  margin-bottom: 1.25rem;
+  text-align: left;
+}
+
+.bio-text:last-child {
+  margin-bottom: 0;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .profile-picture-container {
+    top: 80px;
+    width: 120px;
+    height: 120px;
+  }
+
+  .bio-panel {
+    top: 230px; /* Adjusted for smaller profile pic */
+    width: 90vw;
+    padding: 1.5rem;
+  }
+
+  .bio-text {
+    font-size: 0.9rem;
+  }
+}
+
+/* ===== SOCIAL MEDIA ICONS ===== */
+
+.social-icons-container {
+  position: fixed;
+  top: 100px; /* Below navbar, matching profile picture vertical alignment */
+  right: 80px; /* Tasteful margin from edge */
+  display: flex;
+  gap: 24px; /* Apple-spec spacing between icons */
+  z-index: 250; /* Above profile picture (200), ensures WebGL text can render over it */
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.social-icons-container.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.social-icon {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  text-decoration: none;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform;
+}
+
+.social-icon:hover {
+  transform: scale(1.1);
+}
+
+.social-icon:active {
+  transform: scale(0.95);
+}
+
+.social-icon .icon-svg {
+  width: 32px;
+  height: 32px;
+  fill: white; /* Base color - TextRenderer shader will adapt this */
+  display: block;
+}
+
+/* Responsive adjustments for social icons */
+@media (max-width: 768px) {
+  .social-icons-container {
+    top: 90px; /* Below smaller navbar on mobile */
+    right: 40px; /* Less margin on mobile */
+    gap: 20px; /* Tighter spacing on mobile */
+  }
+
+  .social-icon {
+    width: 35px; /* 25% larger than icon for wave motion margin */
+    height: 35px;
+  }
+
+  .social-icon .icon-svg {
+    width: 28px; /* Actual icon size on mobile */
+    height: 28px;
   }
 }

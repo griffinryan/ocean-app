@@ -12,6 +12,8 @@ export interface GlassPanelConfig {
   size: [number, number];     // Size in normalized coordinates
   distortionStrength: number; // Strength of the distortion effect
   refractionIndex: number;    // Index of refraction for the glass
+  borderInset?: number;       // Optional border inset in pixels (default 0) - shrinks rendering bounds to stay within CSS borders
+  borderRadius?: number;      // Optional border radius in pixels (default 20) - for rounded rectangle corners
 }
 
 export class GlassRenderer {
@@ -26,7 +28,10 @@ export class GlassRenderer {
   // Framebuffer for ocean texture
   private oceanFramebuffer: WebGLFramebuffer | null = null;
   private oceanTexture: WebGLTexture | null = null;
+  private oceanTextureOwned: boolean = true; // Track if we own the texture for cleanup
   private depthBuffer: WebGLRenderbuffer | null = null;
+  private framebufferWidth: number = 1;
+  private framebufferHeight: number = 1;
 
   // Matrix uniforms
   private projectionMatrix: Mat4;
@@ -38,10 +43,49 @@ export class GlassRenderer {
   // Animation
   private startTime: number;
 
+  // Blur map texture reference (owned by TextRenderer)
+  private blurMapTexture: WebGLTexture | null = null;
+
+  // Blur effect control
+  private blurMapEnabled: boolean = false;
+  private blurOpacityBoost: number = 0.45; // How much to increase opacity in text regions (0.0-0.5)
+  private blurDistortionBoost: number = 0.85; // How much to reduce distortion in text regions (0.0-1.0)
+
+  private textPresence: number = 1.0;
+
+  // PERFORMANCE: Position caching to avoid redundant getBoundingClientRect calls
+  private positionsDirty: boolean = true;
+  private resizeObserver: ResizeObserver | null = null;
+
+  // PERFORMANCE: Smart capture caching - only recapture when ocean changes
+  private oceanCaptureDirty: boolean = true;
+  private lastOceanCaptureTime: number = 0;
+  private oceanCaptureThrottleMs: number = 32; // Max 30fps ocean captures (30Hz = 33ms, using 32ms)
+
+  // Transition tracking keeps panel UVs in sync with CSS transforms during panel slides and intro animations
+  private transitionTracking: boolean = false;
+
+  // Scroll tracking mode - continuous updates during scroll
+  private isScrolling: boolean = false;
+
+  // PERFORMANCE: Uniform caching to avoid redundant WebGL calls
+  private uniformCache = {
+    time: -1,
+    resolution: new Float32Array([0, 0]),
+    aspectRatio: -1,
+    blurMapEnabled: -1,
+    blurOpacityBoost: -1,
+    blurDistortionBoost: -1,
+    textPresence: -1
+  };
+
   constructor(gl: WebGL2RenderingContext, shaderManager: ShaderManager) {
     this.gl = gl;
     this.shaderManager = shaderManager;
     this.startTime = performance.now();
+
+    // Setup resize observer to mark positions dirty only when needed
+    this.setupResizeObserver();
 
     // Initialize matrices
     this.projectionMatrix = new Mat4();
@@ -64,7 +108,48 @@ export class GlassRenderer {
    */
   async initializeShaders(vertexShader: string, fragmentShader: string): Promise<void> {
     try {
-      this.glassProgram = await this.shaderManager.createProgram('glass', vertexShader, fragmentShader);
+      // Define uniforms and attributes for glass shader
+      const uniforms = [
+        'u_projectionMatrix',
+        'u_viewMatrix',
+        'u_time',
+        'u_aspectRatio',
+        'u_resolution',
+        'u_oceanTexture',
+        'u_panelPosition',
+        'u_panelSize',
+        'u_distortionStrength',
+        'u_refractionIndex',
+        'u_blurMapTexture',
+        'u_blurMapEnabled',
+        'u_blurOpacityBoost',
+        'u_blurDistortionBoost',
+        'u_textPresence',
+        'u_borderRadius'
+      ];
+
+      const attributes = [
+        'a_position',
+        'a_uv'
+      ];
+
+      // Create glass shader program
+      this.glassProgram = this.shaderManager.createProgram(
+        'glass',
+        vertexShader,
+        fragmentShader,
+        uniforms,
+        attributes
+      );
+
+      // Set up vertex attributes for glass rendering
+      const positionLocation = this.glassProgram.attributeLocations.get('a_position');
+      const uvLocation = this.glassProgram.attributeLocations.get('a_uv');
+
+      if (positionLocation !== undefined && uvLocation !== undefined) {
+        this.bufferManager.setupAttributes(positionLocation, uvLocation);
+      }
+
       console.log('Glass shaders initialized successfully!');
     } catch (error) {
       console.error('Failed to initialize glass shaders:', error);
@@ -110,12 +195,27 @@ export class GlassRenderer {
       return;
     }
 
+    const safeWidth = Math.max(1, Math.floor(width));
+    const safeHeight = Math.max(1, Math.floor(height));
+
+    if (safeWidth !== width || safeHeight !== height) {
+      console.warn(`GlassRenderer: Clamping framebuffer from ${width}×${height} to ${safeWidth}×${safeHeight}`);
+    }
+
+    this.framebufferWidth = safeWidth;
+    this.framebufferHeight = safeHeight;
+
+    if (!this.oceanTextureOwned) {
+      // Shared texture managed by OceanRenderer; skip reallocation to avoid mismatched attachments
+      return;
+    }
+
     // Bind framebuffer
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.oceanFramebuffer);
 
     // Setup color texture
     gl.bindTexture(gl.TEXTURE_2D, this.oceanTexture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, safeWidth, safeHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -126,7 +226,7 @@ export class GlassRenderer {
 
     // Setup depth buffer
     gl.bindRenderbuffer(gl.RENDERBUFFER, this.depthBuffer);
-    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, width, height);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, safeWidth, safeHeight);
     gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, this.depthBuffer);
 
     // Check framebuffer completeness
@@ -142,26 +242,74 @@ export class GlassRenderer {
   }
 
   /**
-   * Capture ocean scene to texture
+   * Mark ocean capture as dirty (forces recapture on next render)
+   */
+  public markOceanDirty(): void {
+    this.oceanCaptureDirty = true;
+  }
+
+  /**
+   * Capture ocean scene to texture for glass distortion
+   * PERFORMANCE: Uses dirty flag + throttling to skip redundant captures
    */
   public captureOceanScene(renderOceanCallback: () => void): void {
     const gl = this.gl;
 
-    if (!this.oceanFramebuffer) {
+    if (!this.oceanFramebuffer || !this.oceanTexture) {
       return;
     }
 
-    // Bind framebuffer
+    // PERFORMANCE: Skip capture if not dirty and within throttle window
+    const currentTime = performance.now();
+    if (!this.oceanCaptureDirty &&
+        (currentTime - this.lastOceanCaptureTime) < this.oceanCaptureThrottleMs) {
+      return; // Use cached ocean texture
+    }
+
+    // Store current viewport
+    const viewport = gl.getParameter(gl.VIEWPORT);
+
+    // Bind framebuffer for rendering
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.oceanFramebuffer);
+
+    // Set viewport to match framebuffer size
+    gl.viewport(0, 0, this.framebufferWidth, this.framebufferHeight);
 
     // Clear framebuffer
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-    // Render ocean scene
+    // Render ocean scene to framebuffer
     renderOceanCallback();
 
-    // Unbind framebuffer (render to screen)
+    // Restore screen framebuffer
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+    // Restore viewport
+    gl.viewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+
+    // Mark as clean and update timestamp
+    this.oceanCaptureDirty = false;
+    this.lastOceanCaptureTime = currentTime;
+  }
+
+  /**
+   * Copy current screen contents to ocean texture (alternative method)
+   */
+  public copyScreenToTexture(): void {
+    const gl = this.gl;
+
+    if (!this.oceanTexture) {
+      return;
+    }
+
+    // Bind the ocean texture
+    gl.bindTexture(gl.TEXTURE_2D, this.oceanTexture);
+
+    // Copy current framebuffer to texture
+    gl.copyTexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 0, 0, gl.canvas.width, gl.canvas.height, 0);
+
+    // Unbind texture
+    gl.bindTexture(gl.TEXTURE_2D, null);
   }
 
   /**
@@ -198,6 +346,14 @@ export class GlassRenderer {
       return;
     }
 
+    // PERFORMANCE: Only update panel positions when marked dirty (resize, panel changes)
+    // Enables continuous tracking during scroll and orchestrated transitions
+    const shouldUpdatePositions = this.positionsDirty || this.isScrolling || this.transitionTracking;
+    if (shouldUpdatePositions) {
+      this.updatePanelPositions();
+      this.positionsDirty = false;
+    }
+
     // Use glass shader program
     const program = this.shaderManager.useProgram('glass');
 
@@ -205,18 +361,59 @@ export class GlassRenderer {
     this.shaderManager.setUniformMatrix4fv(program, 'u_projectionMatrix', this.projectionMatrix.data);
     this.shaderManager.setUniformMatrix4fv(program, 'u_viewMatrix', this.viewMatrix.data);
 
-    // Set time uniform for animation
+    // PERFORMANCE: Cache uniform updates - only set when values change
     const currentTime = (performance.now() - this.startTime) / 1000.0;
-    this.shaderManager.setUniform1f(program, 'u_time', currentTime);
+    if (currentTime !== this.uniformCache.time) {
+      this.shaderManager.setUniform1f(program, 'u_time', currentTime);
+      this.uniformCache.time = currentTime;
+    }
 
-    // Set resolution
-    this.shaderManager.setUniform2f(program, 'u_resolution', gl.canvas.width, gl.canvas.height);
-    this.shaderManager.setUniform1f(program, 'u_aspectRatio', gl.canvas.width / gl.canvas.height);
+    // Set resolution (only if changed)
+    const width = gl.canvas.width;
+    const height = gl.canvas.height;
+    if (width !== this.uniformCache.resolution[0] || height !== this.uniformCache.resolution[1]) {
+      this.shaderManager.setUniform2f(program, 'u_resolution', width, height);
+      this.uniformCache.resolution[0] = width;
+      this.uniformCache.resolution[1] = height;
+
+      const aspectRatio = width / height;
+      this.shaderManager.setUniform1f(program, 'u_aspectRatio', aspectRatio);
+      this.uniformCache.aspectRatio = aspectRatio;
+    }
+
+    if (this.textPresence !== this.uniformCache.textPresence) {
+      this.shaderManager.setUniform1f(program, 'u_textPresence', this.textPresence);
+      this.uniformCache.textPresence = this.textPresence;
+    }
 
     // Bind ocean texture
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.oceanTexture);
     this.shaderManager.setUniform1i(program, 'u_oceanTexture', 0);
+
+    // Bind blur map texture if enabled (cache blur state changes)
+    const blurEnabled = this.blurMapEnabled && this.blurMapTexture ? 1 : 0;
+    if (blurEnabled !== this.uniformCache.blurMapEnabled) {
+      this.shaderManager.setUniform1i(program, 'u_blurMapEnabled', blurEnabled);
+      this.uniformCache.blurMapEnabled = blurEnabled;
+    }
+
+    if (blurEnabled) {
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, this.blurMapTexture);
+      this.shaderManager.setUniform1i(program, 'u_blurMapTexture', 1);
+
+      // Only update blur params if changed
+      if (this.blurOpacityBoost !== this.uniformCache.blurOpacityBoost) {
+        this.shaderManager.setUniform1f(program, 'u_blurOpacityBoost', this.blurOpacityBoost);
+        this.uniformCache.blurOpacityBoost = this.blurOpacityBoost;
+      }
+
+      if (this.blurDistortionBoost !== this.uniformCache.blurDistortionBoost) {
+        this.shaderManager.setUniform1f(program, 'u_blurDistortionBoost', this.blurDistortionBoost);
+        this.uniformCache.blurDistortionBoost = this.blurDistortionBoost;
+      }
+    }
 
     // Enable blending for transparency
     gl.enable(gl.BLEND);
@@ -225,9 +422,21 @@ export class GlassRenderer {
     // Disable depth testing for glass panels
     gl.disable(gl.DEPTH_TEST);
 
-    // Render each panel
-    this.panels.forEach((config) => {
-      this.renderPanel(config, program);
+    // Render each visible panel
+    this.panels.forEach((config, id) => {
+      // Dynamically construct element ID: navbar and download buttons stay as-is, everything else gets -panel suffix
+      const elementId = (id === 'navbar' || id.startsWith('download-resume-btn-')) ? id : `${id}-panel`;
+
+      const element = document.getElementById(elementId);
+      if (element && !element.classList.contains('hidden')) {
+        // Check if parent scroll container is visible (for portfolio/resume panels)
+        const parent = element.parentElement?.parentElement;
+        const parentHidden = parent?.classList.contains('hidden') ?? false;
+
+        if (!parentHidden) {
+          this.renderPanel(config, program);
+        }
+      }
     });
 
     // Re-enable depth testing
@@ -245,6 +454,7 @@ export class GlassRenderer {
     this.shaderManager.setUniform2f(program, 'u_panelSize', config.size[0], config.size[1]);
     this.shaderManager.setUniform1f(program, 'u_distortionStrength', config.distortionStrength);
     this.shaderManager.setUniform1f(program, 'u_refractionIndex', config.refractionIndex);
+    this.shaderManager.setUniform1f(program, 'u_borderRadius', config.borderRadius || 20);
 
     // Bind geometry and render
     this.bufferManager.bind();
@@ -255,21 +465,353 @@ export class GlassRenderer {
    * Set up default panel configurations
    */
   public setupDefaultPanels(): void {
-    // Landing panel configuration
+    // Initialize with temporary values - will be updated dynamically
     this.addPanel('landing', {
-      position: [0.3, 0.3], // Centered
-      size: [0.4, 0.4],     // 40% of screen
-      distortionStrength: 0.015,
-      refractionIndex: 1.52 // Glass refractive index
+      position: [0.0, 0.0],
+      size: [0.4, 0.5],
+      distortionStrength: 0.4,
+      refractionIndex: 1.52,
+      borderInset: 6,      // 2px outer border + 2px ::after offset + 2px ::after border
+      borderRadius: 20     // --panel-radius CSS variable
     });
 
-    // App panel configuration
-    this.addPanel('app', {
-      position: [0.05, 0.05], // Top-left
-      size: [0.35, 0.25],     // Smaller panel
-      distortionStrength: 0.012,
-      refractionIndex: 1.52
+    // Bio panel with medium distortion for readability
+    this.addPanel('app-bio', {
+      position: [0.0, 0.0],
+      size: [0.6, 0.35],
+      distortionStrength: 0.35,
+      refractionIndex: 1.52,
+      borderInset: 6,      // 2px outer border + 2px ::after offset + 2px ::after border
+      borderRadius: 20     // --panel-radius CSS variable
     });
+
+    // Portfolio project panels
+    this.addPanel('portfolio-lakehouse', {
+      position: [0.0, 0.0],
+      size: [0.4, 0.5],
+      distortionStrength: 0.35,
+      refractionIndex: 1.52,
+      borderInset: 6,      // 2px outer border + 2px ::after offset + 2px ::after border
+      borderRadius: 20     // --panel-radius CSS variable
+    });
+
+    this.addPanel('portfolio-encryption', {
+      position: [0.0, 0.0],
+      size: [0.38, 0.48],
+      distortionStrength: 0.35,
+      refractionIndex: 1.52,
+      borderInset: 6,      // 2px outer border + 2px ::after offset + 2px ::after border
+      borderRadius: 20     // --panel-radius CSS variable
+    });
+
+    this.addPanel('portfolio-dotereditor', {
+      position: [0.0, 0.0],
+      size: [0.4, 0.5],
+      distortionStrength: 0.35,
+      refractionIndex: 1.52,
+      borderInset: 6,      // 2px outer border + 2px ::after offset + 2px ::after border
+      borderRadius: 20     // --panel-radius CSS variable
+    });
+
+    this.addPanel('portfolio-dreamrequiem', {
+      position: [0.0, 0.0],
+      size: [0.38, 0.48],
+      distortionStrength: 0.35,
+      refractionIndex: 1.52,
+      borderInset: 6,      // 2px outer border + 2px ::after offset + 2px ::after border
+      borderRadius: 20     // --panel-radius CSS variable
+    });
+
+    this.addPanel('portfolio-greenlightgo', {
+      position: [0.0, 0.0],
+      size: [0.38, 0.48],
+      distortionStrength: 0.35,
+      refractionIndex: 1.52,
+      borderInset: 6,      // 2px outer border + 2px ::after offset + 2px ::after border
+      borderRadius: 20     // --panel-radius CSS variable
+    });
+
+    // Resume card panels
+    this.addPanel('resume-playember', {
+      position: [0.0, 0.0],
+      size: [0.45, 0.38],
+      distortionStrength: 0.35,
+      refractionIndex: 1.52,
+      borderInset: 6,      // 2px outer border + 2px ::after offset + 2px ::after border
+      borderRadius: 20     // --panel-radius CSS variable
+    });
+
+    this.addPanel('resume-meta', {
+      position: [0.0, 0.0],
+      size: [0.45, 0.38],
+      distortionStrength: 0.35,
+      refractionIndex: 1.52,
+      borderInset: 6,      // 2px outer border + 2px ::after offset + 2px ::after border
+      borderRadius: 20     // --panel-radius CSS variable
+    });
+
+    this.addPanel('resume-outlier', {
+      position: [0.0, 0.0],
+      size: [0.45, 0.38],
+      distortionStrength: 0.35,
+      refractionIndex: 1.52,
+      borderInset: 6,      // 2px outer border + 2px ::after offset + 2px ::after border
+      borderRadius: 20     // --panel-radius CSS variable
+    });
+
+    this.addPanel('resume-uwtutor', {
+      position: [0.0, 0.0],
+      size: [0.45, 0.32],
+      distortionStrength: 0.35,
+      refractionIndex: 1.52,
+      borderInset: 6,      // 2px outer border + 2px ::after offset + 2px ::after border
+      borderRadius: 20     // --panel-radius CSS variable
+    });
+
+    this.addPanel('resume-uwedu', {
+      position: [0.0, 0.0],
+      size: [0.45, 0.32],
+      distortionStrength: 0.35,
+      refractionIndex: 1.52,
+      borderInset: 6,      // 2px outer border + 2px ::after offset + 2px ::after border
+      borderRadius: 20     // --panel-radius CSS variable
+    });
+
+    // Navigation bar with minimal distortion for readability
+    this.addPanel('navbar', {
+      position: [0.0, 0.9],
+      size: [2.0, 0.2],
+      distortionStrength: 0.15,
+      refractionIndex: 1.45,
+      borderInset: 6,      // 2px outer border + 2px ::after offset + 2px ::after border
+      borderRadius: 16     // 16px from CSS (navbar uses smaller radius)
+    });
+
+    // Download resume buttons (minimal distortion for clarity)
+    // Small panels need precise border inset to stay within CSS borders
+    this.addPanel('download-resume-btn-portfolio', {
+      position: [0.0, 0.0],
+      size: [0.25, 0.1],
+      distortionStrength: 0.25,
+      refractionIndex: 1.45,
+      borderInset: 6,      // 2px outer border + 2px ::after offset + 2px ::after border (FIXED: was 4)
+      borderRadius: 12     // --button-radius CSS variable
+    });
+
+    this.addPanel('download-resume-btn-resume', {
+      position: [0.0, 0.0],
+      size: [0.25, 0.1],
+      distortionStrength: 0.25,
+      refractionIndex: 1.45,
+      borderInset: 6,      // 2px outer border + 2px ::after offset + 2px ::after border (FIXED: was 4)
+      borderRadius: 12     // --button-radius CSS variable
+    });
+
+    // Update positions immediately and mark dirty for first render
+    this.positionsDirty = true;
+
+    // CRITICAL FIX: Observe all panel elements for position/size changes
+    // This ensures glass panels stay aligned during CSS transitions and layout changes
+    this.observePanelElements();
+  }
+
+  /**
+   * Setup resize observer to mark positions dirty when layout changes
+   */
+  private setupResizeObserver(): void {
+    this.resizeObserver = new ResizeObserver(() => {
+      this.positionsDirty = true;
+    });
+
+    // Observe canvas for size changes
+    // Cast to Element since canvas is HTMLCanvasElement (which extends Element)
+    this.resizeObserver.observe(this.gl.canvas as unknown as Element);
+  }
+
+  /**
+   * Observe all panel elements for position/size changes
+   * CRITICAL: Call this after setupDefaultPanels() to ensure glass aligns during transitions
+   */
+  private observePanelElements(): void {
+    if (!this.resizeObserver) {
+      console.warn('GlassRenderer: ResizeObserver not initialized, cannot observe panels');
+      return;
+    }
+
+    // All panel IDs that glass should track
+    const panelIds = [
+      'landing',
+      'app-bio',
+      'navbar',
+      'download-resume-btn-portfolio',
+      'download-resume-btn-resume',
+      'portfolio-lakehouse',
+      'portfolio-encryption',
+      'portfolio-dotereditor',
+      'portfolio-dreamrequiem',
+      'portfolio-greenlightgo',
+      'resume-playember',
+      'resume-meta',
+      'resume-outlier',
+      'resume-uwtutor',
+      'resume-uwedu'
+    ];
+
+    panelIds.forEach(id => {
+      // Construct element ID (navbar and download buttons stay as-is, others get -panel suffix)
+      const elementId = (id === 'navbar' || id.startsWith('download-resume-btn-')) ? id : `${id}-panel`;
+      const element = document.getElementById(elementId);
+
+      if (element) {
+        this.resizeObserver!.observe(element);
+        console.debug(`GlassRenderer: Observing panel ${elementId} for position changes`);
+      } else {
+        console.warn(`GlassRenderer: Panel element ${elementId} not found, cannot observe`);
+      }
+    });
+
+    console.log(`GlassRenderer: Observing ${panelIds.length} panel elements for position/size changes`);
+  }
+
+  /**
+   * Mark panel positions as dirty (forces position recalculation on next render)
+   * Call this when panels are added/removed or layout might have changed
+   */
+  public markPositionsDirty(): void {
+    this.positionsDirty = true;
+  }
+
+  /**
+   * Start transition mode - keep UVs in sync with CSS transforms during panel slides and intro animations
+   * CRITICAL: Called when CSS transitions or keyframe animations start
+   */
+  public startTransitionMode(): void {
+    if (this.transitionTracking) return; // Already tracking
+
+    this.transitionTracking = true;
+    this.positionsDirty = true;
+
+    console.debug('GlassRenderer: Transition mode started - continuous position updates enabled');
+  }
+
+  /**
+   * End transition mode - return to on-demand updates after transitions settle
+   * CRITICAL: Called when all CSS transitions/animations complete
+   */
+  public endTransitionMode(): void {
+    if (!this.transitionTracking) return;
+
+    this.transitionTracking = false;
+    this.positionsDirty = true;
+
+    console.debug('GlassRenderer: Transition mode ended - returning to on-demand updates');
+  }
+
+  /**
+   * Start scroll mode - enable continuous position updates
+   * Called when user starts scrolling portfolio/resume containers
+   */
+  public startScrollMode(): void {
+    if (this.isScrolling) return; // Already active
+
+    this.isScrolling = true;
+    console.debug('GlassRenderer: Scroll mode started - continuous position updates enabled');
+  }
+
+  /**
+   * End scroll mode - disable continuous updates
+   * Called when scroll stops (after cooldown)
+   */
+  public endScrollMode(): void {
+    this.isScrolling = false;
+
+    // One final update to ensure positions are correct
+    this.positionsDirty = true;
+
+    console.debug('GlassRenderer: Scroll mode ended - continuous position updates disabled');
+  }
+
+  /**
+   * Check if currently in scroll mode
+   */
+  public isInScrollMode(): boolean {
+    return this.isScrolling;
+  }
+
+
+  /**
+   * Update panel positions based on HTML element positions
+   * Dynamically updates all registered panels
+   * PERFORMANCE: Only called when positionsDirty flag is set
+   */
+  public updatePanelPositions(): void {
+    const canvas = this.gl.canvas as HTMLCanvasElement;
+    const canvasRect = canvas.getBoundingClientRect();
+
+    // Ensure canvas has valid dimensions
+    if (canvasRect.width === 0 || canvasRect.height === 0) {
+      console.warn('GlassRenderer: Canvas has invalid dimensions, skipping panel position update');
+      return;
+    }
+
+    // Dynamically update all registered panels
+    this.panels.forEach((config, id) => {
+      // Construct element ID: navbar and download buttons stay as-is, everything else gets -panel suffix
+      const elementId = (id === 'navbar' || id.startsWith('download-resume-btn-')) ? id : `${id}-panel`;
+
+      const element = document.getElementById(elementId);
+      if (element && !element.classList.contains('hidden')) {
+        const rect = element.getBoundingClientRect();
+
+        // Only update if element is visible and has valid dimensions
+        if (rect.width > 0 && rect.height > 0) {
+          // Pass borderInset from config (defaults to 0 if not specified)
+          const normalizedPos = this.htmlRectToNormalized(rect, canvasRect, config.borderInset || 0);
+          this.updatePanel(id, {
+            position: normalizedPos.position,
+            size: normalizedPos.size
+          });
+        }
+      }
+    });
+  }
+
+  /**
+   * Convert HTML element rect to normalized WebGL coordinates
+   * Supports optional border inset to shrink rendering bounds
+   */
+  private htmlRectToNormalized(elementRect: DOMRect, canvasRect: DOMRect, borderInset: number = 0): { position: [number, number], size: [number, number] } {
+    // Ensure we have valid rectangles
+    if (elementRect.width === 0 || elementRect.height === 0 || canvasRect.width === 0 || canvasRect.height === 0) {
+      console.warn('GlassRenderer: Invalid rectangle dimensions detected');
+      return { position: [0, 0], size: [0, 0] };
+    }
+
+    // Apply border inset to shrink bounds (keeps glass shader within CSS borders)
+    // Inset is applied symmetrically on all sides
+    const insetRect = {
+      left: elementRect.left + borderInset,
+      top: elementRect.top + borderInset,
+      width: elementRect.width - (borderInset * 2),
+      height: elementRect.height - (borderInset * 2)
+    };
+
+    // Calculate center position in normalized coordinates (0 to 1) using inset rect
+    const centerX = ((insetRect.left + insetRect.width / 2) - canvasRect.left) / canvasRect.width;
+    const centerY = ((insetRect.top + insetRect.height / 2) - canvasRect.top) / canvasRect.height;
+
+    // Convert to WebGL coordinates (-1 to 1, with Y flipped)
+    const glX = centerX * 2.0 - 1.0;
+    const glY = (1.0 - centerY) * 2.0 - 1.0; // Flip Y and convert to [-1,1]
+
+    // Calculate size in normalized coordinates using inset rect
+    const width = (insetRect.width / canvasRect.width) * 2.0;
+    const height = (insetRect.height / canvasRect.height) * 2.0;
+
+    return {
+      position: [glX, glY],
+      size: [width, height]
+    };
   }
 
   /**
@@ -288,6 +830,95 @@ export class GlassRenderer {
   }
 
   /**
+   * Set ocean texture from shared buffer
+   * PERFORMANCE: Allows glass to use pre-rendered ocean instead of capturing
+   */
+  public setOceanTexture(texture: WebGLTexture | null, width?: number, height?: number): void {
+    if (texture) {
+      // Delete old texture if we own it (not shared)
+      if (this.oceanTextureOwned && this.oceanTexture) {
+        this.gl.deleteTexture(this.oceanTexture);
+      }
+
+      // Set new texture (shared, not owned by us)
+      this.oceanTexture = texture;
+      this.oceanTextureOwned = false;
+
+      if (width !== undefined && height !== undefined) {
+        this.framebufferWidth = Math.max(1, Math.floor(width));
+        this.framebufferHeight = Math.max(1, Math.floor(height));
+      }
+    } else {
+      this.oceanTexture = null;
+      this.oceanTextureOwned = true;
+    }
+  }
+
+  /**
+   * Set blur map texture from TextRenderer
+   */
+  public setBlurMapTexture(texture: WebGLTexture | null): void {
+    this.blurMapTexture = texture;
+    this.blurMapEnabled = texture !== null;
+  }
+
+  /**
+   * Set the current text presence factor (0 = hidden, 1 = fully visible)
+   */
+  public setTextPresence(presence: number): void {
+    const clamped = Math.max(0, Math.min(1, presence));
+    if (this.textPresence !== clamped) {
+      this.textPresence = clamped;
+      // Force uniform update next render
+      this.uniformCache.textPresence = -1;
+    }
+  }
+
+  /**
+   * Enable/disable blur map effect
+   */
+  public setBlurMapEnabled(enabled: boolean): void {
+    this.blurMapEnabled = enabled && this.blurMapTexture !== null;
+  }
+
+  /**
+   * Get blur map enabled state
+   */
+  public getBlurMapEnabled(): boolean {
+    return this.blurMapEnabled;
+  }
+
+  /**
+   * Set blur opacity boost (how much to increase opacity in text regions)
+   * @param boost - Value from 0.0 to 0.5 (0-50%)
+   */
+  public setBlurOpacityBoost(boost: number): void {
+    this.blurOpacityBoost = Math.max(0, Math.min(0.5, boost));
+  }
+
+  /**
+   * Get current blur opacity boost
+   */
+  public getBlurOpacityBoost(): number {
+    return this.blurOpacityBoost;
+  }
+
+  /**
+   * Set blur distortion boost (how much to reduce distortion in text regions)
+   * @param boost - Value from 0.0 to 1.0 (0-100%)
+   */
+  public setBlurDistortionBoost(boost: number): void {
+    this.blurDistortionBoost = Math.max(0, Math.min(1.0, boost));
+  }
+
+  /**
+   * Get current blur distortion boost
+   */
+  public getBlurDistortionBoost(): number {
+    return this.blurDistortionBoost;
+  }
+
+  /**
    * Clean up resources
    */
   public dispose(): void {
@@ -299,14 +930,22 @@ export class GlassRenderer {
       this.oceanFramebuffer = null;
     }
 
-    if (this.oceanTexture) {
+    // Only delete texture if we own it (not shared from OceanRenderer)
+    if (this.oceanTexture && this.oceanTextureOwned) {
       gl.deleteTexture(this.oceanTexture);
-      this.oceanTexture = null;
     }
+    this.oceanTexture = null;
+    this.oceanTextureOwned = true;
 
     if (this.depthBuffer) {
       gl.deleteRenderbuffer(this.depthBuffer);
       this.depthBuffer = null;
+    }
+
+    // Clean up resize observer
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+      this.resizeObserver = null;
     }
 
     // Clean up geometry
