@@ -981,6 +981,10 @@ export class TextRenderer {
     this.textUpdateBatches = [];
     this.needsTextureUpdate = false;
 
+    // CRITICAL FIX: Regenerate blur map after forced completion
+    // Ensures blur map stays in sync even after timeout fallback
+    this.needsBlurMapUpdate = true;
+
     // Execute callback if provided
     if (this.batchRenderCallback) {
       this.batchRenderCallback();
@@ -1025,6 +1029,11 @@ export class TextRenderer {
       this.isProcessingBatches = false;
       this.textUpdateBatches = [];
       this.needsTextureUpdate = false;
+
+      // CRITICAL FIX: Regenerate blur map after text batching completes
+      // This ensures blur map uses fully updated text positions
+      // Prevents blur map misalignment on portfolio/resume pages
+      this.needsBlurMapUpdate = true;
 
       // Clear timeout since we completed successfully
       if (this.batchTimeoutId !== null) {
@@ -1248,6 +1257,14 @@ export class TextRenderer {
 
     // Skip if transitioning or no program
     if (this.isTransitioningFlag || !this.blurMapProgram || !this.blurMapFramebuffer || !this.textTexture) {
+      return;
+    }
+
+    // CRITICAL FIX: Skip blur map generation during text batching
+    // Blur map must only be generated AFTER text texture is fully updated
+    // Otherwise positions captured during batching are incomplete/misaligned
+    // This prevents the blur map "snap" issue on portfolio/resume pages
+    if (this.isProcessingBatches) {
       return;
     }
 
