@@ -810,11 +810,9 @@ export class OceanRenderer {
           });
         }
 
-        // 4. Pass blur map from TextRenderer to GlassRenderer (OPTIONAL - skip if tight)
-        if (!this.frameBudget.shouldSkipOptionalWork()) {
-          const blurMapTexture = this.textRenderer.getBlurMapTexture();
-          this.glassRenderer.setBlurMapTexture(blurMapTexture);
-        }
+        // 4. Pass blur map from TextRenderer to GlassRenderer so buttons retain WebGL clarity
+        const blurMapTexture = this.textRenderer.getBlurMapTexture();
+        this.glassRenderer.setBlurMapTexture(blurMapTexture);
 
         // 5. Final render: Ocean (composited from shared buffer, NO re-render!) + Glass + Text (CRITICAL - always do)
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);

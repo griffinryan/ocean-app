@@ -1371,6 +1371,17 @@ body {
   -webkit-backdrop-filter: none;
 }
 
+/* Buttons rely on WebGL-rendered text once ready; strip CSS blur to avoid double blur */
+.glass-panel.webgl-ready .glass-button {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.08) 0%,
+    rgba(255, 255, 255, 0.03) 100%
+  );
+}
+
 /* ===== ADAPTIVE TEXT COLOR SYSTEM (WebGL Per-Pixel Rendering) ===== */
 
 /* Hide HTML text visually - WebGL renders the visible version with per-pixel adaptive colors */
