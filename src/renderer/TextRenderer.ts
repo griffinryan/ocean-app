@@ -90,7 +90,7 @@ export class TextRenderer {
   private readonly BATCH_SIZE = 15; // Elements per frame
   private batchRenderCallback: (() => void) | null = null;
   private batchTimeoutId: number | null = null;
-  private readonly BATCH_TIMEOUT_MS = 1500; // Force completion after 1.5 seconds (increased for scroll containers)
+  private readonly BATCH_TIMEOUT_MS = 1000; // Force completion after 1 second
 
   // Text intro animation state
   private textIntroStartTime: number = 0;
@@ -107,11 +107,6 @@ export class TextRenderer {
   // SVG image cache for rendering icons with shapes (not rectangles)
   // Maps selector -> cached Image for performant synchronous drawing
   private svgImageCache: Map<string, HTMLImageElement> = new Map();
-
-  // Retry queue for elements with zero dimensions (layout not settled)
-  private retryQueue: Array<{ element: HTMLElement; config: TextElementConfig; attempts: number }> = [];
-  private readonly MAX_RETRY_ATTEMPTS = 2;
-  private readonly RETRY_DELAY_MS = 100;
 
   constructor(gl: WebGL2RenderingContext, _shaderManager: ShaderManager) {
     this.gl = gl;
@@ -618,21 +613,8 @@ export class TextRenderer {
     const canvasRect = glCanvas.getBoundingClientRect();
     const elementRect = element.getBoundingClientRect();
 
-    // Skip if element or canvas has no size - queue for retry if layout hasn't settled
+    // Skip if element or canvas has no size
     if (elementRect.width === 0 || elementRect.height === 0 || canvasRect.width === 0 || canvasRect.height === 0) {
-      console.warn(`TextRenderer: Element has zero dimensions, queueing for retry:`, {
-        selector: _config.selector,
-        panelId: _config.panelId,
-        elementRect: { width: elementRect.width, height: elementRect.height },
-        canvasRect: { width: canvasRect.width, height: canvasRect.height }
-      });
-
-      // Queue for retry (layout may not be settled yet)
-      const existingRetry = this.retryQueue.find(r => r.config.selector === _config.selector);
-      if (!existingRetry) {
-        this.retryQueue.push({ element, config: _config, attempts: 0 });
-      }
-
       return;
     }
 
@@ -955,60 +937,6 @@ export class TextRenderer {
   }
 
   /**
-   * Process retry queue for elements that had zero dimensions during initial render
-   */
-  private processRetryQueue(): void {
-    if (this.retryQueue.length === 0) {
-      return;
-    }
-
-    console.log(`TextRenderer: Processing retry queue (${this.retryQueue.length} elements pending)`);
-
-    const itemsToRetry = [...this.retryQueue];
-    this.retryQueue = [];
-
-    itemsToRetry.forEach(item => {
-      if (item.attempts >= this.MAX_RETRY_ATTEMPTS) {
-        console.error(`TextRenderer: Max retry attempts reached for ${item.config.selector}, giving up`);
-        return;
-      }
-
-      item.attempts++;
-
-      // Re-query element in case it was recreated
-      const element = document.querySelector(item.config.selector) as HTMLElement;
-      if (!element) {
-        console.error(`TextRenderer: Element no longer exists: ${item.config.selector}`);
-        return;
-      }
-
-      // Force layout recalculation
-      void element.offsetHeight;
-
-      const elementRect = element.getBoundingClientRect();
-      if (elementRect.width > 0 && elementRect.height > 0) {
-        console.log(`TextRenderer: Retry successful for ${item.config.selector} (attempt ${item.attempts})`);
-        this.renderTextToCanvas(element, item.config);
-      } else {
-        console.warn(`TextRenderer: Retry ${item.attempts} failed for ${item.config.selector}, queueing again`);
-        this.retryQueue.push(item);
-      }
-    });
-
-    // If there are still items in retry queue, schedule another retry
-    if (this.retryQueue.length > 0) {
-      console.log(`TextRenderer: Scheduling next retry in ${this.RETRY_DELAY_MS}ms`);
-      setTimeout(() => {
-        this.processRetryQueue();
-      }, this.RETRY_DELAY_MS);
-    } else {
-      // All retries complete - upload final texture
-      console.log('TextRenderer: All retries complete, uploading final texture');
-      this.uploadTextTexture();
-    }
-  }
-
-  /**
    * SAFETY: Force complete batching (timeout fallback)
    */
   private forceCompleteBatching(): void {
@@ -1059,8 +987,6 @@ export class TextRenderer {
 
     const batch = this.textUpdateBatches[this.currentBatchIndex];
 
-    console.debug(`TextRenderer: Processing batch ${this.currentBatchIndex + 1}/${this.textUpdateBatches.length} (${batch.length} elements)`);
-
     // Render this batch of text elements
     batch.forEach(id => {
       const config = this.textElements.get(id);
@@ -1068,8 +994,6 @@ export class TextRenderer {
         const element = document.querySelector(config.selector) as HTMLElement;
         if (element) {
           this.renderTextToCanvas(element, config);
-        } else {
-          console.warn(`TextRenderer: Element not found for selector: ${config.selector}`);
         }
       }
     });
@@ -1078,7 +1002,8 @@ export class TextRenderer {
 
     // Check if this was the last batch
     if (this.currentBatchIndex >= this.textUpdateBatches.length) {
-      // All batches complete - check retry queue before uploading
+      // All batches complete - upload texture
+      this.uploadTextTexture();
       this.isProcessingBatches = false;
       this.textUpdateBatches = [];
       this.needsTextureUpdate = false;
@@ -1089,18 +1014,7 @@ export class TextRenderer {
         this.batchTimeoutId = null;
       }
 
-      console.log('TextRenderer: Amortized update complete - all batches processed successfully');
-
-      // Process retry queue for elements that had zero dimensions
-      if (this.retryQueue.length > 0) {
-        console.log(`TextRenderer: Starting retry processing for ${this.retryQueue.length} elements`);
-        setTimeout(() => {
-          this.processRetryQueue();
-        }, this.RETRY_DELAY_MS);
-      } else {
-        // No retries needed - upload texture immediately
-        this.uploadTextTexture();
-      }
+      console.debug('TextRenderer: Amortized update complete');
 
       // Execute callback if provided
       if (this.batchRenderCallback) {
@@ -1140,8 +1054,6 @@ export class TextRenderer {
       'resume-uwedu-panel'
     ];
 
-    const diagnosticInfo: string[] = [];
-
     panelIds.forEach(panelId => {
       const panelElement = document.getElementById(panelId);
       if (panelElement && !panelElement.classList.contains('hidden')) {
@@ -1151,13 +1063,7 @@ export class TextRenderer {
         if (!parentHidden) {
           visiblePanels.add(panelId);
           visiblePanels.add(panelId.replace('-panel', ''));
-          diagnosticInfo.push(`✓ ${panelId}`);
-        } else {
-          diagnosticInfo.push(`✗ ${panelId} (parent hidden)`);
         }
-      } else {
-        const reason = !panelElement ? 'not found' : 'has hidden class';
-        diagnosticInfo.push(`✗ ${panelId} (${reason})`);
       }
     });
 
@@ -1168,9 +1074,6 @@ export class TextRenderer {
         visibleIds.push(id);
       }
     });
-
-    console.log('TextRenderer: Visible panel check:', diagnosticInfo.join(', '));
-    console.log(`TextRenderer: ${visiblePanels.size} visible panels, ${visibleIds.length} text elements to render`);
 
     return visibleIds;
   }
