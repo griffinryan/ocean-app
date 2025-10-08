@@ -1239,6 +1239,47 @@ body {
   }
 }
 
+/* ===== CENTERED SLIDE TRANSITIONS ===== */
+/* For elements using transform-based centering (left: 50% + translateX(-50%)) */
+
+/* Centered slide enter from right */
+.slide-enter-right-centered {
+  animation: slideEnterRightCentered 0.45s cubic-bezier(0.32, 0.08, 0.24, 1) forwards;
+}
+
+@keyframes slideEnterRightCentered {
+  0% {
+    transform: translateX(100%) translateY(-100px);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.2;
+  }
+  100% {
+    transform: translateX(-50%) translateY(-100px);
+    opacity: 1;
+  }
+}
+
+/* Centered slide exit to left */
+.slide-exit-left-centered {
+  animation: slideExitLeftCentered 0.45s cubic-bezier(0.32, 0.08, 0.24, 1) forwards;
+}
+
+@keyframes slideExitLeftCentered {
+  0% {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+  }
+  80% {
+    opacity: 0.15;
+  }
+  100% {
+    transform: translateX(-100%) translateY(0);
+    opacity: 0;
+  }
+}
+
 /* ===== RESPONSIVE DESIGN ===== */
 
 @media (max-width: 768px) {
