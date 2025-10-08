@@ -13,6 +13,7 @@ export interface GlassPanelConfig {
   distortionStrength: number; // Strength of the distortion effect
   refractionIndex: number;    // Index of refraction for the glass
   borderInset?: number;       // Optional border inset in pixels (default 0) - shrinks rendering bounds to stay within CSS borders
+  borderRadius?: number;      // Optional border radius in pixels (default 20) - for rounded rectangle corners
 }
 
 export class GlassRenderer {
@@ -123,7 +124,8 @@ export class GlassRenderer {
         'u_blurMapEnabled',
         'u_blurOpacityBoost',
         'u_blurDistortionBoost',
-        'u_textPresence'
+        'u_textPresence',
+        'u_borderRadius'
       ];
 
       const attributes = [
@@ -452,6 +454,7 @@ export class GlassRenderer {
     this.shaderManager.setUniform2f(program, 'u_panelSize', config.size[0], config.size[1]);
     this.shaderManager.setUniform1f(program, 'u_distortionStrength', config.distortionStrength);
     this.shaderManager.setUniform1f(program, 'u_refractionIndex', config.refractionIndex);
+    this.shaderManager.setUniform1f(program, 'u_borderRadius', config.borderRadius || 20);
 
     // Bind geometry and render
     this.bufferManager.bind();
@@ -467,7 +470,9 @@ export class GlassRenderer {
       position: [0.0, 0.0],
       size: [0.4, 0.5],
       distortionStrength: 0.4,
-      refractionIndex: 1.52
+      refractionIndex: 1.52,
+      borderInset: 6,      // 2px outer border + 2px ::after offset + 2px ::after border
+      borderRadius: 20     // --panel-radius CSS variable
     });
 
     // Bio panel with medium distortion for readability
@@ -475,7 +480,9 @@ export class GlassRenderer {
       position: [0.0, 0.0],
       size: [0.6, 0.35],
       distortionStrength: 0.35,
-      refractionIndex: 1.52
+      refractionIndex: 1.52,
+      borderInset: 6,      // 2px outer border + 2px ::after offset + 2px ::after border
+      borderRadius: 20     // --panel-radius CSS variable
     });
 
     // Portfolio project panels
@@ -483,35 +490,45 @@ export class GlassRenderer {
       position: [0.0, 0.0],
       size: [0.4, 0.5],
       distortionStrength: 0.35,
-      refractionIndex: 1.52
+      refractionIndex: 1.52,
+      borderInset: 6,      // 2px outer border + 2px ::after offset + 2px ::after border
+      borderRadius: 20     // --panel-radius CSS variable
     });
 
     this.addPanel('portfolio-encryption', {
       position: [0.0, 0.0],
       size: [0.38, 0.48],
       distortionStrength: 0.35,
-      refractionIndex: 1.52
+      refractionIndex: 1.52,
+      borderInset: 6,      // 2px outer border + 2px ::after offset + 2px ::after border
+      borderRadius: 20     // --panel-radius CSS variable
     });
 
     this.addPanel('portfolio-dotereditor', {
       position: [0.0, 0.0],
       size: [0.4, 0.5],
       distortionStrength: 0.35,
-      refractionIndex: 1.52
+      refractionIndex: 1.52,
+      borderInset: 6,      // 2px outer border + 2px ::after offset + 2px ::after border
+      borderRadius: 20     // --panel-radius CSS variable
     });
 
     this.addPanel('portfolio-dreamrequiem', {
       position: [0.0, 0.0],
       size: [0.38, 0.48],
       distortionStrength: 0.35,
-      refractionIndex: 1.52
+      refractionIndex: 1.52,
+      borderInset: 6,      // 2px outer border + 2px ::after offset + 2px ::after border
+      borderRadius: 20     // --panel-radius CSS variable
     });
 
     this.addPanel('portfolio-greenlightgo', {
       position: [0.0, 0.0],
       size: [0.38, 0.48],
       distortionStrength: 0.35,
-      refractionIndex: 1.52
+      refractionIndex: 1.52,
+      borderInset: 6,      // 2px outer border + 2px ::after offset + 2px ::after border
+      borderRadius: 20     // --panel-radius CSS variable
     });
 
     // Resume card panels
@@ -519,35 +536,45 @@ export class GlassRenderer {
       position: [0.0, 0.0],
       size: [0.45, 0.38],
       distortionStrength: 0.35,
-      refractionIndex: 1.52
+      refractionIndex: 1.52,
+      borderInset: 6,      // 2px outer border + 2px ::after offset + 2px ::after border
+      borderRadius: 20     // --panel-radius CSS variable
     });
 
     this.addPanel('resume-meta', {
       position: [0.0, 0.0],
       size: [0.45, 0.38],
       distortionStrength: 0.35,
-      refractionIndex: 1.52
+      refractionIndex: 1.52,
+      borderInset: 6,      // 2px outer border + 2px ::after offset + 2px ::after border
+      borderRadius: 20     // --panel-radius CSS variable
     });
 
     this.addPanel('resume-outlier', {
       position: [0.0, 0.0],
       size: [0.45, 0.38],
       distortionStrength: 0.35,
-      refractionIndex: 1.52
+      refractionIndex: 1.52,
+      borderInset: 6,      // 2px outer border + 2px ::after offset + 2px ::after border
+      borderRadius: 20     // --panel-radius CSS variable
     });
 
     this.addPanel('resume-uwtutor', {
       position: [0.0, 0.0],
       size: [0.45, 0.32],
       distortionStrength: 0.35,
-      refractionIndex: 1.52
+      refractionIndex: 1.52,
+      borderInset: 6,      // 2px outer border + 2px ::after offset + 2px ::after border
+      borderRadius: 20     // --panel-radius CSS variable
     });
 
     this.addPanel('resume-uwedu', {
       position: [0.0, 0.0],
       size: [0.45, 0.32],
       distortionStrength: 0.35,
-      refractionIndex: 1.52
+      refractionIndex: 1.52,
+      borderInset: 6,      // 2px outer border + 2px ::after offset + 2px ::after border
+      borderRadius: 20     // --panel-radius CSS variable
     });
 
     // Navigation bar with minimal distortion for readability
@@ -555,7 +582,9 @@ export class GlassRenderer {
       position: [0.0, 0.9],
       size: [2.0, 0.2],
       distortionStrength: 0.15,
-      refractionIndex: 1.45
+      refractionIndex: 1.45,
+      borderInset: 6,      // 2px outer border + 2px ::after offset + 2px ::after border
+      borderRadius: 16     // 16px from CSS (navbar uses smaller radius)
     });
 
     // Download resume buttons (minimal distortion for clarity)
@@ -565,7 +594,8 @@ export class GlassRenderer {
       size: [0.25, 0.1],
       distortionStrength: 0.25,
       refractionIndex: 1.45,
-      borderInset: 4  // 4px inset (2px outer border + 2px ::after inner border)
+      borderInset: 6,      // 2px outer border + 2px ::after offset + 2px ::after border (FIXED: was 4)
+      borderRadius: 12     // --button-radius CSS variable
     });
 
     this.addPanel('download-resume-btn-resume', {
@@ -573,7 +603,8 @@ export class GlassRenderer {
       size: [0.25, 0.1],
       distortionStrength: 0.25,
       refractionIndex: 1.45,
-      borderInset: 4  // 4px inset (2px outer border + 2px ::after inner border)
+      borderInset: 6,      // 2px outer border + 2px ::after offset + 2px ::after border (FIXED: was 4)
+      borderRadius: 12     // --button-radius CSS variable
     });
 
     // Update positions immediately and mark dirty for first render

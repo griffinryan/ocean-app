@@ -1,0 +1,74 @@
+{
+  "id": "/",
+  "name": "Griffin Ryan - Software Engineer",
+  "short_name": "Griffin Ryan",
+  "description": "Griffin Ryan is a fullstack Software Engineer based in Seattle, Washington. Focused and driven developer with a focus on creative coding, ML/AI, and real-world impact.",
+  "lang": "en-US",
+  "dir": "ltr",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "browser"],
+  "orientation": "any",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "categories": ["portfolio", "business", "productivity"],
+  "icons": [
+    {
+      "src": "/icons/app-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/app-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/images/profile.png",
+      "sizes": "640x640",
+      "type": "image/png",
+      "label": "Griffin Ryan portfolio hero panel"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "View Portfolio",
+      "short_name": "Portfolio",
+      "description": "Jump directly to Griffin Ryan's highlighted work.",
+      "url": "/#portfolio",
+      "icons": [
+        {
+          "src": "/icons/app-icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Open Resume",
+      "short_name": "Resume",
+      "description": "Open the resume panel showcasing experience and education.",
+      "url": "/#resume",
+      "icons": [
+        {
+          "src": "/icons/app-icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Contact Griffin",
+      "short_name": "Contact",
+      "description": "Start an email conversation with Griffin Ryan.",
+      "url": "mailto:griffin@griffinryan.com"
+    }
+  ],
+  "related_applications": [],
+  "prefer_related_applications": false
+}
