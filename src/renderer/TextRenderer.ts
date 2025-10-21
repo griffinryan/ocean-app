@@ -89,7 +89,7 @@ export class TextRenderer {
   private textUpdateBatches: string[][] = []; // Batches of text element IDs
   private currentBatchIndex: number = 0;
   private isProcessingBatches: boolean = false;
-  private readonly BATCH_SIZE = 15; // Elements per frame
+  private batchSize: number = 15; // Elements per frame
   private batchRenderCallback: (() => void) | null = null;
   private batchTimeoutId: number | null = null;
   private readonly BATCH_TIMEOUT_MS = 1000; // Force completion after 1 second
@@ -102,6 +102,7 @@ export class TextRenderer {
   // Blur control properties
   private blurRadius: number = 60.0; // pixels (tight wrap around text for frosted glass effect)
   private blurFalloffPower: number = 2.5; // >1.0 = exponential falloff for dramatic, sharp fade
+  private blurEnabled: boolean = true;
 
   // Intro visibility tracking for glass/text coordination
   private introVisibility: number = 0.0;
@@ -919,8 +920,8 @@ export class TextRenderer {
 
     // Split into batches
     this.textUpdateBatches = [];
-    for (let i = 0; i < visibleElements.length; i += this.BATCH_SIZE) {
-      this.textUpdateBatches.push(visibleElements.slice(i, i + this.BATCH_SIZE));
+    for (let i = 0; i < visibleElements.length; i += this.batchSize) {
+      this.textUpdateBatches.push(visibleElements.slice(i, i + this.batchSize));
     }
 
     // Start processing batches
@@ -1254,6 +1255,10 @@ export class TextRenderer {
    */
   private generateBlurMap(): void {
     const gl = this.gl;
+
+    if (!this.blurEnabled) {
+      return;
+    }
 
     // Skip if transitioning or no program
     if (this.isTransitioningFlag || !this.blurMapProgram || !this.blurMapFramebuffer || !this.textTexture) {
@@ -1963,6 +1968,9 @@ export class TextRenderer {
    * Get blur map texture for external use (e.g., GlassRenderer)
    */
   public getBlurMapTexture(): WebGLTexture | null {
+    if (!this.blurEnabled) {
+      return null;
+    }
     return this.blurMapTexture;
   }
 
@@ -1982,6 +1990,59 @@ export class TextRenderer {
   public setBlurRadius(radius: number): void {
     this.blurRadius = Math.max(0, Math.min(256, radius));
     this.needsBlurMapUpdate = true;
+  }
+
+  /**
+   * Set capture throttle window in milliseconds
+   */
+  public setCaptureThrottleMs(throttleMs: number): void {
+    const clamped = Math.max(16, Math.min(250, Math.round(throttleMs)));
+    this.captureThrottleMs = clamped;
+  }
+
+  /**
+   * Get capture throttle
+   */
+  public getCaptureThrottleMs(): number {
+    return this.captureThrottleMs;
+  }
+
+  /**
+   * Set amortized batch size for text updates
+   */
+  public setBatchSize(size: number): void {
+    const clamped = Math.max(4, Math.min(48, Math.round(size)));
+    this.batchSize = clamped;
+  }
+
+  /**
+   * Get batch size for text updates
+   */
+  public getBatchSize(): number {
+    return this.batchSize;
+  }
+
+  /**
+   * Enable or disable blur map generation
+   */
+  public setBlurEnabled(enabled: boolean): void {
+    if (this.blurEnabled === enabled) {
+      return;
+    }
+
+    this.blurEnabled = enabled;
+    if (enabled) {
+      this.needsBlurMapUpdate = true;
+    } else {
+      this.needsBlurMapUpdate = false;
+    }
+  }
+
+  /**
+   * Blur enabled state
+   */
+  public isBlurEnabled(): boolean {
+    return this.blurEnabled;
   }
 
   /**

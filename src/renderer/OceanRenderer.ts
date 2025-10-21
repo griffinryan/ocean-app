@@ -9,14 +9,11 @@ import { VesselSystem, VesselConfig } from './VesselSystem';
 import { GlassRenderer } from './GlassRenderer';
 import { TextRenderer } from './TextRenderer';
 import { WakeRenderer } from './WakeRenderer';
+import { PipelineManager } from './PipelineManager';
 import { PerformanceMonitor } from '../utils/PerformanceMonitor';
 import { FrameBudgetManager, WorkPriority } from '../utils/FrameBudget';
-import { PipelineManager } from './PipelineManager';
+import { AdaptiveQualityManager, QualityProfile, QUALITY_PROFILES } from '../utils/AdaptiveQuality';
 
-const FINAL_PASS_BASE_SCALE = 1.0;
-const OCEAN_CAPTURE_SCALE = 1.0;
-const GLASS_CAPTURE_SCALE = 1.0;
-const TEXT_CAPTURE_SCALE = 1.0;
 const UPSCALE_SHARPNESS = 0.0;
 const UPSCALE_METHOD_BILINEAR = 0;
 
@@ -77,7 +74,9 @@ export class OceanRenderer {
   private performanceMonitor: PerformanceMonitor;
   private frameBudget: FrameBudgetManager;
   private pipelineManager: PipelineManager;
-  private renderScale: number = FINAL_PASS_BASE_SCALE;
+  private qualityManager: AdaptiveQualityManager;
+  private qualityProfile: QualityProfile = QUALITY_PROFILES.high;
+  private renderScale: number = QUALITY_PROFILES.high.finalPassScale;
 
   // Upscaling system
   private upscaleFramebuffer: WebGLFramebuffer | null = null;
@@ -178,6 +177,12 @@ export class OceanRenderer {
 
     // Initialize text renderer BEFORE setupResizing() so framebuffer gets sized correctly
     this.initializeTextRenderer();
+
+    // Initialize adaptive quality manager and apply initial profile before sizing
+    this.qualityManager = new AdaptiveQualityManager({
+      onQualityChange: (profile, previous) => this.applyQualityProfile(profile, previous)
+    });
+    this.applyQualityProfile(this.qualityManager.getCurrentProfile());
 
     // Set up responsive resizing (MUST be called after initializing renderers)
     this.setupResizing();
@@ -400,8 +405,8 @@ export class OceanRenderer {
     this.displayWidth = Math.max(1, Math.round(displayWidth * devicePixelRatio));
     this.displayHeight = Math.max(1, Math.round(displayHeight * devicePixelRatio));
 
-    // Calculate render resolution based on global settings
-    let finalPassScale = FINAL_PASS_BASE_SCALE;
+    // Calculate render resolution based on adaptive quality profile
+    let finalPassScale = this.qualityProfile.finalPassScale;
 
     // PERFORMANCE: Additional resolution scaling for 4K+ displays
     // At high DPI, rendering at lower resolution is imperceptible due to bilinear upscaling
@@ -439,7 +444,7 @@ export class OceanRenderer {
     this.resizeUpscaleFramebuffer(this.renderWidth, this.renderHeight);
 
     // PERFORMANCE: Resize shared ocean buffer with ocean capture resolution
-    const oceanCaptureScale = OCEAN_CAPTURE_SCALE;
+    const oceanCaptureScale = this.qualityProfile.oceanCaptureScale;
     const oceanCaptureWidth = Math.max(1, Math.round(this.renderWidth * oceanCaptureScale));
     const oceanCaptureHeight = Math.max(1, Math.round(this.renderHeight * oceanCaptureScale));
     this.resizeSharedOceanBuffer(oceanCaptureWidth, oceanCaptureHeight);
@@ -451,7 +456,7 @@ export class OceanRenderer {
 
     // Resize glass renderer framebuffer with scaled resolution
     if (this.glassRenderer) {
-      const glassScale = GLASS_CAPTURE_SCALE;
+      const glassScale = this.qualityProfile.glassCaptureScale;
       const glassWidth = Math.max(1, Math.round(this.renderWidth * glassScale));
       const glassHeight = Math.max(1, Math.round(this.renderHeight * glassScale));
       this.glassRenderer.resizeFramebuffer(glassWidth, glassHeight);
@@ -459,11 +464,59 @@ export class OceanRenderer {
 
     // Resize text renderer framebuffer with scaled resolution
     if (this.textRenderer) {
-      const textScale = TEXT_CAPTURE_SCALE; // Scene capture resolution
+      const textScale = this.qualityProfile.textCaptureScale; // Scene capture resolution
       const textWidth = Math.max(1, Math.round(this.renderWidth * textScale));
       const textHeight = Math.max(1, Math.round(this.renderHeight * textScale));
       this.textRenderer.resizeFramebuffer(textWidth, textHeight);
     }
+  }
+
+  /**
+   * Apply adaptive quality profile to dependent systems
+   */
+  private applyQualityProfile(profile: QualityProfile, previous?: QualityProfile | null): void {
+    const previousLabel = previous ? previous.label : 'Initial';
+    console.log(`AdaptiveQuality: ${previousLabel} → ${profile.label}`);
+
+    this.qualityProfile = profile;
+
+    if (this.textRenderer) {
+      this.textRenderer.setCaptureThrottleMs(profile.textCaptureThrottleMs);
+      this.textRenderer.setBatchSize(profile.textBatchSize);
+      this.textRenderer.setBlurEnabled(profile.blurEnabled);
+      this.textRenderer.setBlurRadius(profile.textBlurRadius);
+      this.textRenderer.setBlurFalloffPower(profile.textBlurFalloff);
+      this.textRenderer.markSceneDirty();
+    }
+
+    if (this.glassRenderer) {
+      this.glassRenderer.setBlurMapEnabled(profile.blurEnabled);
+      this.glassRenderer.setBlurOpacityBoost(profile.blurOpacityBoost);
+      this.glassRenderer.setBlurDistortionBoost(profile.blurDistortionBoost);
+      if (!profile.blurEnabled) {
+        this.glassRenderer.setBlurMapTexture(null);
+      }
+      this.glassRenderer.markOceanDirty();
+      this.glassRenderer.markPositionsDirty();
+    }
+
+    if (this.wakeRenderer) {
+      this.wakeRenderer.setResolutionScale(profile.wakeResolutionScale);
+    }
+
+    this.vesselSystem.applyQualitySettings({
+      maxVessels: profile.wakeMaxVessels,
+      spawnInterval: profile.wakeSpawnInterval,
+      wakeTrailLength: profile.wakeTrailLength
+    });
+
+    this.setWakesEnabled(profile.wakesEnabled);
+
+    if (previous) {
+      this.frameBudget.reset();
+    }
+
+    this.resize();
   }
 
   /**
@@ -1039,8 +1092,10 @@ export class OceanRenderer {
     const elapsedTime = (currentTime - this.startTime) / 1000; // Convert to seconds
     const deltaTime = 1 / 60; // Approximate 60 FPS for vessel updates
 
-    // Update vessel system
-    this.vesselSystem.update(currentTime, deltaTime);
+    // Update vessel system only when wakes are active
+    if (this.wakesEnabled) {
+      this.vesselSystem.update(currentTime, deltaTime);
+    }
 
     // Render wake texture FIRST (if wakes are enabled)
     if (this.wakesEnabled && this.wakeRenderer) {
@@ -1066,6 +1121,11 @@ export class OceanRenderer {
     // End performance monitoring
     this.performanceMonitor.endFrame();
     this.frameBudget.endFrame();
+
+    // Feed metrics into adaptive quality manager
+    const metrics = this.performanceMonitor.getMetrics();
+    const budgetStats = this.frameBudget.getStats();
+    this.qualityManager.evaluateFrame(metrics, budgetStats);
 
     // Update FPS counter
     this.updateFPS(currentTime);
@@ -1149,14 +1209,24 @@ export class OceanRenderer {
    * Toggle vessel wake system
    */
   toggleWakes(): void {
-    this.wakesEnabled = !this.wakesEnabled;
-    this.vesselSystem.setEnabled(this.wakesEnabled);
-    if (this.wakeRenderer) {
-      this.wakeRenderer.setEnabled(this.wakesEnabled);
+    this.setWakesEnabled(!this.wakesEnabled);
+  }
+
+  /**
+   * Explicitly enable or disable wakes (used by adaptive quality)
+   */
+  setWakesEnabled(enabled: boolean): void {
+    if (this.wakesEnabled === enabled) {
+      return;
     }
 
-    // Update pipeline manager
-    this.pipelineManager.toggleFeature('wakes');
+    this.wakesEnabled = enabled;
+    this.vesselSystem.setEnabled(enabled);
+    if (this.wakeRenderer) {
+      this.wakeRenderer.setEnabled(enabled);
+    }
+
+    this.pipelineManager.switchToState({ wakes: enabled });
   }
 
   /**
