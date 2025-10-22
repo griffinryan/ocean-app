@@ -695,6 +695,21 @@ export class PanelManager {
     if (downloadBtnResume) downloadBtnResume.classList.add('webgl-ready');
   }
 
+  public disableWebGLReady(): void {
+    this.landingPanel.classList.remove('webgl-ready');
+    this.appBioPanel.classList.remove('webgl-ready');
+    this.portfolioPanels.forEach(panel => panel.classList.remove('webgl-ready'));
+    this.resumePanels.forEach(panel => panel.classList.remove('webgl-ready'));
+    this.portfolioContainer.classList.remove('webgl-ready');
+    this.resumeContainer.classList.remove('webgl-ready');
+    this.navbar.classList.remove('webgl-ready');
+
+    const downloadBtnPortfolio = document.getElementById('download-resume-btn-portfolio');
+    const downloadBtnResume = document.getElementById('download-resume-btn-resume');
+    if (downloadBtnPortfolio) downloadBtnPortfolio.classList.remove('webgl-ready');
+    if (downloadBtnResume) downloadBtnResume.classList.remove('webgl-ready');
+  }
+
   /**
    * Set TextRenderer reference for triggering updates on panel transitions
    */
@@ -713,6 +728,10 @@ export class PanelManager {
     if (this.glassRenderer) {
       this.glassRenderer.markPositionsDirty();
     }
+  }
+
+  public setScrollThrottle(throttleMs: number): void {
+    this.scrollTracker.setThrottle(throttleMs);
   }
 
   public dispose(): void {

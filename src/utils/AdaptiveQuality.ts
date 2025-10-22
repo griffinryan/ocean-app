@@ -1,7 +1,7 @@
 import { PerformanceMetrics } from './PerformanceMonitor';
 import { WorkPriority } from './FrameBudget';
 
-export type QualityTier = 'high' | 'balanced' | 'low';
+export type QualityTier = 'high' | 'balanced' | 'low' | 'ultra-low';
 
 export interface QualityProfile {
   tier: QualityTier;
@@ -10,6 +10,7 @@ export interface QualityProfile {
   oceanCaptureScale: number;
   glassCaptureScale: number;
   glassEnabled: boolean;
+  textEnabled: boolean;
   textCaptureScale: number;
   textCaptureThrottleMs: number;
   textBatchSize: number;
@@ -23,6 +24,7 @@ export interface QualityProfile {
   wakeSpawnInterval: number;
   wakeTrailLength: number;
   wakeResolutionScale: number;
+  scrollThrottleMs: number;
 }
 
 export const QUALITY_PROFILES: Record<QualityTier, QualityProfile> = {
@@ -33,6 +35,7 @@ export const QUALITY_PROFILES: Record<QualityTier, QualityProfile> = {
     oceanCaptureScale: 1.0,
     glassCaptureScale: 1.0,
     glassEnabled: true,
+    textEnabled: true,
     textCaptureScale: 1.0,
     textCaptureThrottleMs: 33,
     textBatchSize: 15,
@@ -45,7 +48,8 @@ export const QUALITY_PROFILES: Record<QualityTier, QualityProfile> = {
     wakeMaxVessels: 3,
     wakeSpawnInterval: 8000,
     wakeTrailLength: 150,
-    wakeResolutionScale: 0.75
+    wakeResolutionScale: 0.75,
+    scrollThrottleMs: 0
   },
   balanced: {
     tier: 'balanced',
@@ -54,6 +58,7 @@ export const QUALITY_PROFILES: Record<QualityTier, QualityProfile> = {
     oceanCaptureScale: 0.82,
     glassCaptureScale: 0.72,
     glassEnabled: true,
+    textEnabled: true,
     textCaptureScale: 0.66,
     textCaptureThrottleMs: 50,
     textBatchSize: 12,
@@ -66,7 +71,8 @@ export const QUALITY_PROFILES: Record<QualityTier, QualityProfile> = {
     wakeMaxVessels: 2,
     wakeSpawnInterval: 12000,
     wakeTrailLength: 135,
-    wakeResolutionScale: 0.62
+    wakeResolutionScale: 0.62,
+    scrollThrottleMs: 16
   },
   low: {
     tier: 'low',
@@ -75,6 +81,7 @@ export const QUALITY_PROFILES: Record<QualityTier, QualityProfile> = {
     oceanCaptureScale: 0.6,
     glassCaptureScale: 0.45,
     glassEnabled: false,
+    textEnabled: true,
     textCaptureScale: 0.5,
     textCaptureThrottleMs: 85,
     textBatchSize: 8,
@@ -87,7 +94,31 @@ export const QUALITY_PROFILES: Record<QualityTier, QualityProfile> = {
     wakeMaxVessels: 0,
     wakeSpawnInterval: 18000,
     wakeTrailLength: 110,
-    wakeResolutionScale: 0.5
+    wakeResolutionScale: 0.5,
+    scrollThrottleMs: 33
+  },
+  'ultra-low': {
+    tier: 'ultra-low',
+    label: 'Ultra Low',
+    finalPassScale: 0.45,
+    oceanCaptureScale: 0.45,
+    glassCaptureScale: 0,
+    glassEnabled: false,
+    textEnabled: false,
+    textCaptureScale: 0,
+    textCaptureThrottleMs: 150,
+    textBatchSize: 4,
+    textBlurRadius: 30,
+    textBlurFalloff: 2.0,
+    blurEnabled: false,
+    blurOpacityBoost: 0,
+    blurDistortionBoost: 0,
+    wakesEnabled: false,
+    wakeMaxVessels: 0,
+    wakeSpawnInterval: 24000,
+    wakeTrailLength: 80,
+    wakeResolutionScale: 0.4,
+    scrollThrottleMs: 50
   }
 };
 
@@ -124,14 +155,25 @@ export function detectInitialTier(): QualityTier {
   const ua = navigator.userAgent.toLowerCase();
   const deviceMemory = nav.deviceMemory ?? 8;
   const cores = navigator.hardwareConcurrency ?? 8;
-  const isMobile = /android|iphone|ipad|ipod|mobile/.test(ua);
+  const maxTouchPoints = (navigator as any).maxTouchPoints ?? 0;
+  const isiPadOSWithDesktopUA = /macintosh/.test(ua) && maxTouchPoints > 1;
+  const isMobile = /android|iphone|ipad|ipod|mobile/.test(ua) || isiPadOSWithDesktopUA;
   const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
   if (isMobile) {
+    if (prefersReducedMotion) {
+      return 'low';
+    }
+
     if (deviceMemory >= 6 && cores >= 6) {
       return 'balanced';
     }
-    return 'low';
+
+    if (deviceMemory >= 4 && cores >= 4) {
+      return 'low';
+    }
+
+    return 'ultra-low';
   }
 
   if (deviceMemory <= 4 || cores <= 4) {
@@ -139,7 +181,7 @@ export function detectInitialTier(): QualityTier {
   }
 
   if (prefersReducedMotion) {
-    return 'balanced';
+    return 'low';
   }
 
   if (deviceMemory >= 12 && cores >= 8) {
@@ -243,7 +285,7 @@ export class AdaptiveQualityManager {
     // Degrade conditions
     if (this.canDegrade(now, severeTriggered || highPrioritySkip || budgetTriggered)) {
       if (severeTriggered) {
-        this.degradeQuality('low');
+        this.degradeQuality('ultra-low');
         return;
       }
 
@@ -312,6 +354,6 @@ export class AdaptiveQualityManager {
   }
 
   private order(): QualityTier[] {
-    return ['high', 'balanced', 'low'];
+    return ['high', 'balanced', 'low', 'ultra-low'];
   }
 }

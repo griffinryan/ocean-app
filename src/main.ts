@@ -30,6 +30,8 @@ class OceanApp {
   private loadingSequence: LoadingSequence | null = null;
   private debugOverlayVisible = false;
   private fpsOverlayVisible = false;
+  private cssFallbackForced = false;
+  private failsafeNotice: HTMLElement | null = null;
   private debugOverlayFields: {
     mode: HTMLElement | null;
     wakes: HTMLElement | null;
@@ -108,6 +110,8 @@ class OceanApp {
       // Prevents visual "jump" when switching from simple→complex pipeline
       this.connectUIToRenderer();
 
+      this.setupFailsafeListener();
+
       // Start rendering - this enables Phase 1 (WebGL ocean)
       this.renderer.start();
 
@@ -128,6 +132,43 @@ class OceanApp {
       console.error('Failed to initialize Ocean Portfolio:', error);
       this.showError(error instanceof Error ? error.message : 'Unknown error');
     }
+  }
+
+  private setupFailsafeListener(): void {
+    document.addEventListener('ocean:failsafe', () => {
+      if (!this.failsafeNotice) {
+        const banner = document.createElement('div');
+        banner.id = 'failsafe-banner';
+        banner.style.cssText = `
+          position: fixed;
+          bottom: 24px;
+          left: 50%;
+          transform: translateX(-50%);
+          padding: 12px 20px;
+          background: rgba(20, 20, 26, 0.85);
+          color: #fff;
+          font-size: 14px;
+          letter-spacing: 0.04em;
+          border-radius: 999px;
+          box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+          z-index: 9999;
+          backdrop-filter: blur(18px);
+          -webkit-backdrop-filter: blur(18px);
+          transition: opacity 400ms ease;
+          opacity: 0;
+          pointer-events: none;
+        `;
+        banner.textContent = 'Performance saver enabled — falling back to CSS while your device catches up.';
+        document.body.appendChild(banner);
+        this.failsafeNotice = banner;
+      }
+
+      requestAnimationFrame(() => {
+        if (this.failsafeNotice) {
+          this.failsafeNotice.style.opacity = '1';
+        }
+      });
+    });
   }
 
   /**
@@ -209,6 +250,31 @@ class OceanApp {
     } else {
       console.warn('Text renderer not available, falling back to CSS-only text');
     }
+
+    // Listen for adaptive quality changes so UI helpers (scroll throttles, fallback classes) stay in sync
+    this.renderer.onQualityProfileChange((profile) => {
+      if (!this.panelManager) {
+        return;
+      }
+
+      this.panelManager.setScrollThrottle(profile.scrollThrottleMs);
+
+      if (profile.glassEnabled) {
+        this.panelManager.enableWebGLDistortion();
+      } else {
+        this.panelManager.disableWebGLDistortion();
+      }
+
+      if (profile.textEnabled) {
+        if (this.cssFallbackForced) {
+          this.panelManager.enableWebGLReady();
+          this.cssFallbackForced = false;
+        }
+      } else {
+        this.panelManager.disableWebGLReady();
+        this.cssFallbackForced = true;
+      }
+    });
   }
 
   /**
