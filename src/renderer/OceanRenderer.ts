@@ -480,6 +480,8 @@ export class OceanRenderer {
 
     this.qualityProfile = profile;
 
+    // Toggle heavy systems according to profile
+    this.setGlassEnabled(profile.glassEnabled);
     if (this.textRenderer) {
       this.textRenderer.setCaptureThrottleMs(profile.textCaptureThrottleMs);
       this.textRenderer.setBatchSize(profile.textBatchSize);
@@ -756,7 +758,8 @@ export class OceanRenderer {
       return;
     }
 
-    // Store current viewport
+    // Store current framebuffer and viewport so we can restore the active render target
+    const previousFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING) as WebGLFramebuffer | null;
     const viewport = gl.getParameter(gl.VIEWPORT);
 
     // Bind shared ocean framebuffer
@@ -771,10 +774,8 @@ export class OceanRenderer {
     // Render ocean scene to shared buffer
     this.drawOcean(elapsedTime);
 
-    // Restore screen framebuffer
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-
-    // Restore viewport
+    // Restore previous framebuffer + viewport (critical when rendering into the upscale target)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, previousFramebuffer);
     gl.viewport(viewport[0], viewport[1], viewport[2], viewport[3]);
   }
 
@@ -825,7 +826,10 @@ export class OceanRenderer {
 
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
         this.compositeTexture(this.sharedOceanTexture, elapsedTime);
+        const glassStart = performance.now();
         this.glassRenderer.render();
+        const glassCost = performance.now() - glassStart;
+        this.frameBudget.recordWorkCost('glassRender', glassCost);
       } else {
         // Fall back to simple ocean render (no glass configured)
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
@@ -854,13 +858,17 @@ export class OceanRenderer {
         this.glassRenderer.setTextPresence(textPresence);
 
         // 3. Text captures glass overlay (MEDIUM priority - skip if tight on budget)
-        const canAffordTextCapture = this.frameBudget.canAfford(2.0, WorkPriority.MEDIUM);
+        const textCaptureEstimate = this.frameBudget.getAverageWorkCost('textCapture') ?? 2.0;
+        const canAffordTextCapture = this.frameBudget.canAfford(textCaptureEstimate, WorkPriority.MEDIUM);
         if (canAffordTextCapture) {
+          const captureStart = performance.now();
           this.textRenderer.captureScene(() => {
             gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
             this.compositeTexture(this.sharedOceanTexture, elapsedTime); // Composite instead of re-render
             this.glassRenderer!.render();
           });
+          const captureCost = performance.now() - captureStart;
+          this.frameBudget.recordWorkCost('textCapture', captureCost);
         }
 
         // 4. Pass blur map from TextRenderer to GlassRenderer so buttons retain WebGL clarity
@@ -870,7 +878,10 @@ export class OceanRenderer {
         // 5. Final render: Ocean (composited from shared buffer, NO re-render!) + Glass + Text (CRITICAL - always do)
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
         this.compositeTexture(this.sharedOceanTexture, elapsedTime); // Composite instead of re-render
+        const glassStart = performance.now();
         this.glassRenderer.render();
+        const glassCost = performance.now() - glassStart;
+        this.frameBudget.recordWorkCost('glassRender', glassCost);
         this.textRenderer.render(wakeTexture, this.wakesEnabled);
       } else {
         // Ocean + Text pipeline (no glass)
@@ -879,12 +890,16 @@ export class OceanRenderer {
         this.captureOceanToSharedBuffer(elapsedTime);
 
         // 2. Text captures ocean from shared buffer (MEDIUM priority - skip if tight)
-        const canAffordTextCapture = this.frameBudget.canAfford(2.0, WorkPriority.MEDIUM);
+        const textCaptureEstimate = this.frameBudget.getAverageWorkCost('textCapture') ?? 2.0;
+        const canAffordTextCapture = this.frameBudget.canAfford(textCaptureEstimate, WorkPriority.MEDIUM);
         if (canAffordTextCapture) {
+          const captureStart = performance.now();
           this.textRenderer.captureScene(() => {
             gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
             this.compositeTexture(this.sharedOceanTexture, elapsedTime); // Composite instead of re-render
           });
+          const captureCost = performance.now() - captureStart;
+          this.frameBudget.recordWorkCost('textCapture', captureCost);
         }
 
         // 3. Final render: Ocean (composited from shared buffer, NO re-render!) + Text (CRITICAL - always do)
@@ -905,8 +920,12 @@ export class OceanRenderer {
       // 3. Final render: Ocean (composited from shared buffer, CONSISTENT!) + Glass (HIGH priority - always do unless desperate)
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
       this.compositeTexture(this.sharedOceanTexture, elapsedTime); // Use shared buffer (not drawOcean)
-      if (this.frameBudget.canAfford(1.5, WorkPriority.HIGH)) {
+      const glassEstimate = this.frameBudget.getAverageWorkCost('glassRender') ?? 1.5;
+      if (this.frameBudget.canAfford(glassEstimate, WorkPriority.HIGH)) {
+        const glassStart = performance.now();
         this.glassRenderer.render();
+        const glassCost = performance.now() - glassStart;
+        this.frameBudget.recordWorkCost('glassRender', glassCost);
       }
     } else {
       // Basic ocean rendering only (CRITICAL - always do)

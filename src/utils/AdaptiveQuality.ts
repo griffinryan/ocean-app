@@ -9,6 +9,7 @@ export interface QualityProfile {
   finalPassScale: number;
   oceanCaptureScale: number;
   glassCaptureScale: number;
+  glassEnabled: boolean;
   textCaptureScale: number;
   textCaptureThrottleMs: number;
   textBatchSize: number;
@@ -31,6 +32,7 @@ export const QUALITY_PROFILES: Record<QualityTier, QualityProfile> = {
     finalPassScale: 1.0,
     oceanCaptureScale: 1.0,
     glassCaptureScale: 1.0,
+    glassEnabled: true,
     textCaptureScale: 1.0,
     textCaptureThrottleMs: 33,
     textBatchSize: 15,
@@ -51,6 +53,7 @@ export const QUALITY_PROFILES: Record<QualityTier, QualityProfile> = {
     finalPassScale: 0.82,
     oceanCaptureScale: 0.82,
     glassCaptureScale: 0.72,
+    glassEnabled: true,
     textCaptureScale: 0.66,
     textCaptureThrottleMs: 50,
     textBatchSize: 12,
@@ -70,7 +73,8 @@ export const QUALITY_PROFILES: Record<QualityTier, QualityProfile> = {
     label: 'Low',
     finalPassScale: 0.6,
     oceanCaptureScale: 0.6,
-    glassCaptureScale: 0.5,
+    glassCaptureScale: 0.45,
+    glassEnabled: false,
     textCaptureScale: 0.5,
     textCaptureThrottleMs: 85,
     textBatchSize: 8,
@@ -79,8 +83,8 @@ export const QUALITY_PROFILES: Record<QualityTier, QualityProfile> = {
     blurEnabled: false,
     blurOpacityBoost: 0.32,
     blurDistortionBoost: 0.7,
-    wakesEnabled: true,
-    wakeMaxVessels: 1,
+    wakesEnabled: false,
+    wakeMaxVessels: 0,
     wakeSpawnInterval: 18000,
     wakeTrailLength: 110,
     wakeResolutionScale: 0.5
@@ -103,7 +107,7 @@ export interface AdaptiveQualityOptions {
 }
 
 const DEFAULT_OPTIONS: Required<Omit<AdaptiveQualityOptions, 'initialTier' | 'onQualityChange'>> = {
-  degradeCooldownMs: 4000,
+  degradeCooldownMs: 1500,
   upgradeCooldownMs: 8000,
   degradeFrameTimeThresholdMs: 21.5, // ≈46 FPS
   severeFrameTimeThresholdMs: 32.0,  // ≈31 FPS (throttle detection)
@@ -197,6 +201,8 @@ export class AdaptiveQualityManager {
 
   evaluateFrame(metrics: PerformanceMetrics, frameBudgetStats: { currentSkipPriority: WorkPriority | null }): void {
     const now = performance.now();
+    const skipPriority = frameBudgetStats.currentSkipPriority;
+    const highPrioritySkip = skipPriority !== null && skipPriority <= WorkPriority.HIGH;
 
     // Slow frame detection (steady drops)
     if (metrics.frameTime > this.options.degradeFrameTimeThresholdMs || metrics.fps < (1000 / this.options.degradeFrameTimeThresholdMs)) {
@@ -213,7 +219,7 @@ export class AdaptiveQualityManager {
     }
 
     // Frame budget skips
-    if (frameBudgetStats.currentSkipPriority !== null && frameBudgetStats.currentSkipPriority <= this.options.frameBudgetSkipPriority) {
+    if (skipPriority !== null && skipPriority <= this.options.frameBudgetSkipPriority) {
       this.skipPriorityCounter++;
     } else if (this.skipPriorityCounter > 0) {
       this.skipPriorityCounter--;
@@ -230,19 +236,23 @@ export class AdaptiveQualityManager {
       this.stableFrameCounter = Math.max(0, this.stableFrameCounter - 2);
     }
 
+    const severeTriggered = this.severeFrameCounter >= this.options.severeWindowFrames;
+    const budgetTriggered = this.skipPriorityCounter >= this.options.frameBudgetWindowFrames;
+    const slowTriggered = this.slowFrameCounter >= this.options.degradeWindowFrames;
+
     // Degrade conditions
-    if (this.canDegrade(now)) {
-      if (this.severeFrameCounter >= this.options.severeWindowFrames) {
+    if (this.canDegrade(now, severeTriggered || highPrioritySkip || budgetTriggered)) {
+      if (severeTriggered) {
         this.degradeQuality('low');
         return;
       }
 
-      if (this.skipPriorityCounter >= this.options.frameBudgetWindowFrames) {
+      if (highPrioritySkip || budgetTriggered) {
         this.degradeQuality();
         return;
       }
 
-      if (this.slowFrameCounter >= this.options.degradeWindowFrames) {
+      if (slowTriggered) {
         this.degradeQuality();
         return;
       }
@@ -284,9 +294,12 @@ export class AdaptiveQualityManager {
     this.setQualityTier(newTier);
   }
 
-  private canDegrade(now: number): boolean {
+  private canDegrade(now: number, overrideCooldown: boolean = false): boolean {
     if (this.currentTier === 'low') {
       return false;
+    }
+    if (overrideCooldown) {
+      return true;
     }
     return (now - this.lastChangeTimestamp) >= this.options.degradeCooldownMs;
   }

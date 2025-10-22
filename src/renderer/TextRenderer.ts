@@ -576,7 +576,8 @@ export class TextRenderer {
       return;
     }
 
-    // Store current viewport
+    // Store current framebuffer + viewport so we can restore active target after capture
+    const previousFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING) as WebGLFramebuffer | null;
     const viewport = gl.getParameter(gl.VIEWPORT);
 
     // Bind framebuffer for rendering
@@ -591,10 +592,8 @@ export class TextRenderer {
     // Render scene to framebuffer
     renderSceneCallback();
 
-    // Restore screen framebuffer
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-
-    // Restore viewport
+    // Restore previous framebuffer + viewport (preserves upscale FBO binding)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, previousFramebuffer);
     gl.viewport(viewport[0], viewport[1], viewport[2], viewport[3]);
 
     // Update cache state
@@ -1277,7 +1276,8 @@ export class TextRenderer {
       return;
     }
 
-    // Store current viewport
+    // Store current framebuffer + viewport so we return to the active render target
+    const previousFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING) as WebGLFramebuffer | null;
     const viewport = gl.getParameter(gl.VIEWPORT);
 
     // Bind blur map framebuffer
@@ -1326,8 +1326,8 @@ export class TextRenderer {
     // Re-enable depth test
     gl.enable(gl.DEPTH_TEST);
 
-    // Restore screen framebuffer
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    // Restore previous framebuffer + viewport
+    gl.bindFramebuffer(gl.FRAMEBUFFER, previousFramebuffer);
     gl.viewport(viewport[0], viewport[1], viewport[2], viewport[3]);
 
     this.needsBlurMapUpdate = false;
