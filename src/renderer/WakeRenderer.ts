@@ -290,6 +290,14 @@ export class WakeRenderer {
   }
 
   /**
+   * Adjust internal wake resolution scale (0.0-1.0)
+   */
+  setResolutionScale(scale: number): void {
+    const clamped = Math.max(0.25, Math.min(1.0, scale));
+    this.wakeResolutionScale = clamped;
+  }
+
+  /**
    * Clean up resources
    */
   dispose(): void {

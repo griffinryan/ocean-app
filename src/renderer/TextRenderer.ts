@@ -89,7 +89,7 @@ export class TextRenderer {
   private textUpdateBatches: string[][] = []; // Batches of text element IDs
   private currentBatchIndex: number = 0;
   private isProcessingBatches: boolean = false;
-  private readonly BATCH_SIZE = 15; // Elements per frame
+  private batchSize: number = 15; // Elements per frame
   private batchRenderCallback: (() => void) | null = null;
   private batchTimeoutId: number | null = null;
   private readonly BATCH_TIMEOUT_MS = 1000; // Force completion after 1 second
@@ -102,6 +102,7 @@ export class TextRenderer {
   // Blur control properties
   private blurRadius: number = 60.0; // pixels (tight wrap around text for frosted glass effect)
   private blurFalloffPower: number = 2.5; // >1.0 = exponential falloff for dramatic, sharp fade
+  private blurEnabled: boolean = false;
 
   // Intro visibility tracking for glass/text coordination
   private introVisibility: number = 0.0;
@@ -131,9 +132,6 @@ export class TextRenderer {
 
     // Initialize framebuffer for scene capture
     this.initializeFramebuffer();
-
-    // Initialize blur map framebuffer for frosted glass effect
-    this.initializeBlurMapFramebuffer();
 
     // Wait for fonts to load
     this.waitForFonts();
@@ -298,6 +296,36 @@ export class TextRenderer {
 
     // Setup will be completed in resize method
     this.resizeBlurMapFramebuffer(gl.canvas.width, gl.canvas.height);
+  }
+
+  private ensureBlurResources(): void {
+    if (this.blurMapFramebuffer && this.blurMapTexture && this.blurMapDepthBuffer) {
+      return;
+    }
+
+    this.initializeBlurMapFramebuffer();
+  }
+
+  private disposeBlurResources(): void {
+    const gl = this.gl;
+
+    if (this.blurMapFramebuffer) {
+      gl.deleteFramebuffer(this.blurMapFramebuffer);
+      this.blurMapFramebuffer = null;
+    }
+
+    if (this.blurMapTexture) {
+      gl.deleteTexture(this.blurMapTexture);
+      this.blurMapTexture = null;
+    }
+
+    if (this.blurMapDepthBuffer) {
+      gl.deleteRenderbuffer(this.blurMapDepthBuffer);
+      this.blurMapDepthBuffer = null;
+    }
+
+    this.blurMapWidth = 0;
+    this.blurMapHeight = 0;
   }
 
   /**
@@ -575,7 +603,8 @@ export class TextRenderer {
       return;
     }
 
-    // Store current viewport
+    // Store current framebuffer + viewport so we can restore active target after capture
+    const previousFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING) as WebGLFramebuffer | null;
     const viewport = gl.getParameter(gl.VIEWPORT);
 
     // Bind framebuffer for rendering
@@ -590,10 +619,8 @@ export class TextRenderer {
     // Render scene to framebuffer
     renderSceneCallback();
 
-    // Restore screen framebuffer
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-
-    // Restore viewport
+    // Restore previous framebuffer + viewport (preserves upscale FBO binding)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, previousFramebuffer);
     gl.viewport(viewport[0], viewport[1], viewport[2], viewport[3]);
 
     // Update cache state
@@ -919,8 +946,8 @@ export class TextRenderer {
 
     // Split into batches
     this.textUpdateBatches = [];
-    for (let i = 0; i < visibleElements.length; i += this.BATCH_SIZE) {
-      this.textUpdateBatches.push(visibleElements.slice(i, i + this.BATCH_SIZE));
+    for (let i = 0; i < visibleElements.length; i += this.batchSize) {
+      this.textUpdateBatches.push(visibleElements.slice(i, i + this.batchSize));
     }
 
     // Start processing batches
@@ -1255,6 +1282,10 @@ export class TextRenderer {
   private generateBlurMap(): void {
     const gl = this.gl;
 
+    if (!this.blurEnabled) {
+      return;
+    }
+
     // Skip if transitioning or no program
     if (this.isTransitioningFlag || !this.blurMapProgram || !this.blurMapFramebuffer || !this.textTexture) {
       return;
@@ -1272,7 +1303,8 @@ export class TextRenderer {
       return;
     }
 
-    // Store current viewport
+    // Store current framebuffer + viewport so we return to the active render target
+    const previousFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING) as WebGLFramebuffer | null;
     const viewport = gl.getParameter(gl.VIEWPORT);
 
     // Bind blur map framebuffer
@@ -1321,8 +1353,8 @@ export class TextRenderer {
     // Re-enable depth test
     gl.enable(gl.DEPTH_TEST);
 
-    // Restore screen framebuffer
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    // Restore previous framebuffer + viewport
+    gl.bindFramebuffer(gl.FRAMEBUFFER, previousFramebuffer);
     gl.viewport(viewport[0], viewport[1], viewport[2], viewport[3]);
 
     this.needsBlurMapUpdate = false;
@@ -1331,8 +1363,13 @@ export class TextRenderer {
   /**
    * Render all text elements with per-pixel adaptive coloring and glow
    */
-  public render(wakeTexture: WebGLTexture | null = null, wakesEnabled: boolean = true): void {
+  public render(
+    wakeTexture: WebGLTexture | null = null,
+    wakesEnabled: boolean = true,
+    options: { skipCanvasUpdate?: boolean; skipBlur?: boolean } = {}
+  ): void {
     const gl = this.gl;
+    const { skipCanvasUpdate = false, skipBlur = false } = options;
 
     // CRITICAL: Skip rendering entirely during CSS transitions
     // This prevents rendering stale texture data at wrong positions
@@ -1346,10 +1383,14 @@ export class TextRenderer {
     }
 
     // Update text texture if needed
-    this.updateTextTexture();
+    if (!skipCanvasUpdate) {
+      this.updateTextTexture();
+    }
 
     // Generate blur map after text texture is updated
-    this.generateBlurMap();
+    if (!skipBlur) {
+      this.generateBlurMap();
+    }
 
     // Use text shader program
     const program = this.shaderManager.useProgram('text');
@@ -1963,6 +2004,9 @@ export class TextRenderer {
    * Get blur map texture for external use (e.g., GlassRenderer)
    */
   public getBlurMapTexture(): WebGLTexture | null {
+    if (!this.blurEnabled) {
+      return null;
+    }
     return this.blurMapTexture;
   }
 
@@ -1982,6 +2026,61 @@ export class TextRenderer {
   public setBlurRadius(radius: number): void {
     this.blurRadius = Math.max(0, Math.min(256, radius));
     this.needsBlurMapUpdate = true;
+  }
+
+  /**
+   * Set capture throttle window in milliseconds
+   */
+  public setCaptureThrottleMs(throttleMs: number): void {
+    const clamped = Math.max(16, Math.min(250, Math.round(throttleMs)));
+    this.captureThrottleMs = clamped;
+  }
+
+  /**
+   * Get capture throttle
+   */
+  public getCaptureThrottleMs(): number {
+    return this.captureThrottleMs;
+  }
+
+  /**
+   * Set amortized batch size for text updates
+   */
+  public setBatchSize(size: number): void {
+    const clamped = Math.max(4, Math.min(48, Math.round(size)));
+    this.batchSize = clamped;
+  }
+
+  /**
+   * Get batch size for text updates
+   */
+  public getBatchSize(): number {
+    return this.batchSize;
+  }
+
+  /**
+   * Enable or disable blur map generation
+   */
+  public setBlurEnabled(enabled: boolean): void {
+    if (this.blurEnabled === enabled) {
+      return;
+    }
+
+    this.blurEnabled = enabled;
+    if (enabled) {
+      this.ensureBlurResources();
+      this.needsBlurMapUpdate = true;
+    } else {
+      this.needsBlurMapUpdate = false;
+      this.disposeBlurResources();
+    }
+  }
+
+  /**
+   * Blur enabled state
+   */
+  public isBlurEnabled(): boolean {
+    return this.blurEnabled;
   }
 
   /**
@@ -2045,21 +2144,8 @@ export class TextRenderer {
       this.textTexture = null;
     }
 
-    // Clean up blur map framebuffer
-    if (this.blurMapFramebuffer) {
-      gl.deleteFramebuffer(this.blurMapFramebuffer);
-      this.blurMapFramebuffer = null;
-    }
-
-    if (this.blurMapTexture) {
-      gl.deleteTexture(this.blurMapTexture);
-      this.blurMapTexture = null;
-    }
-
-    if (this.blurMapDepthBuffer) {
-      gl.deleteRenderbuffer(this.blurMapDepthBuffer);
-      this.blurMapDepthBuffer = null;
-    }
+    // Clean up blur map resources
+    this.disposeBlurResources();
 
     // Clean up resize observer
     if (this.resizeObserver) {

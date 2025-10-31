@@ -168,7 +168,7 @@ export class LoadingSequence {
    * Phase 3: Fade in glass panels
    */
   private async fadeInGlass(): Promise<void> {
-    if (!this.oceanRenderer) {
+    if (!this.oceanRenderer || !this.oceanRenderer.getGlassEnabled()) {
       return;
     }
 
@@ -181,7 +181,7 @@ export class LoadingSequence {
    * Phase 4: Fade in text (staggered)
    */
   private async fadeInText(): Promise<void> {
-    if (!this.oceanRenderer) {
+    if (!this.oceanRenderer || !this.oceanRenderer.getTextEnabled()) {
       return;
     }
 
