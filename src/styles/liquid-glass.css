@@ -1507,6 +1507,32 @@ body {
 
 /* ===== PROFILE PICTURE ===== */
 
+/* ===== PERFORMANCE OVERLAY ===== */
+.fps-overlay {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  padding: 6px 12px;
+  background: rgba(8, 12, 18, 0.58);
+  color: #f4f7fb;
+  font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  border-radius: 10px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 24px rgba(4, 8, 16, 0.25);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-8px);
+  transition: opacity 0.14s ease, transform 0.14s ease;
+  z-index: 320;
+}
+
+.fps-overlay.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 /* ===== DEBUG OVERLAY ===== */
 .debug-overlay {
   position: fixed;

@@ -29,6 +29,9 @@ class OceanApp {
   public navigationManager: NavigationManager | null = null;
   private loadingSequence: LoadingSequence | null = null;
   private debugOverlayVisible = false;
+  private fpsOverlayVisible = false;
+  private cssFallbackForced = false;
+  private failsafeNotice: HTMLElement | null = null;
   private debugOverlayFields: {
     mode: HTMLElement | null;
     wakes: HTMLElement | null;
@@ -107,6 +110,8 @@ class OceanApp {
       // Prevents visual "jump" when switching from simple→complex pipeline
       this.connectUIToRenderer();
 
+      this.setupFailsafeListener();
+
       // Start rendering - this enables Phase 1 (WebGL ocean)
       this.renderer.start();
 
@@ -127,6 +132,43 @@ class OceanApp {
       console.error('Failed to initialize Ocean Portfolio:', error);
       this.showError(error instanceof Error ? error.message : 'Unknown error');
     }
+  }
+
+  private setupFailsafeListener(): void {
+    document.addEventListener('ocean:failsafe', () => {
+      if (!this.failsafeNotice) {
+        const banner = document.createElement('div');
+        banner.id = 'failsafe-banner';
+        banner.style.cssText = `
+          position: fixed;
+          bottom: 24px;
+          left: 50%;
+          transform: translateX(-50%);
+          padding: 12px 20px;
+          background: rgba(20, 20, 26, 0.85);
+          color: #fff;
+          font-size: 14px;
+          letter-spacing: 0.04em;
+          border-radius: 999px;
+          box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+          z-index: 9999;
+          backdrop-filter: blur(18px);
+          -webkit-backdrop-filter: blur(18px);
+          transition: opacity 400ms ease;
+          opacity: 0;
+          pointer-events: none;
+        `;
+        banner.textContent = 'Performance saver enabled — falling back to CSS while your device catches up.';
+        document.body.appendChild(banner);
+        this.failsafeNotice = banner;
+      }
+
+      requestAnimationFrame(() => {
+        if (this.failsafeNotice) {
+          this.failsafeNotice.style.opacity = '1';
+        }
+      });
+    });
   }
 
   /**
@@ -208,6 +250,31 @@ class OceanApp {
     } else {
       console.warn('Text renderer not available, falling back to CSS-only text');
     }
+
+    // Listen for adaptive quality changes so UI helpers (scroll throttles, fallback classes) stay in sync
+    this.renderer.onQualityProfileChange((profile) => {
+      if (!this.panelManager) {
+        return;
+      }
+
+      this.panelManager.setScrollThrottle(profile.scrollThrottleMs);
+
+      if (profile.glassEnabled) {
+        this.panelManager.enableWebGLDistortion();
+      } else {
+        this.panelManager.disableWebGLDistortion();
+      }
+
+      if (profile.textEnabled) {
+        if (this.cssFallbackForced) {
+          this.panelManager.enableWebGLReady();
+          this.cssFallbackForced = false;
+        }
+      } else {
+        this.panelManager.disableWebGLReady();
+        this.cssFallbackForced = true;
+      }
+    });
   }
 
   /**
@@ -267,6 +334,7 @@ class OceanApp {
    */
   private setupControls(): void {
     this.initializeDebugOverlay();
+    this.initializeFpsOverlay();
 
     document.addEventListener('keydown', (event) => {
       switch (event.key) {
@@ -401,6 +469,14 @@ class OceanApp {
             this.toggleDebugOverlay();
           }
           break;
+        case 'p':
+        case 'P':
+          if (!event.ctrlKey && !event.metaKey) {
+            event.preventDefault();
+            event.stopPropagation();
+            this.toggleFpsOverlay();
+          }
+          break;
         case '1':
         case '2':
         case '3':
@@ -436,6 +512,7 @@ class OceanApp {
     console.log('  T - Toggle text rendering');
     console.log('  B - Toggle blur map (frosted glass)');
     console.log('  O - Toggle debug overlay');
+    console.log('  P - Toggle FPS overlay');
     console.log('');
     console.log('Blur Tuning:');
     console.log('  N - Decrease blur radius (tighter)');
@@ -525,6 +602,29 @@ class OceanApp {
     this.setDebugOverlayVisibility(newVisibility);
   }
 
+  private toggleFpsOverlay(): void {
+    const newVisibility = !this.fpsOverlayVisible;
+    this.setFpsOverlayVisibility(newVisibility);
+    if (newVisibility && this.renderer) {
+      const fpsValue = this.renderer.getFPS();
+      const fpsElement = document.getElementById('fps');
+      if (fpsElement) {
+        fpsElement.textContent = `FPS: ${fpsValue || 0}`;
+      }
+    }
+  }
+
+  private setFpsOverlayVisibility(visible: boolean): void {
+    this.fpsOverlayVisible = visible;
+    const fpsElement = document.getElementById('fps');
+    if (!fpsElement) return;
+    if (visible) {
+      fpsElement.classList.add('is-visible');
+    } else {
+      fpsElement.classList.remove('is-visible');
+    }
+  }
+
   private refreshDebugOverlayState(): void {
     if (!this.renderer) {
       this.setDebugOverlayField('wakes', '—');
@@ -578,6 +678,20 @@ class OceanApp {
    */
   private updateBlurMapInfo(enabled: boolean): void {
     this.setDebugOverlayField('blur', enabled ? 'ON' : 'OFF');
+  }
+
+  private initializeFpsOverlay(): void {
+    let fpsElement = document.getElementById('fps');
+    if (!fpsElement) {
+      fpsElement = document.createElement('div');
+      fpsElement.id = 'fps';
+      fpsElement.className = 'fps-overlay';
+      fpsElement.textContent = 'FPS: --';
+      document.body.appendChild(fpsElement);
+    }
+
+    this.fpsOverlayVisible = false;
+    fpsElement.classList.remove('is-visible');
   }
 
   /**

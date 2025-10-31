@@ -48,6 +48,11 @@ export class ScrollTracker {
     this.config = { ...DEFAULT_CONFIG, ...config };
   }
 
+  setThrottle(throttleMs: number): void {
+    const clamped = Math.max(0, Math.round(throttleMs));
+    this.config.throttleMs = clamped;
+  }
+
   /**
    * Set glass renderer reference
    */
