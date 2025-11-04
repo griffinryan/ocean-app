@@ -48,6 +48,7 @@ export class TextRenderer {
 
   // Blur map update flag
   private needsBlurMapUpdate: boolean = false;
+  private blurMapEnabled: boolean = true;
 
   // Matrix uniforms
   private projectionMatrix: Mat4;
@@ -1256,6 +1257,10 @@ export class TextRenderer {
   private generateBlurMap(): void {
     const gl = this.gl;
 
+    if (!this.blurMapEnabled) {
+      return;
+    }
+
     // Skip if transitioning or no program
     if (this.isTransitioningFlag || !this.blurMapProgram || !this.blurMapFramebuffer || !this.textTexture) {
       return;
@@ -1475,11 +1480,31 @@ export class TextRenderer {
   }
 
   /**
+   * Adjust capture throttle used to recapture scene for adaptive text
+   */
+
+  /**
+   * Enable or disable blur-map generation for adaptive glass coordination
+   */
+  public setBlurMapEnabled(enabled: boolean): void {
+    this.blurMapEnabled = enabled;
+    if (enabled) {
+      this.needsBlurMapUpdate = true;
+      this.markSceneDirty();
+    } else {
+      this.needsBlurMapUpdate = false;
+    }
+  }
+  public setCaptureThrottleMs(throttleMs: number): void {
+    this.captureThrottleMs = Math.max(1, throttleMs);
+  }
+
+  /**
    * Force text texture update on next render
    */
   public forceTextureUpdate(): void {
     this.needsTextureUpdate = true;
-    this.needsBlurMapUpdate = true;
+    this.needsBlurMapUpdate = this.blurMapEnabled;
   }
 
   /**

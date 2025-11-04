@@ -247,10 +247,12 @@ void main() {
     // ===== UNIFIED ADAPTIVE COLORING =====
     // Sample background at DISTORTED position to ensure color matches where text actually renders
     // This prevents color flickering as text moves across varying backgrounds
-    vec3 backgroundColor = texture(u_sceneTexture, distortedUV).rgb;
+    vec2 sceneUV = vec2(distortedUV.x, 1.0 - distortedUV.y);
+    vec3 backgroundColor = texture(u_sceneTexture, sceneUV).rgb;
 
     // Sample the text texture with distorted UV coordinates
-    float textAlpha = texture(u_textTexture, distortedUV).a;
+    vec2 textUV = vec2(distortedUV.x, 1.0 - distortedUV.y);
+    float textAlpha = texture(u_textTexture, textUV).a;
 
     // ===== RENDER TEXT OR GLOW =====
     vec3 finalColor;

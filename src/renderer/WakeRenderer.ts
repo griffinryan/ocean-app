@@ -22,7 +22,7 @@ export class WakeRenderer {
   // Resolution management
   private wakeWidth: number = 0;
   private wakeHeight: number = 0;
-  private wakeResolutionScale: number = 0.75; // Tuned for ultra-quality baseline
+  private wakeResolutionScale: number = 0.75; // Default baseline
 
   // Animation
   private enabled: boolean = true;
@@ -127,16 +127,18 @@ export class WakeRenderer {
   /**
    * Resize wake framebuffer
    */
-  resizeFramebuffer(width: number, height: number): void {
+  resizeFramebuffer(width: number, height: number, scale: number = this.wakeResolutionScale): void {
     const gl = this.gl;
 
     if (!this.wakeFramebuffer || !this.wakeTexture || !this.depthBuffer) {
       return;
     }
 
+    this.wakeResolutionScale = scale;
+
     // Calculate wake texture resolution based on scale
-    this.wakeWidth = Math.max(1, Math.round(width * this.wakeResolutionScale));
-    this.wakeHeight = Math.max(1, Math.round(height * this.wakeResolutionScale));
+    this.wakeWidth = Math.max(1, Math.round(width * scale));
+    this.wakeHeight = Math.max(1, Math.round(height * scale));
 
     // Bind framebuffer
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.wakeFramebuffer);
@@ -185,7 +187,6 @@ export class WakeRenderer {
     gl.bindTexture(gl.TEXTURE_2D, null);
     gl.bindRenderbuffer(gl.RENDERBUFFER, null);
 
-    console.log(`WakeRenderer: Framebuffer resized to ${this.wakeWidth}×${this.wakeHeight} (${(this.wakeResolutionScale * 100).toFixed(0)}% scale)`);
   }
 
   /**
@@ -268,6 +269,14 @@ export class WakeRenderer {
   /**
    * Enable or disable wake rendering
    */
+  setResolutionScale(scale: number): void {
+    this.wakeResolutionScale = scale;
+  }
+
+  getResolutionScale(): number {
+    return this.wakeResolutionScale;
+  }
+
   setEnabled(enabled: boolean): void {
     this.enabled = enabled;
 

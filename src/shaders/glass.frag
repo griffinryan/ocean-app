@@ -199,7 +199,8 @@ void main() {
     // Sample blur map EARLY (before boundary check for efficiency)
     float blurIntensity = 0.0;
     if (u_blurMapEnabled) {
-        blurIntensity = texture(u_blurMapTexture, screenUV).r;
+        vec2 blurUV = vec2(screenUV.x, 1.0 - screenUV.y);
+        blurIntensity = texture(u_blurMapTexture, blurUV).r;
         blurIntensity *= u_textPresence;
     }
 
@@ -295,7 +296,12 @@ void main() {
     distortedUV = clamp(distortedUV, vec2(0.001), vec2(0.999));
 
     // Sample the ocean texture with distortion
-    vec3 oceanColor = texture(u_oceanTexture, distortedUV).rgb;
+    vec2 oceanUV = clamp(vec2(distortedUV.x, 1.0 - distortedUV.y), vec2(0.0), vec2(1.0));
+    vec3 oceanColor = texture(u_oceanTexture, oceanUV).rgb;
+
+    // Apply orientation fix for chromatic aberration sampling using same flipped UV base
+    vec2 baseUV = oceanUV;
+
 
     // Apply glass tinting
     oceanColor *= GLASS_TINT;
@@ -305,9 +311,9 @@ void main() {
     float chromaticFlow = sin(v_time * 1.0) * 0.001;
 
     vec3 chromaticColor = vec3(
-        texture(u_oceanTexture, distortedUV + vec2(chromaticAberration + chromaticFlow, 0.0)).r,
-        texture(u_oceanTexture, distortedUV).g,
-        texture(u_oceanTexture, distortedUV - vec2(chromaticAberration - chromaticFlow, 0.0)).b
+        texture(u_oceanTexture, clamp(baseUV + vec2(chromaticAberration + chromaticFlow, 0.0), vec2(0.0), vec2(1.0))).r,
+        texture(u_oceanTexture, baseUV).g,
+        texture(u_oceanTexture, clamp(baseUV - vec2(chromaticAberration - chromaticFlow, 0.0), vec2(0.0), vec2(1.0))).b
     );
 
     // Apply uniform chromatic aberration mixing

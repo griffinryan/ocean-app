@@ -12,11 +12,12 @@ import { WakeRenderer } from './WakeRenderer';
 import { PerformanceMonitor } from '../utils/PerformanceMonitor';
 import { FrameBudgetManager, WorkPriority } from '../utils/FrameBudget';
 import { PipelineManager } from './PipelineManager';
+import { AdaptiveQualityController } from './AdaptiveQualityController';
 
-const FINAL_PASS_BASE_SCALE = 1.0;
-const OCEAN_CAPTURE_SCALE = 1.0;
-const GLASS_CAPTURE_SCALE = 1.0;
-const TEXT_CAPTURE_SCALE = 1.0;
+const DEFAULT_FINAL_PASS_SCALE = 1.0;
+const DEFAULT_OCEAN_CAPTURE_SCALE = 1.0;
+const DEFAULT_GLASS_CAPTURE_SCALE = 1.0;
+const DEFAULT_TEXT_CAPTURE_SCALE = 1.0;
 const UPSCALE_SHARPNESS = 0.0;
 const UPSCALE_METHOD_BILINEAR = 0;
 
@@ -77,7 +78,12 @@ export class OceanRenderer {
   private performanceMonitor: PerformanceMonitor;
   private frameBudget: FrameBudgetManager;
   private pipelineManager: PipelineManager;
-  private renderScale: number = FINAL_PASS_BASE_SCALE;
+  private renderScale: number = DEFAULT_FINAL_PASS_SCALE;
+  private finalPassScale: number = DEFAULT_FINAL_PASS_SCALE;
+  private oceanCaptureScale: number = DEFAULT_OCEAN_CAPTURE_SCALE;
+  private glassCaptureScale: number = DEFAULT_GLASS_CAPTURE_SCALE;
+  private textCaptureScale: number = DEFAULT_TEXT_CAPTURE_SCALE;
+  private adaptiveQuality: AdaptiveQualityController;
 
   // Upscaling system
   private upscaleFramebuffer: WebGLFramebuffer | null = null;
@@ -146,6 +152,7 @@ export class OceanRenderer {
     this.performanceMonitor = new PerformanceMonitor();
     this.frameBudget = new FrameBudgetManager();
     this.pipelineManager = new PipelineManager();
+    this.adaptiveQuality = new AdaptiveQualityController(this, this.performanceMonitor, this.frameBudget);
 
     // Create full-screen quad geometry for screen-space rendering
     this.geometry = GeometryBuilder.createFullScreenQuad();
@@ -401,7 +408,7 @@ export class OceanRenderer {
     this.displayHeight = Math.max(1, Math.round(displayHeight * devicePixelRatio));
 
     // Calculate render resolution based on global settings
-    let finalPassScale = FINAL_PASS_BASE_SCALE;
+    let finalPassScale = this.finalPassScale;
 
     // PERFORMANCE: Additional resolution scaling for 4K+ displays
     // At high DPI, rendering at lower resolution is imperceptible due to bilinear upscaling
@@ -439,19 +446,19 @@ export class OceanRenderer {
     this.resizeUpscaleFramebuffer(this.renderWidth, this.renderHeight);
 
     // PERFORMANCE: Resize shared ocean buffer with ocean capture resolution
-    const oceanCaptureScale = OCEAN_CAPTURE_SCALE;
+    const oceanCaptureScale = this.oceanCaptureScale;
     const oceanCaptureWidth = Math.max(1, Math.round(this.renderWidth * oceanCaptureScale));
     const oceanCaptureHeight = Math.max(1, Math.round(this.renderHeight * oceanCaptureScale));
     this.resizeSharedOceanBuffer(oceanCaptureWidth, oceanCaptureHeight);
 
     // Resize wake renderer framebuffer
     if (this.wakeRenderer) {
-      this.wakeRenderer.resizeFramebuffer(this.renderWidth, this.renderHeight);
+      this.wakeRenderer.resizeFramebuffer(this.renderWidth, this.renderHeight, this.wakeRenderer.getResolutionScale());
     }
 
     // Resize glass renderer framebuffer with scaled resolution
     if (this.glassRenderer) {
-      const glassScale = GLASS_CAPTURE_SCALE;
+      const glassScale = this.glassCaptureScale;
       const glassWidth = Math.max(1, Math.round(this.renderWidth * glassScale));
       const glassHeight = Math.max(1, Math.round(this.renderHeight * glassScale));
       this.glassRenderer.resizeFramebuffer(glassWidth, glassHeight);
@@ -459,7 +466,7 @@ export class OceanRenderer {
 
     // Resize text renderer framebuffer with scaled resolution
     if (this.textRenderer) {
-      const textScale = TEXT_CAPTURE_SCALE; // Scene capture resolution
+      const textScale = this.textCaptureScale;
       const textWidth = Math.max(1, Math.round(this.renderWidth * textScale));
       const textHeight = Math.max(1, Math.round(this.renderHeight * textScale));
       this.textRenderer.resizeFramebuffer(textWidth, textHeight);
@@ -1067,6 +1074,7 @@ export class OceanRenderer {
     // End performance monitoring
     this.performanceMonitor.endFrame();
     this.frameBudget.endFrame();
+    this.adaptiveQuality.update();
 
     // Update FPS counter
     this.updateFPS(currentTime);
@@ -1223,6 +1231,48 @@ export class OceanRenderer {
     return this.textRenderer;
   }
 
+
+  /**
+   * Apply adaptive quality profile and propagate settings to sub-renderers
+   */
+  public applyQualityProfile(profile: {
+    finalPassScale: number;
+    oceanCaptureScale: number;
+    glassCaptureScale: number;
+    textCaptureScale: number;
+    wakeResolutionScale: number;
+    textCaptureThrottleMs: number;
+    blurEnabled: boolean;
+    wakesEnabled: boolean;
+  }): void {
+    this.finalPassScale = profile.finalPassScale;
+    this.oceanCaptureScale = profile.oceanCaptureScale;
+    this.glassCaptureScale = profile.glassCaptureScale;
+    this.textCaptureScale = profile.textCaptureScale;
+
+    if (this.wakeRenderer) {
+      this.wakeRenderer.setResolutionScale(profile.wakeResolutionScale);
+      this.wakeRenderer.setEnabled(profile.wakesEnabled);
+    }
+    this.wakesEnabled = profile.wakesEnabled;
+
+    if (this.textRenderer) {
+      this.textRenderer.setCaptureThrottleMs(profile.textCaptureThrottleMs);
+      this.textRenderer.setBlurMapEnabled(profile.blurEnabled);
+    }
+
+    if (this.glassRenderer) {
+      this.glassRenderer.setBlurMapEnabled(profile.blurEnabled);
+    }
+
+    // Trigger full resize to apply new scales
+    this.resize();
+
+    // Ensure dependent renderers refresh their cached textures
+    this.textRenderer?.forceTextureUpdate();
+    this.textRenderer?.markSceneDirty();
+    this.glassRenderer?.markOceanDirty();
+  }
   /**
    * Enable/disable blur map effect
    */
@@ -1233,6 +1283,49 @@ export class OceanRenderer {
 
     // Update pipeline manager
     this.pipelineManager.switchToState({ blurMap: enabled });
+  }
+
+  /**
+   * Apply adaptive quality profile and propagate settings to sub-renderers
+   */
+  public applyQualityProfile(profile: {
+    finalPassScale: number;
+    oceanCaptureScale: number;
+    glassCaptureScale: number;
+    textCaptureScale: number;
+    wakeResolutionScale: number;
+    textCaptureThrottleMs: number;
+    blurEnabled: boolean;
+    wakesEnabled: boolean;
+  }): void {
+    this.finalPassScale = profile.finalPassScale;
+    this.oceanCaptureScale = profile.oceanCaptureScale;
+    this.glassCaptureScale = profile.glassCaptureScale;
+    this.textCaptureScale = profile.textCaptureScale;
+
+    if (this.wakeRenderer) {
+      this.wakeRenderer.setResolutionScale(profile.wakeResolutionScale);
+      this.wakeRenderer.setEnabled(profile.wakesEnabled);
+    }
+    this.wakesEnabled = profile.wakesEnabled;
+    this.vesselSystem.setEnabled(profile.wakesEnabled);
+    this.pipelineManager.switchToState({ wakes: profile.wakesEnabled });
+
+    if (this.textRenderer) {
+      this.textRenderer.setCaptureThrottleMs(profile.textCaptureThrottleMs);
+    }
+
+    if (this.glassRenderer) {
+      this.glassRenderer.setBlurMapEnabled(profile.blurEnabled);
+    }
+
+    // Trigger full resize to apply new scales
+    this.resize();
+
+    // Refresh cached textures for dependent systems
+    this.textRenderer?.forceTextureUpdate();
+    this.textRenderer?.markSceneDirty();
+    this.glassRenderer?.markOceanDirty();
   }
 
   /**
@@ -1314,6 +1407,10 @@ export class OceanRenderer {
    */
   getPipelineReport(): string {
     return this.pipelineManager.generateReport();
+  }
+
+  public getAdaptiveQualityController(): AdaptiveQualityController {
+    return this.adaptiveQuality;
   }
 
   /**
