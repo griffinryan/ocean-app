@@ -577,6 +577,7 @@ export class TextRenderer {
 
     // Store current viewport
     const viewport = gl.getParameter(gl.VIEWPORT);
+    const previousFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING) as WebGLFramebuffer | null;
 
     // Bind framebuffer for rendering
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFramebuffer);
@@ -591,7 +592,7 @@ export class TextRenderer {
     renderSceneCallback();
 
     // Restore screen framebuffer
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, previousFramebuffer);
 
     // Restore viewport
     gl.viewport(viewport[0], viewport[1], viewport[2], viewport[3]);
@@ -1120,8 +1121,8 @@ export class TextRenderer {
 
     gl.bindTexture(gl.TEXTURE_2D, this.textTexture);
 
-    // CRITICAL: Flip Y-axis when uploading Canvas2D to WebGL texture
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    // Canvas content already matches our flipped quad UVs, keep default unpack orientation
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
 
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.textCanvas);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
@@ -1274,6 +1275,7 @@ export class TextRenderer {
 
     // Store current viewport
     const viewport = gl.getParameter(gl.VIEWPORT);
+    const previousFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING) as WebGLFramebuffer | null;
 
     // Bind blur map framebuffer
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.blurMapFramebuffer);
@@ -1321,8 +1323,8 @@ export class TextRenderer {
     // Re-enable depth test
     gl.enable(gl.DEPTH_TEST);
 
-    // Restore screen framebuffer
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    // Restore previous framebuffer and viewport
+    gl.bindFramebuffer(gl.FRAMEBUFFER, previousFramebuffer);
     gl.viewport(viewport[0], viewport[1], viewport[2], viewport[3]);
 
     this.needsBlurMapUpdate = false;

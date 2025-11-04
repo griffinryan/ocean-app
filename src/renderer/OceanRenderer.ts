@@ -705,6 +705,7 @@ export class OceanRenderer {
 
     // Store current viewport
     const viewport = gl.getParameter(gl.VIEWPORT);
+    const previousFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING) as WebGLFramebuffer | null;
 
     // Bind shared ocean framebuffer
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.sharedOceanFramebuffer);
@@ -719,7 +720,7 @@ export class OceanRenderer {
     this.drawOcean(elapsedTime);
 
     // Restore screen framebuffer
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, previousFramebuffer);
 
     // Restore viewport
     gl.viewport(viewport[0], viewport[1], viewport[2], viewport[3]);
