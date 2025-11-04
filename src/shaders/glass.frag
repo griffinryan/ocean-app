@@ -199,8 +199,7 @@ void main() {
     // Sample blur map EARLY (before boundary check for efficiency)
     float blurIntensity = 0.0;
     if (u_blurMapEnabled) {
-        vec2 blurUV = vec2(screenUV.x, 1.0 - screenUV.y);
-        blurIntensity = texture(u_blurMapTexture, blurUV).r;
+        blurIntensity = texture(u_blurMapTexture, clamp(screenUV, vec2(0.0), vec2(1.0))).r;
         blurIntensity *= u_textPresence;
     }
 

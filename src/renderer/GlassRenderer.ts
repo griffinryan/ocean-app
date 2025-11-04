@@ -860,7 +860,6 @@ export class GlassRenderer {
    */
   public setBlurMapTexture(texture: WebGLTexture | null): void {
     this.blurMapTexture = texture;
-    this.blurMapEnabled = texture !== null;
   }
 
   /**

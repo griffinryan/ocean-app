@@ -185,6 +185,7 @@ export class OceanRenderer {
 
     // Initialize text renderer BEFORE setupResizing() so framebuffer gets sized correctly
     this.initializeTextRenderer();
+    this.setBlurMapEnabled(true);
 
     // Set up responsive resizing (MUST be called after initializing renderers)
     this.setupResizing();
@@ -1255,15 +1256,14 @@ export class OceanRenderer {
       this.wakeRenderer.setEnabled(profile.wakesEnabled);
     }
     this.wakesEnabled = profile.wakesEnabled;
+    this.vesselSystem.setEnabled(profile.wakesEnabled);
+    this.pipelineManager.switchToState({ wakes: profile.wakesEnabled });
 
     if (this.textRenderer) {
       this.textRenderer.setCaptureThrottleMs(profile.textCaptureThrottleMs);
-      this.textRenderer.setBlurMapEnabled(profile.blurEnabled);
     }
 
-    if (this.glassRenderer) {
-      this.glassRenderer.setBlurMapEnabled(profile.blurEnabled);
-    }
+    this.setBlurMapEnabled(profile.blurEnabled);
 
     // Trigger full resize to apply new scales
     this.resize();
@@ -1280,53 +1280,12 @@ export class OceanRenderer {
     if (this.glassRenderer) {
       this.glassRenderer.setBlurMapEnabled(enabled);
     }
+    this.textRenderer?.setBlurMapEnabled(enabled);
 
     // Update pipeline manager
     this.pipelineManager.switchToState({ blurMap: enabled });
   }
 
-  /**
-   * Apply adaptive quality profile and propagate settings to sub-renderers
-   */
-  public applyQualityProfile(profile: {
-    finalPassScale: number;
-    oceanCaptureScale: number;
-    glassCaptureScale: number;
-    textCaptureScale: number;
-    wakeResolutionScale: number;
-    textCaptureThrottleMs: number;
-    blurEnabled: boolean;
-    wakesEnabled: boolean;
-  }): void {
-    this.finalPassScale = profile.finalPassScale;
-    this.oceanCaptureScale = profile.oceanCaptureScale;
-    this.glassCaptureScale = profile.glassCaptureScale;
-    this.textCaptureScale = profile.textCaptureScale;
-
-    if (this.wakeRenderer) {
-      this.wakeRenderer.setResolutionScale(profile.wakeResolutionScale);
-      this.wakeRenderer.setEnabled(profile.wakesEnabled);
-    }
-    this.wakesEnabled = profile.wakesEnabled;
-    this.vesselSystem.setEnabled(profile.wakesEnabled);
-    this.pipelineManager.switchToState({ wakes: profile.wakesEnabled });
-
-    if (this.textRenderer) {
-      this.textRenderer.setCaptureThrottleMs(profile.textCaptureThrottleMs);
-    }
-
-    if (this.glassRenderer) {
-      this.glassRenderer.setBlurMapEnabled(profile.blurEnabled);
-    }
-
-    // Trigger full resize to apply new scales
-    this.resize();
-
-    // Refresh cached textures for dependent systems
-    this.textRenderer?.forceTextureUpdate();
-    this.textRenderer?.markSceneDirty();
-    this.glassRenderer?.markOceanDirty();
-  }
 
   /**
    * Get blur map enabled state
