@@ -120,6 +120,8 @@ export class VesselSystem {
     }
   };
 
+  private enabled: boolean = true;
+
 
   constructor(config: VesselConfig) {
     this.config = config;
@@ -149,6 +151,10 @@ export class VesselSystem {
     if (this.updateCallCount < 3) {
       console.log('[DEBUG] VesselSystem.update() called, initialized:', this.initialized, 'vessels.size:', this.vessels.size);
       this.updateCallCount++;
+    }
+
+    if (!this.enabled) {
+      return;
     }
 
     // Initialize system on first update with correct timing
@@ -562,9 +568,62 @@ export class VesselSystem {
    * Toggle vessel system on/off
    */
   setEnabled(enabled: boolean): void {
+    if (this.enabled === enabled) {
+      return;
+    }
+
+    this.enabled = enabled;
+
     if (!enabled) {
-      // Clear all vessels
+      // Clear all vessels and reset initialization so we can cold-start when re-enabled
       this.vessels.clear();
+      this.initialized = false;
+    } else {
+      // Force re-initialization on next update tick
+      this.initialized = false;
+      this.lastSpawnTime = performance.now();
+    }
+  }
+
+  /**
+   * Apply quality overrides to vessel configuration
+   */
+  applyQualitySettings(overrides: Partial<Pick<VesselConfig,
+    'maxVessels' |
+    'spawnInterval' |
+    'wakeTrailLength' |
+    'wakeDecayTime'
+  >>): void {
+    if (overrides.maxVessels !== undefined) {
+      const maxVessels = Math.max(0, Math.floor(overrides.maxVessels));
+      this.config.maxVessels = maxVessels;
+
+      const currentSize = this.vessels.size;
+      if (currentSize > maxVessels) {
+        const excess = currentSize - maxVessels;
+        if (excess > 0) {
+          const ids = Array.from(this.vessels.keys());
+          for (let i = 0; i < excess; i++) {
+            const id = ids[i];
+            if (id) {
+              this.vessels.delete(id);
+            }
+          }
+        }
+      }
+    }
+
+    if (overrides.spawnInterval !== undefined) {
+      const interval = Math.max(1000, overrides.spawnInterval);
+      this.config.spawnInterval = interval;
+    }
+
+    if (overrides.wakeTrailLength !== undefined) {
+      this.config.wakeTrailLength = Math.max(10, Math.floor(overrides.wakeTrailLength));
+    }
+
+    if (overrides.wakeDecayTime !== undefined) {
+      this.config.wakeDecayTime = Math.max(1000, overrides.wakeDecayTime);
     }
   }
 
