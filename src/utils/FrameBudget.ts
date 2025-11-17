@@ -108,7 +108,7 @@ export class FrameBudgetManager {
       return true;
     }
 
-    if (this.skipPriority !== null && priority >= this.skipPriority) {
+    if (this.shouldSkipPriority(priority)) {
       return false;
     }
 
@@ -129,6 +129,18 @@ export class FrameBudgetManager {
   shouldSkipMediumPriorityWork(): boolean {
     return this.getRemainingBudget() < this.config.safetyMarginMs * 4 ||
       (this.skipPriority !== null && this.skipPriority <= WorkPriority.MEDIUM);
+  }
+
+  shouldSkipPriority(priority: WorkPriority): boolean {
+    if (priority === WorkPriority.CRITICAL) {
+      return false;
+    }
+
+    if (this.skipPriority !== null && priority >= this.skipPriority) {
+      return true;
+    }
+
+    return false;
   }
 
   deferWork(
