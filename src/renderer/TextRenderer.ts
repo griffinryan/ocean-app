@@ -48,6 +48,7 @@ export class TextRenderer {
 
   // Blur map update flag
   private needsBlurMapUpdate: boolean = false;
+  private blurMapEnabled: boolean = true;
 
   // Matrix uniforms
   private projectionMatrix: Mat4;
@@ -606,6 +607,7 @@ export class TextRenderer {
     // Store current framebuffer + viewport so we can restore active target after capture
     const previousFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING) as WebGLFramebuffer | null;
     const viewport = gl.getParameter(gl.VIEWPORT);
+    const previousFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING) as WebGLFramebuffer | null;
 
     // Bind framebuffer for rendering
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFramebuffer);
@@ -1147,8 +1149,8 @@ export class TextRenderer {
 
     gl.bindTexture(gl.TEXTURE_2D, this.textTexture);
 
-    // CRITICAL: Flip Y-axis when uploading Canvas2D to WebGL texture
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    // Canvas content already matches our flipped quad UVs, keep default unpack orientation
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
 
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.textCanvas);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
@@ -1306,6 +1308,7 @@ export class TextRenderer {
     // Store current framebuffer + viewport so we return to the active render target
     const previousFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING) as WebGLFramebuffer | null;
     const viewport = gl.getParameter(gl.VIEWPORT);
+    const previousFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING) as WebGLFramebuffer | null;
 
     // Bind blur map framebuffer
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.blurMapFramebuffer);
@@ -1514,11 +1517,31 @@ export class TextRenderer {
   }
 
   /**
+   * Adjust capture throttle used to recapture scene for adaptive text
+   */
+
+  /**
+   * Enable or disable blur-map generation for adaptive glass coordination
+   */
+  public setBlurMapEnabled(enabled: boolean): void {
+    this.blurMapEnabled = enabled;
+    if (enabled) {
+      this.needsBlurMapUpdate = true;
+      this.markSceneDirty();
+    } else {
+      this.needsBlurMapUpdate = false;
+    }
+  }
+  public setCaptureThrottleMs(throttleMs: number): void {
+    this.captureThrottleMs = Math.max(1, throttleMs);
+  }
+
+  /**
    * Force text texture update on next render
    */
   public forceTextureUpdate(): void {
     this.needsTextureUpdate = true;
-    this.needsBlurMapUpdate = true;
+    this.needsBlurMapUpdate = this.blurMapEnabled;
   }
 
   /**

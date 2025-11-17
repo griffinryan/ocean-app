@@ -148,6 +148,7 @@ export class OceanRenderer {
     this.performanceMonitor = new PerformanceMonitor();
     this.frameBudget = new FrameBudgetManager();
     this.pipelineManager = new PipelineManager();
+    this.adaptiveQuality = new AdaptiveQualityController(this, this.performanceMonitor, this.frameBudget);
 
     // Create full-screen quad geometry for screen-space rendering
     this.geometry = GeometryBuilder.createFullScreenQuad();
@@ -180,6 +181,13 @@ export class OceanRenderer {
 
     // Initialize text renderer BEFORE setupResizing() so framebuffer gets sized correctly
     this.initializeTextRenderer();
+    this.setBlurMapEnabled(true);
+
+    // Initialize adaptive quality manager and apply initial profile before sizing
+    this.qualityManager = new AdaptiveQualityManager({
+      onQualityChange: (profile, previous) => this.applyQualityProfile(profile, previous)
+    });
+    this.applyQualityProfile(this.qualityManager.getCurrentProfile());
 
     // Initialize adaptive quality manager and apply initial profile before sizing
     this.qualityManager = new AdaptiveQualityManager({
@@ -808,6 +816,7 @@ export class OceanRenderer {
     // Store current framebuffer and viewport so we can restore the active render target
     const previousFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING) as WebGLFramebuffer | null;
     const viewport = gl.getParameter(gl.VIEWPORT);
+    const previousFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING) as WebGLFramebuffer | null;
 
     // Bind shared ocean framebuffer
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.sharedOceanFramebuffer);
@@ -1158,6 +1167,13 @@ export class OceanRenderer {
     // End performance monitoring
     this.performanceMonitor.endFrame();
     this.frameBudget.endFrame();
+    this.adaptiveQuality.update();
+
+    // Feed metrics into adaptive quality manager
+    const metrics = this.performanceMonitor.getMetrics();
+    const budgetStats = this.frameBudget.getStats();
+    this.qualityManager.evaluateFrame(metrics, budgetStats);
+    this.checkFailsafe(metrics);
 
     // Feed metrics into adaptive quality manager
     const metrics = this.performanceMonitor.getMetrics();
@@ -1330,6 +1346,47 @@ export class OceanRenderer {
     return this.textRenderer;
   }
 
+
+  /**
+   * Apply adaptive quality profile and propagate settings to sub-renderers
+   */
+  public applyQualityProfile(profile: {
+    finalPassScale: number;
+    oceanCaptureScale: number;
+    glassCaptureScale: number;
+    textCaptureScale: number;
+    wakeResolutionScale: number;
+    textCaptureThrottleMs: number;
+    blurEnabled: boolean;
+    wakesEnabled: boolean;
+  }): void {
+    this.finalPassScale = profile.finalPassScale;
+    this.oceanCaptureScale = profile.oceanCaptureScale;
+    this.glassCaptureScale = profile.glassCaptureScale;
+    this.textCaptureScale = profile.textCaptureScale;
+
+    if (this.wakeRenderer) {
+      this.wakeRenderer.setResolutionScale(profile.wakeResolutionScale);
+      this.wakeRenderer.setEnabled(profile.wakesEnabled);
+    }
+    this.wakesEnabled = profile.wakesEnabled;
+    this.vesselSystem.setEnabled(profile.wakesEnabled);
+    this.pipelineManager.switchToState({ wakes: profile.wakesEnabled });
+
+    if (this.textRenderer) {
+      this.textRenderer.setCaptureThrottleMs(profile.textCaptureThrottleMs);
+    }
+
+    this.setBlurMapEnabled(profile.blurEnabled);
+
+    // Trigger full resize to apply new scales
+    this.resize();
+
+    // Ensure dependent renderers refresh their cached textures
+    this.textRenderer?.forceTextureUpdate();
+    this.textRenderer?.markSceneDirty();
+    this.glassRenderer?.markOceanDirty();
+  }
   /**
    * Enable/disable blur map effect
    */
@@ -1337,10 +1394,12 @@ export class OceanRenderer {
     if (this.glassRenderer) {
       this.glassRenderer.setBlurMapEnabled(enabled);
     }
+    this.textRenderer?.setBlurMapEnabled(enabled);
 
     // Update pipeline manager
     this.pipelineManager.switchToState({ blurMap: enabled });
   }
+
 
   /**
    * Get blur map enabled state
@@ -1430,6 +1489,10 @@ export class OceanRenderer {
    */
   getPipelineReport(): string {
     return this.pipelineManager.generateReport();
+  }
+
+  public getAdaptiveQualityController(): AdaptiveQualityController {
+    return this.adaptiveQuality;
   }
 
   /**

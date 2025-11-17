@@ -268,6 +268,7 @@ export class GlassRenderer {
 
     // Store current viewport
     const viewport = gl.getParameter(gl.VIEWPORT);
+    const previousFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING) as WebGLFramebuffer | null;
 
     // Bind framebuffer for rendering
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.oceanFramebuffer);
@@ -282,7 +283,7 @@ export class GlassRenderer {
     renderOceanCallback();
 
     // Restore screen framebuffer
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, previousFramebuffer);
 
     // Restore viewport
     gl.viewport(viewport[0], viewport[1], viewport[2], viewport[3]);
@@ -859,7 +860,6 @@ export class GlassRenderer {
    */
   public setBlurMapTexture(texture: WebGLTexture | null): void {
     this.blurMapTexture = texture;
-    this.blurMapEnabled = texture !== null;
   }
 
   /**

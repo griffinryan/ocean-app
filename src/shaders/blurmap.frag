@@ -48,7 +48,8 @@ float calculateTextDistance(vec2 uv, vec2 pixelSize) {
             vec2 sampleUV = uv + direction * radiusOffset;
 
             // Sample text alpha with bilinear filtering
-            float sampleAlpha = texture(u_textTexture, sampleUV).a;
+            vec2 sampleUVT = vec2(sampleUV.x, 1.0 - sampleUV.y);
+            float sampleAlpha = texture(u_textTexture, sampleUVT).a;
 
             if (sampleAlpha > 0.01) {
                 // Found text - calculate distance
@@ -66,7 +67,8 @@ void main() {
     vec2 screenUV = (v_screenPos + 1.0) * 0.5;
 
     // Sample text alpha directly
-    float textAlpha = texture(u_textTexture, screenUV).a;
+    vec2 textUV = vec2(screenUV.x, 1.0 - screenUV.y);
+    float textAlpha = texture(u_textTexture, textUV).a;
 
     float blurIntensity = 0.0;
 
